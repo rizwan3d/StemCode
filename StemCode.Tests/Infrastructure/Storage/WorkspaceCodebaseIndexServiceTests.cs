@@ -2,6 +2,7 @@ using FluentAssertions;
 using StemCode.Application.Abstractions;
 using StemCode.Application.Tools.Models;
 using StemCode.Infrastructure.Storage;
+using System.Text.Json;
 
 namespace StemCode.Tests.Infrastructure.Storage;
 
@@ -43,7 +44,7 @@ public sealed class WorkspaceCodebaseIndexServiceTests
     }
 
     [Fact]
-    public async Task BuildAsync_Should_PersistEmbeddingsInsteadOfLexicalTerms()
+    public async Task BuildAsync_Should_PersistTinyE5Int8EmbeddingsInsteadOfLexicalTerms()
     {
         using TempWorkspace workspace = TempWorkspace.Create();
         await File.WriteAllTextAsync(
@@ -65,6 +66,19 @@ public sealed class WorkspaceCodebaseIndexServiceTests
             Path.Combine(workspace.Path, ".stemcode", "cache", "codebase-index.json"));
 
         indexJson.Should().Contain("\"embedding\"");
+        using JsonDocument document = JsonDocument.Parse(indexJson);
+        JsonElement root = document.RootElement;
+        root.GetProperty("embeddingModelId").GetString().Should().Be("GrowBitLabs/tinye5");
+        root.GetProperty("embeddingModelUrl").GetString().Should().Be("https://huggingface.co/GrowBitLabs/tinye5/tree/int8-onnx");
+        root.GetProperty("embeddingQuantization").GetString().Should().Be("int8-onnx");
+        root.GetProperty("embeddingDimensions").GetInt32().Should().Be(384);
+
+        JsonElement embedding = root.GetProperty("files")[0].GetProperty("embedding");
+        embedding.GetArrayLength().Should().Be(384);
+        embedding.EnumerateArray()
+            .Select(static value => value.GetInt32())
+            .Should()
+            .OnlyContain(value => value >= sbyte.MinValue && value <= sbyte.MaxValue);
         indexJson.Should().NotContain("\"terms\"");
         indexJson.Should().NotContain("\"sha256\"");
         indexJson.Should().NotContain("\"workspaceRoot\"");
@@ -221,7 +235,57 @@ public sealed class WorkspaceCodebaseIndexServiceTests
 
     private static WorkspaceCodebaseIndexService CreateService(string workspacePath)
     {
-        return new WorkspaceCodebaseIndexService(new FixedWorkspaceRootProvider(workspacePath));
+        return new WorkspaceCodebaseIndexService(
+            new FixedWorkspaceRootProvider(workspacePath),
+            new TestCodebaseEmbeddingProvider());
+    }
+
+    private sealed class TestCodebaseEmbeddingProvider : ICodebaseEmbeddingProvider
+    {
+        public CodebaseEmbeddingMetadata Metadata { get; } = new(
+            "GrowBitLabs/tinye5",
+            "TinyE5-L6-384",
+            "75a45e2568c14df937ded5379b877c1b37b0b998",
+            "https://huggingface.co/GrowBitLabs/tinye5/tree/int8-onnx",
+            "int8-onnx",
+            384);
+
+        public Task<sbyte[]> CreateQueryEmbeddingAsync(
+            string workspaceRoot,
+            string query,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(CreateEmbedding(query));
+        }
+
+        public Task<sbyte[]> CreatePassageEmbeddingAsync(
+            string workspaceRoot,
+            CodebaseEmbeddingPassage passage,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(CreateEmbedding(passage.ToModelInputText()));
+        }
+
+        public void Dispose()
+        {
+        }
+
+        private static sbyte[] CreateEmbedding(string text)
+        {
+            sbyte[] embedding = new sbyte[384];
+            foreach (char character in text.ToLowerInvariant())
+            {
+                if (!char.IsLetterOrDigit(character))
+                {
+                    continue;
+                }
+
+                int index = character % embedding.Length;
+                embedding[index] = (sbyte)Math.Clamp(embedding[index] + 1, sbyte.MinValue, sbyte.MaxValue);
+            }
+
+            return embedding;
+        }
     }
 
     private sealed class FixedWorkspaceRootProvider : IWorkspaceRootProvider

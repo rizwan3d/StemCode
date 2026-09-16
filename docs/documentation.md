@@ -755,7 +755,7 @@ StemCode includes a local codebase index for repository-wide discovery. The `cod
 - `search`: rank likely relevant files for a natural-language, symbol, path, or behavior query.
 - `list`: show indexed file paths.
 
-StemCode implements codebase indexing locally by computing lightweight embeddings and a richer repository map for each indexed file. Alongside path and language metadata, the index stores:
+StemCode implements codebase indexing locally by running the TinyE5 INT8 ONNX model and building a richer repository map for each indexed file. The embedding profile follows [`GrowBitLabs/tinye5`](https://huggingface.co/GrowBitLabs/tinye5/tree/int8-onnx), specifically `onnx/model_int8.onnx`: 384-dimensional normalized vectors with E5-style `query:` and `passage:` prefixes, stored as signed 8-bit values in the local cache. Alongside path and language metadata, the index stores:
 
 - semantic symbols with kind, container, signature, and line ranges,
 - dependency edges such as imports, usings, project references, and relative module links,
@@ -769,7 +769,9 @@ The index still refreshes incrementally when searched or rebuilt and still respe
 .stemcode/cache/codebase-index.json
 ```
 
-The cache does not store full file contents. It stores per-file metadata such as path, length, language, line count, legacy symbol strings, semantic symbol entries, dependency links, call edges, ownership matches, and the local embedding vector used for ranking. Search snippets are read from current workspace files when results are returned.
+The cache does not store full file contents. It stores per-file metadata such as path, length, language, line count, legacy symbol strings, semantic symbol entries, dependency links, call edges, ownership matches, TinyE5 model metadata, and the local int8 embedding vector used for ranking. Search snippets are read from current workspace files when results are returned.
+
+On first use, StemCode downloads `onnx/model_int8.onnx` and `tokenizer.json` from the `int8-onnx` branch into `.stemcode/cache/embedding-models/tinye5-int8-onnx/`. The older built-in hash embedding path is not used for new codebase indexes.
 
 Indexing respects `.gitignore`, `.stemcode/.stemcodeignore`, and built-in exclusions for generated or local runtime directories such as `.git/`, `node_modules/`, `bin/`, `obj/`, `.stemcode/cache/`, `.stemcode/logs/`, and `.stemcode/sessions/`.
 

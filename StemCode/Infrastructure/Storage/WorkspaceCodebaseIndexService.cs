@@ -13,13 +13,11 @@ namespace StemCode.Infrastructure.Storage;
 
 internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDisposable
 {
-    private const int CurrentIndexVersion = 3;
+    private const int CurrentIndexVersion = 5;
     private const int MaxParallelIndexingTasks = 8;
     private const int MaxParallelSearchTasks = 8;
-    private const int EmbeddingDimensions = 256;
     private const int MaxIndexedFiles = 5_000;
     private const int MaxIndexFileBytes = 262_144;
-    private const int MaxEmbeddingTokensPerFile = 16_000;
     private const int MaxEmbeddingTokensPerQuery = 256;
     private const int MaxSymbolsPerFile = 80;
     private const int MaxSemanticSymbolsPerFile = 128;
@@ -151,6 +149,8 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
 
     private readonly TimeProvider _timeProvider;
     private readonly IWorkspaceRootProvider _workspaceRootProvider;
+    private readonly ICodebaseEmbeddingProvider _embeddingProvider;
+    private readonly bool _ownsEmbeddingProvider;
 
     private readonly SemaphoreSlim _rebuildGate = new(1, 1);
     private readonly FileSystemWatcher? _watcher;
@@ -161,8 +161,35 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
     public WorkspaceCodebaseIndexService(
         IWorkspaceRootProvider workspaceRootProvider,
         TimeProvider? timeProvider = null)
+        : this(
+            workspaceRootProvider,
+            new TinyE5OnnxCodebaseEmbeddingProvider(),
+            ownsEmbeddingProvider: true,
+            timeProvider)
+    {
+    }
+
+    internal WorkspaceCodebaseIndexService(
+        IWorkspaceRootProvider workspaceRootProvider,
+        ICodebaseEmbeddingProvider embeddingProvider,
+        TimeProvider? timeProvider = null)
+        : this(
+            workspaceRootProvider,
+            embeddingProvider,
+            ownsEmbeddingProvider: false,
+            timeProvider)
+    {
+    }
+
+    private WorkspaceCodebaseIndexService(
+        IWorkspaceRootProvider workspaceRootProvider,
+        ICodebaseEmbeddingProvider embeddingProvider,
+        bool ownsEmbeddingProvider,
+        TimeProvider? timeProvider)
     {
         _workspaceRootProvider = workspaceRootProvider;
+        _embeddingProvider = embeddingProvider;
+        _ownsEmbeddingProvider = ownsEmbeddingProvider;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _watcher = TryCreateWatcher(GetWorkspaceRoot());
     }
@@ -171,6 +198,10 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
     {
         _rebuildGate.Dispose();
         _watcher?.Dispose();
+        if (_ownsEmbeddingProvider)
+        {
+            _embeddingProvider.Dispose();
+        }
     }
 
     public async Task<CodebaseIndexBuildResult> BuildAsync(
@@ -303,6 +334,12 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         CodebaseIndexDocument index = new()
         {
             Version = CurrentIndexVersion,
+            EmbeddingModelId = _embeddingProvider.Metadata.ModelId,
+            EmbeddingModelName = _embeddingProvider.Metadata.ModelName,
+            EmbeddingModelRevision = _embeddingProvider.Metadata.ModelRevision,
+            EmbeddingModelUrl = _embeddingProvider.Metadata.ModelUrl,
+            EmbeddingQuantization = _embeddingProvider.Metadata.Quantization,
+            EmbeddingDimensions = _embeddingProvider.Metadata.Dimensions,
             BuiltAtUtc = builtAtUtc,
             OwnershipRuleCount = ownershipRules.Count,
             Files = indexedFiles
@@ -452,7 +489,10 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
             .Distinct(StringComparer.Ordinal)
             .Take(MaxEmbeddingTokensPerQuery)
             .ToArray();
-        float[] queryEmbedding = CreateQueryEmbedding(normalizedQuery, queryTerms);
+        sbyte[] queryEmbedding = await _embeddingProvider.CreateQueryEmbeddingAsync(
+            workspaceRoot,
+            normalizedQuery,
+            cancellationToken);
         int maxResults = Math.Clamp(limit, 1, 50);
 
         CodebaseIndexSearchMatch?[] scoredMatches = new CodebaseIndexSearchMatch?[snapshot.Files.Length];
@@ -555,7 +595,7 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         CodebaseIndexedFileDocument file,
         string normalizedQuery,
         IReadOnlyList<string> queryTerms,
-        IReadOnlyList<float> queryEmbedding,
+        IReadOnlyList<sbyte> queryEmbedding,
         bool includeSnippets,
         FrozenDictionary<string, CodebaseIndexedCallEdgeDocument[]> incomingCallMap,
         CancellationToken cancellationToken)
@@ -724,6 +764,21 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(MaxSymbolsPerFile)
             .ToArray();
+        CodebaseIndexedDependencyDocument[] dependencies = ExtractDependencies(
+            candidate.RelativePath,
+            language,
+            content);
+        sbyte[] embedding = await _embeddingProvider.CreatePassageEmbeddingAsync(
+            GetWorkspaceRoot(),
+            new CodebaseEmbeddingPassage(
+                candidate.RelativePath,
+                language,
+                content,
+                symbols,
+                owners,
+                analysis.SemanticSymbols,
+                analysis.Calls),
+            cancellationToken);
 
         return new CodebaseIndexedFileDocument
         {
@@ -734,10 +789,10 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
             LineCount = CountLines(content),
             Symbols = symbols,
             SemanticSymbols = analysis.SemanticSymbols,
-            Dependencies = ExtractDependencies(candidate.RelativePath, language, content),
+            Dependencies = dependencies,
             Owners = owners,
             Calls = analysis.Calls,
-            Embedding = CreateFileEmbedding(candidate.RelativePath, content, symbols, owners, analysis.SemanticSymbols, analysis.Calls)
+            Embedding = embedding
         };
     }
 
@@ -899,7 +954,8 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
                 stream,
                 CodebaseIndexJsonContext.Default.CodebaseIndexDocument,
                 cancellationToken);
-            return document is { Version: CurrentIndexVersion }
+            return document is { Version: CurrentIndexVersion } &&
+                   HasCurrentEmbeddingMetadata(document, _embeddingProvider.Metadata)
                 ? document
                 : null;
         }
@@ -908,6 +964,16 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         {
             return null;
         }
+    }
+
+    private static bool HasCurrentEmbeddingMetadata(
+        CodebaseIndexDocument document,
+        CodebaseEmbeddingMetadata metadata)
+    {
+        return string.Equals(document.EmbeddingModelId, metadata.ModelId, StringComparison.Ordinal) &&
+               string.Equals(document.EmbeddingModelRevision, metadata.ModelRevision, StringComparison.Ordinal) &&
+               string.Equals(document.EmbeddingQuantization, metadata.Quantization, StringComparison.Ordinal) &&
+               document.EmbeddingDimensions == metadata.Dimensions;
     }
 
     private static async Task SaveIndexAsync(
@@ -1690,206 +1756,9 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         return string.Join('/', normalizedSegments);
     }
 
-    private static float[] CreateFileEmbedding(
-        string relativePath,
-        string content,
-        IReadOnlyList<string> symbols,
-        IReadOnlyList<string> owners,
-        IReadOnlyList<CodebaseIndexedSemanticSymbolDocument> semanticSymbols,
-        IReadOnlyList<CodebaseIndexedCallEdgeDocument> calls)
-    {
-        float[] embedding = new float[EmbeddingDimensions];
-        int tokenBudget = MaxEmbeddingTokensPerFile;
-
-        AddEmbeddingTokens(
-            Tokenize(Path.ChangeExtension(relativePath, null) ?? relativePath),
-            embedding,
-            weight: 3f,
-            ref tokenBudget);
-        AddEmbeddingTokens(
-            Tokenize(content),
-            embedding,
-            weight: 1f,
-            ref tokenBudget);
-
-        foreach (string symbol in symbols)
-        {
-            if (tokenBudget <= 0)
-            {
-                break;
-            }
-
-            AddEmbeddingTokens(
-                Tokenize(symbol),
-                embedding,
-                weight: 2f,
-                ref tokenBudget);
-        }
-
-        foreach (CodebaseIndexedSemanticSymbolDocument symbol in semanticSymbols)
-        {
-            if (tokenBudget <= 0)
-            {
-                break;
-            }
-
-            AddEmbeddingTokens(
-                Tokenize(symbol.Name),
-                embedding,
-                weight: 2.25f,
-                ref tokenBudget);
-
-            if (!string.IsNullOrWhiteSpace(symbol.ContainerName))
-            {
-                AddEmbeddingTokens(
-                    Tokenize(symbol.ContainerName),
-                    embedding,
-                    weight: 1.25f,
-                    ref tokenBudget);
-            }
-        }
-
-        foreach (string owner in owners)
-        {
-            if (tokenBudget <= 0)
-            {
-                break;
-            }
-
-            AddEmbeddingTokens(
-                Tokenize(owner),
-                embedding,
-                weight: 0.8f,
-                ref tokenBudget);
-        }
-
-        foreach (CodebaseIndexedCallEdgeDocument call in calls)
-        {
-            if (tokenBudget <= 0)
-            {
-                break;
-            }
-
-            AddEmbeddingTokens(
-                Tokenize(call.CalleeSymbol),
-                embedding,
-                weight: 1.2f,
-                ref tokenBudget);
-        }
-
-        NormalizeEmbedding(embedding);
-        return embedding;
-    }
-
-    private static float[] CreateQueryEmbedding(
-        string query,
-        IReadOnlyList<string> queryTerms)
-    {
-        float[] embedding = new float[EmbeddingDimensions];
-        int tokenBudget = MaxEmbeddingTokensPerQuery;
-
-        AddEmbeddingTokens(
-            queryTerms,
-            embedding,
-            weight: 1.5f,
-            ref tokenBudget);
-
-        if (tokenBudget > 0)
-        {
-            AddEmbeddingTokens(
-                EnumerateCharacterGrams(query, 3),
-                embedding,
-                weight: 0.5f,
-                ref tokenBudget);
-        }
-
-        NormalizeEmbedding(embedding);
-        return embedding;
-    }
-
-    private static void AddEmbeddingTokens(
-        IEnumerable<string> tokens,
-        float[] embedding,
-        float weight,
-        ref int remainingBudget)
-    {
-        foreach (string token in tokens)
-        {
-            if (remainingBudget <= 0)
-            {
-                break;
-            }
-
-            uint primaryHash = ComputeStableHash(token, 2166136261u);
-            int primaryIndex = (int)(primaryHash % EmbeddingDimensions);
-            embedding[primaryIndex] += (primaryHash & 1) == 0 ? weight : -weight;
-
-            uint secondaryHash = ComputeStableHash(token, 2166136261u ^ 16777619u);
-            int secondaryIndex = (int)(secondaryHash % EmbeddingDimensions);
-            embedding[secondaryIndex] += (secondaryHash & 1) == 0 ? weight * 0.5f : -weight * 0.5f;
-
-            remainingBudget--;
-        }
-    }
-
-    private static IEnumerable<string> EnumerateCharacterGrams(
-        string value,
-        int gramLength)
-    {
-        string normalized = new string(
-            value
-                .ToLowerInvariant()
-                .Where(static character => char.IsLetterOrDigit(character))
-                .ToArray());
-
-        if (normalized.Length < gramLength)
-        {
-            yield break;
-        }
-
-        for (int index = 0; index <= normalized.Length - gramLength; index++)
-        {
-            yield return normalized.Substring(index, gramLength);
-        }
-    }
-
-    private static uint ComputeStableHash(
-        string value,
-        uint seed)
-    {
-        uint hash = seed;
-        foreach (char character in value)
-        {
-            hash ^= character;
-            hash *= 16777619u;
-        }
-
-        return hash;
-    }
-
-    private static void NormalizeEmbedding(float[] embedding)
-    {
-        double sumSquares = 0;
-        foreach (float component in embedding)
-        {
-            sumSquares += component * component;
-        }
-
-        if (sumSquares <= double.Epsilon)
-        {
-            return;
-        }
-
-        float scale = (float)(1d / Math.Sqrt(sumSquares));
-        for (int index = 0; index < embedding.Length; index++)
-        {
-            embedding[index] *= scale;
-        }
-    }
-
     private static double CosineSimilarity(
-        IReadOnlyList<float> left,
-        IReadOnlyList<float> right)
+        IReadOnlyList<sbyte> left,
+        IReadOnlyList<sbyte> right)
     {
         if (left.Count == 0 || right.Count == 0 || left.Count != right.Count)
         {
@@ -1897,12 +1766,21 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         }
 
         double sum = 0;
+        double leftSumSquares = 0;
+        double rightSumSquares = 0;
         for (int index = 0; index < left.Count; index++)
         {
             sum += left[index] * right[index];
+            leftSumSquares += left[index] * left[index];
+            rightSumSquares += right[index] * right[index];
         }
 
-        return sum;
+        if (leftSumSquares <= double.Epsilon || rightSumSquares <= double.Epsilon)
+        {
+            return 0;
+        }
+
+        return sum / Math.Sqrt(leftSumSquares * rightSumSquares);
     }
 
     private static IEnumerable<string> Tokenize(string value)
@@ -2681,7 +2559,7 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
                     IsResolved = call.IsResolved
                 })
                 .ToArray(),
-            Embedding = (float[])source.Embedding.Clone()
+            Embedding = (sbyte[])source.Embedding.Clone()
         };
     }
 
@@ -2789,6 +2667,18 @@ internal sealed class CodebaseIndexDocument
 {
     public int Version { get; set; }
 
+    public string EmbeddingModelId { get; set; } = string.Empty;
+
+    public string EmbeddingModelName { get; set; } = string.Empty;
+
+    public string EmbeddingModelRevision { get; set; } = string.Empty;
+
+    public string EmbeddingModelUrl { get; set; } = string.Empty;
+
+    public string EmbeddingQuantization { get; set; } = string.Empty;
+
+    public int EmbeddingDimensions { get; set; }
+
     public DateTimeOffset BuiltAtUtc { get; set; }
 
     public int OwnershipRuleCount { get; set; }
@@ -2818,7 +2708,7 @@ internal sealed class CodebaseIndexedFileDocument
 
     public CodebaseIndexedCallEdgeDocument[] Calls { get; set; } = [];
 
-    public float[] Embedding { get; set; } = [];
+    public sbyte[] Embedding { get; set; } = [];
 }
 
 internal sealed class CodebaseIndexedSemanticSymbolDocument
