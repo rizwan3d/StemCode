@@ -16,7 +16,7 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
     private const int MaxParallelIndexingTasks = 8;
     private const int MaxParallelSearchTasks = 8;
     private const int MaxIndexedFiles = 5_000;
-    private const int MaxIndexFileBytes = 262_144;
+    private const int MaxIndexFileBytes = 2_097_152;
     private const int MaxEmbeddingTokensPerQuery = 256;
     private const int MaxSymbolsPerFile = 80;
     private const int MaxSemanticSymbolsPerFile = 128;
