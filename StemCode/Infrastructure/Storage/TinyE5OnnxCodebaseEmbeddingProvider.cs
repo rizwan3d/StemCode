@@ -257,14 +257,28 @@ internal sealed class TinyE5OnnxCodebaseEmbeddingProvider : ICodebaseEmbeddingPr
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken);
             response.EnsureSuccessStatusCode();
-            await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken);
-            await using FileStream destination = new(
+            await using (Stream source = await response.Content.ReadAsStreamAsync(cancellationToken))
+            await using (FileStream destination = new(
                 tempPath,
                 FileMode.CreateNew,
                 FileAccess.Write,
-                FileShare.None);
-            await source.CopyToAsync(destination, cancellationToken);
-            File.Move(tempPath, path, overwrite: true);
+                FileShare.None))
+            {
+                await source.CopyToAsync(destination, cancellationToken);
+            }
+
+            if (File.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                File.Move(tempPath, path);
+            }
+            catch (IOException) when (File.Exists(path))
+            {
+            }
         }
         finally
         {
