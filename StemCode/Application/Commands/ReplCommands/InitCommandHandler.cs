@@ -626,7 +626,7 @@ internal sealed class InitCommandHandler : IReplCommandHandler
         - `.stemcodeignore`: workspace paths excluded from StemCode file tools.
         - `agents/*.md`: custom agents and built-in profile prompt overrides. Files ending in `.template` are inactive until renamed to `.md`.
         - `skills/**/SKILL.md`: workspace skills. Template files are inactive until renamed to `SKILL.md`.
-        - `cache/codebase-index.json`: local codebase index cache created by the `codebase_index` tool.
+        - `cache/codebase-index.zvec`: local Zvec codebase index cache created by the `codebase_index` tool.
         - `memory/*.md`: repo-scoped team memory that can be inspected, diffed, and version-controlled.
         - `memory/lessons.jsonl`: reusable local lessons about mistakes, failures, and fixes. Off by default; when enabled, relevant lessons can be injected automatically into prompts.
         - `logs/tool-audit.jsonl`: optional tool audit log when enabled in `agent-profile.json`.

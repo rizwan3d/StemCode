@@ -1008,7 +1008,7 @@ public sealed class AgentConversationPipelineTests
                         """
                         {
                           "Query": "round winner",
-                          "IndexPath": ".stemcode/cache/codebase-index.json",
+                          "IndexPath": ".stemcode/cache/codebase-index.zvec",
                           "IndexWasUpdated": false,
                           "IndexedFileCount": 123,
                           "Warnings": ["No CODEOWNERS file was found."],
@@ -4118,7 +4118,7 @@ public sealed class AgentConversationPipelineTests
         {
             BuildCalls.Add(force);
             return Task.FromResult(new CodebaseIndexBuildResult(
-                ".stemcode/cache/codebase-index.json",
+                ".stemcode/cache/codebase-index.zvec",
                 DateTimeOffset.UnixEpoch,
                 IndexedFileCount: 0,
                 AddedFileCount: 0,

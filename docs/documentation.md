@@ -766,10 +766,10 @@ StemCode implements codebase indexing locally by running the TinyE5 INT8 ONNX mo
 The index still refreshes incrementally when searched or rebuilt and still respects ignore files such as `.gitignore`.
 
 ```text
-.stemcode/cache/codebase-index.json
+.stemcode/cache/codebase-index.zvec
 ```
 
-The cache does not store full file contents. It stores per-file metadata such as path, length, language, line count, legacy symbol strings, semantic symbol entries, dependency links, call edges, ownership matches, TinyE5 model metadata, and the local int8 embedding vector used for ranking. Search snippets are read from current workspace files when results are returned.
+The cache does not store full file contents. It stores a single-user local Zvec database with per-file metadata such as path, length, language, line count, legacy symbol strings, semantic symbol entries, dependency links, call edges, ownership matches, TinyE5 model metadata, and the local int8 embedding vector used for ranking. Search snippets are read from current workspace files when results are returned.
 
 On first use, StemCode downloads `onnx/model_int8.onnx` and `tokenizer.json` from the `int8-onnx` branch into `.stemcode/cache/embedding-models/tinye5-int8-onnx/`. The older built-in hash embedding path is not used for new codebase indexes.
 

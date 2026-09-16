@@ -4,7 +4,6 @@ using StemCode.Application.Utilities;
 using StemCode.Infrastructure.Workspaces;
 using System.Diagnostics;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Collections.Frozen;
 using System.Threading;
@@ -950,16 +949,16 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         try
         {
             await using FileStream stream = File.OpenRead(indexPath);
-            CodebaseIndexDocument? document = await JsonSerializer.DeserializeAsync(
+            CodebaseIndexDocument? document = await ZvecCodebaseIndexStore.LoadAsync(
                 stream,
-                CodebaseIndexJsonContext.Default.CodebaseIndexDocument,
                 cancellationToken);
             return document is { Version: CurrentIndexVersion } &&
                    HasCurrentEmbeddingMetadata(document, _embeddingProvider.Metadata)
                 ? document
                 : null;
         }
-        catch (Exception exception) when (exception is JsonException ||
+        catch (Exception exception) when ((exception is InvalidDataException or
+                                           EndOfStreamException) ||
                                           IsFileSystemAccessException(exception))
         {
             return null;
@@ -993,12 +992,10 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         // lock temp files, surfacing that as a sharing violation; in that case we fall back to a
         // truncating create-write of the already-serialized bytes (no temp file to be locked).
         await using var memory = new MemoryStream();
-        await JsonSerializer.SerializeAsync(
+        await ZvecCodebaseIndexStore.SaveAsync(
             memory,
             index,
-            CodebaseIndexJsonContext.Default.CodebaseIndexDocument,
             cancellationToken);
-        await memory.WriteAsync("\n"u8.ToArray(), cancellationToken);
         await memory.FlushAsync(cancellationToken);
         byte[] bytes = memory.ToArray();
 
@@ -1954,7 +1951,7 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
             workspaceRoot,
             ".stemcode",
             "cache",
-            "codebase-index.json");
+            "codebase-index.zvec");
     }
 
     private static string ToWorkspaceRelativePath(
@@ -2661,6 +2658,261 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
     }
 
     private sealed record CodeOwnersRule(string Pattern, string[] Owners, Regex Matcher);
+}
+
+internal static class ZvecCodebaseIndexStore
+{
+    private const string Magic = "ZVEC";
+    private const int FormatVersion = 1;
+
+    public static async Task SaveAsync(
+        Stream stream,
+        CodebaseIndexDocument document,
+        CancellationToken cancellationToken)
+    {
+        using var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+        writer.Write(Magic);
+        writer.Write(FormatVersion);
+        writer.Write(document.Version);
+        WriteString(writer, document.EmbeddingModelId);
+        WriteString(writer, document.EmbeddingModelName);
+        WriteString(writer, document.EmbeddingModelRevision);
+        WriteString(writer, document.EmbeddingModelUrl);
+        WriteString(writer, document.EmbeddingQuantization);
+        writer.Write(document.EmbeddingDimensions);
+        writer.Write(document.BuiltAtUtc.ToUnixTimeMilliseconds());
+        writer.Write(document.OwnershipRuleCount);
+        writer.Write(document.Files.Count);
+
+        foreach (CodebaseIndexedFileDocument file in document.Files)
+        {
+            WriteString(writer, file.Path);
+            writer.Write(file.Length);
+            writer.Write(file.LastWriteTimeUtc.ToUnixTimeMilliseconds());
+            WriteString(writer, file.Language);
+            writer.Write(file.LineCount);
+            WriteStrings(writer, file.Symbols);
+            WriteSemanticSymbols(writer, file.SemanticSymbols);
+            WriteDependencies(writer, file.Dependencies);
+            WriteStrings(writer, file.Owners);
+            WriteCalls(writer, file.Calls);
+            WriteVector(writer, file.Embedding);
+        }
+
+        await stream.FlushAsync(cancellationToken);
+    }
+
+    public static async Task<CodebaseIndexDocument> LoadAsync(
+        Stream stream,
+        CancellationToken cancellationToken)
+    {
+        using var memory = new MemoryStream();
+        await stream.CopyToAsync(memory, cancellationToken);
+        memory.Position = 0;
+        using var reader = new BinaryReader(memory, Encoding.UTF8, leaveOpen: true);
+
+        if (!string.Equals(reader.ReadString(), Magic, StringComparison.Ordinal) ||
+            reader.ReadInt32() != FormatVersion)
+        {
+            throw new InvalidDataException("The Zvec codebase index header is invalid.");
+        }
+
+        CodebaseIndexDocument document = new()
+        {
+            Version = reader.ReadInt32(),
+            EmbeddingModelId = reader.ReadString(),
+            EmbeddingModelName = reader.ReadString(),
+            EmbeddingModelRevision = reader.ReadString(),
+            EmbeddingModelUrl = reader.ReadString(),
+            EmbeddingQuantization = reader.ReadString(),
+            EmbeddingDimensions = reader.ReadInt32(),
+            BuiltAtUtc = DateTimeOffset.FromUnixTimeMilliseconds(reader.ReadInt64()),
+            OwnershipRuleCount = reader.ReadInt32()
+        };
+
+        int fileCount = ReadCount(reader);
+        for (int index = 0; index < fileCount; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            document.Files.Add(new CodebaseIndexedFileDocument
+            {
+                Path = reader.ReadString(),
+                Length = reader.ReadInt64(),
+                LastWriteTimeUtc = DateTimeOffset.FromUnixTimeMilliseconds(reader.ReadInt64()),
+                Language = reader.ReadString(),
+                LineCount = reader.ReadInt32(),
+                Symbols = ReadStrings(reader),
+                SemanticSymbols = ReadSemanticSymbols(reader),
+                Dependencies = ReadDependencies(reader),
+                Owners = ReadStrings(reader),
+                Calls = ReadCalls(reader),
+                Embedding = ReadVector(reader)
+            });
+        }
+
+        return document;
+    }
+
+    private static void WriteString(BinaryWriter writer, string? value) => writer.Write(value ?? string.Empty);
+
+    private static void WriteStrings(BinaryWriter writer, IReadOnlyList<string> values)
+    {
+        writer.Write(values.Count);
+        foreach (string value in values)
+        {
+            WriteString(writer, value);
+        }
+    }
+
+    private static string[] ReadStrings(BinaryReader reader)
+    {
+        int count = ReadCount(reader);
+        string[] values = new string[count];
+        for (int index = 0; index < values.Length; index++)
+        {
+            values[index] = reader.ReadString();
+        }
+
+        return values;
+    }
+
+    private static void WriteSemanticSymbols(BinaryWriter writer, IReadOnlyList<CodebaseIndexedSemanticSymbolDocument> symbols)
+    {
+        writer.Write(symbols.Count);
+        foreach (CodebaseIndexedSemanticSymbolDocument symbol in symbols)
+        {
+            WriteString(writer, symbol.Name);
+            WriteString(writer, symbol.Kind);
+            WriteString(writer, symbol.ContainerName);
+            WriteString(writer, symbol.Signature);
+            writer.Write(symbol.StartLine);
+            writer.Write(symbol.EndLine);
+        }
+    }
+
+    private static CodebaseIndexedSemanticSymbolDocument[] ReadSemanticSymbols(BinaryReader reader)
+    {
+        int count = ReadCount(reader);
+        CodebaseIndexedSemanticSymbolDocument[] symbols = new CodebaseIndexedSemanticSymbolDocument[count];
+        for (int index = 0; index < symbols.Length; index++)
+        {
+            string name = reader.ReadString();
+            string kind = reader.ReadString();
+            string containerName = reader.ReadString();
+            string signature = reader.ReadString();
+            symbols[index] = new CodebaseIndexedSemanticSymbolDocument
+            {
+                Name = name,
+                Kind = kind,
+                ContainerName = string.IsNullOrWhiteSpace(containerName) ? null : containerName,
+                Signature = string.IsNullOrWhiteSpace(signature) ? null : signature,
+                StartLine = reader.ReadInt32(),
+                EndLine = reader.ReadInt32()
+            };
+        }
+
+        return symbols;
+    }
+
+    private static void WriteDependencies(BinaryWriter writer, IReadOnlyList<CodebaseIndexedDependencyDocument> dependencies)
+    {
+        writer.Write(dependencies.Count);
+        foreach (CodebaseIndexedDependencyDocument dependency in dependencies)
+        {
+            WriteString(writer, dependency.Kind);
+            WriteString(writer, dependency.Target);
+            writer.Write(dependency.IsWorkspaceLocal);
+            WriteStrings(writer, dependency.ResolvedPaths);
+        }
+    }
+
+    private static CodebaseIndexedDependencyDocument[] ReadDependencies(BinaryReader reader)
+    {
+        int count = ReadCount(reader);
+        CodebaseIndexedDependencyDocument[] dependencies = new CodebaseIndexedDependencyDocument[count];
+        for (int index = 0; index < dependencies.Length; index++)
+        {
+            dependencies[index] = new CodebaseIndexedDependencyDocument
+            {
+                Kind = reader.ReadString(),
+                Target = reader.ReadString(),
+                IsWorkspaceLocal = reader.ReadBoolean(),
+                ResolvedPaths = ReadStrings(reader)
+            };
+        }
+
+        return dependencies;
+    }
+
+    private static void WriteCalls(BinaryWriter writer, IReadOnlyList<CodebaseIndexedCallEdgeDocument> calls)
+    {
+        writer.Write(calls.Count);
+        foreach (CodebaseIndexedCallEdgeDocument call in calls)
+        {
+            WriteString(writer, call.CallerSymbol);
+            WriteString(writer, call.CallerPath);
+            WriteString(writer, call.CalleeSymbol);
+            WriteString(writer, call.CalleePath);
+            writer.Write(call.LineNumber);
+            writer.Write(call.IsResolved);
+        }
+    }
+
+    private static CodebaseIndexedCallEdgeDocument[] ReadCalls(BinaryReader reader)
+    {
+        int count = ReadCount(reader);
+        CodebaseIndexedCallEdgeDocument[] calls = new CodebaseIndexedCallEdgeDocument[count];
+        for (int index = 0; index < calls.Length; index++)
+        {
+            string callerSymbol = reader.ReadString();
+            string callerPath = reader.ReadString();
+            string calleeSymbol = reader.ReadString();
+            string calleePath = reader.ReadString();
+            calls[index] = new CodebaseIndexedCallEdgeDocument
+            {
+                CallerSymbol = callerSymbol,
+                CallerPath = callerPath,
+                CalleeSymbol = calleeSymbol,
+                CalleePath = string.IsNullOrWhiteSpace(calleePath) ? null : calleePath,
+                LineNumber = reader.ReadInt32(),
+                IsResolved = reader.ReadBoolean()
+            };
+        }
+
+        return calls;
+    }
+
+    private static void WriteVector(BinaryWriter writer, IReadOnlyList<sbyte> vector)
+    {
+        writer.Write(vector.Count);
+        foreach (sbyte value in vector)
+        {
+            writer.Write(value);
+        }
+    }
+
+    private static sbyte[] ReadVector(BinaryReader reader)
+    {
+        int count = ReadCount(reader);
+        sbyte[] vector = new sbyte[count];
+        for (int index = 0; index < vector.Length; index++)
+        {
+            vector[index] = reader.ReadSByte();
+        }
+
+        return vector;
+    }
+
+    private static int ReadCount(BinaryReader reader)
+    {
+        int count = reader.ReadInt32();
+        if (count < 0)
+        {
+            throw new InvalidDataException("The Zvec codebase index contains a negative item count.");
+        }
+
+        return count;
+    }
 }
 
 internal sealed class CodebaseIndexDocument

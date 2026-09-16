@@ -2,7 +2,6 @@ using FluentAssertions;
 using StemCode.Application.Abstractions;
 using StemCode.Application.Tools.Models;
 using StemCode.Infrastructure.Storage;
-using System.Text.Json;
 
 namespace StemCode.Tests.Infrastructure.Storage;
 
@@ -38,13 +37,16 @@ public sealed class WorkspaceCodebaseIndexServiceTests
         result.Matches.Should().ContainSingle(match => match.Path == "src/ServiceRegistry.cs");
         result.Matches[0].Symbols.Should().Contain("ServiceRegistry");
         result.Matches[0].Snippets.Should().Contain(snippet => snippet.Text.Contains("ConfigureServices"));
-        File.Exists(Path.Combine(workspace.Path, ".stemcode", "cache", "codebase-index.json"))
+        File.Exists(Path.Combine(workspace.Path, ".stemcode", "cache", "codebase-index.zvec"))
             .Should()
             .BeTrue();
+        File.Exists(Path.Combine(workspace.Path, ".stemcode", "cache", "codebase-index.json"))
+            .Should()
+            .BeFalse();
     }
 
     [Fact]
-    public async Task BuildAsync_Should_PersistTinyE5Int8EmbeddingsInsteadOfLexicalTerms()
+    public async Task BuildAsync_Should_PersistTinyE5Int8EmbeddingsInZvecInsteadOfJson()
     {
         using TempWorkspace workspace = TempWorkspace.Create();
         await File.WriteAllTextAsync(
@@ -62,26 +64,23 @@ public sealed class WorkspaceCodebaseIndexServiceTests
 
         await sut.BuildAsync(force: false, CancellationToken.None);
 
-        string indexJson = await File.ReadAllTextAsync(
-            Path.Combine(workspace.Path, ".stemcode", "cache", "codebase-index.json"));
+        string indexPath = Path.Combine(workspace.Path, ".stemcode", "cache", "codebase-index.zvec");
+        await using FileStream stream = File.OpenRead(indexPath);
+        CodebaseIndexDocument index = await ZvecCodebaseIndexStore.LoadAsync(stream, CancellationToken.None);
 
-        indexJson.Should().Contain("\"embedding\"");
-        using JsonDocument document = JsonDocument.Parse(indexJson);
-        JsonElement root = document.RootElement;
-        root.GetProperty("embeddingModelId").GetString().Should().Be("GrowBitLabs/tinye5");
-        root.GetProperty("embeddingModelUrl").GetString().Should().Be("https://huggingface.co/GrowBitLabs/tinye5/tree/int8-onnx");
-        root.GetProperty("embeddingQuantization").GetString().Should().Be("int8-onnx");
-        root.GetProperty("embeddingDimensions").GetInt32().Should().Be(384);
-
-        JsonElement embedding = root.GetProperty("files")[0].GetProperty("embedding");
-        embedding.GetArrayLength().Should().Be(384);
-        embedding.EnumerateArray()
-            .Select(static value => value.GetInt32())
+        index.EmbeddingModelId.Should().Be("GrowBitLabs/tinye5");
+        index.EmbeddingModelUrl.Should().Be("https://huggingface.co/GrowBitLabs/tinye5/tree/int8-onnx");
+        index.EmbeddingQuantization.Should().Be("int8-onnx");
+        index.EmbeddingDimensions.Should().Be(384);
+        index.Files.Should().ContainSingle();
+        index.Files[0].Embedding.Should().HaveCount(384);
+        index.Files[0].Embedding
+            .Select(static value => (int)value)
             .Should()
             .OnlyContain(value => value >= sbyte.MinValue && value <= sbyte.MaxValue);
-        indexJson.Should().NotContain("\"terms\"");
-        indexJson.Should().NotContain("\"sha256\"");
-        indexJson.Should().NotContain("\"workspaceRoot\"");
+        File.Exists(Path.Combine(workspace.Path, ".stemcode", "cache", "codebase-index.json"))
+            .Should()
+            .BeFalse();
     }
 
     [Fact]

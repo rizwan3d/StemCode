@@ -68,7 +68,7 @@ public sealed class CodebaseIndexToolTests
             CancellationToken cancellationToken)
         {
             return Task.FromResult(new CodebaseIndexBuildResult(
-                ".stemcode/cache/codebase-index.json",
+                ".stemcode/cache/codebase-index.zvec",
                 DateTimeOffset.UtcNow,
                 IndexedFileCount: 1,
                 AddedFileCount: 1,
@@ -84,7 +84,7 @@ public sealed class CodebaseIndexToolTests
         public Task<CodebaseIndexStatusResult> GetStatusAsync(CancellationToken cancellationToken)
         {
             return Task.FromResult(new CodebaseIndexStatusResult(
-                ".stemcode/cache/codebase-index.json",
+                ".stemcode/cache/codebase-index.zvec",
                 Exists: true,
                 IsStale: false,
                 BuiltAtUtc: DateTimeOffset.UtcNow,
@@ -111,7 +111,7 @@ public sealed class CodebaseIndexToolTests
             SearchLimit = limit;
             return Task.FromResult(new CodebaseIndexSearchResult(
                 query,
-                ".stemcode/cache/codebase-index.json",
+                ".stemcode/cache/codebase-index.zvec",
                 IndexWasUpdated: false,
                 IndexedFileCount: 1,
                 new CodebaseIndexStats(1, 1, 1, 1, 1),
@@ -137,7 +137,7 @@ public sealed class CodebaseIndexToolTests
             CancellationToken cancellationToken)
         {
             return Task.FromResult(new CodebaseIndexListResult(
-                ".stemcode/cache/codebase-index.json",
+                ".stemcode/cache/codebase-index.zvec",
                 TotalIndexedFileCount: 1,
                 ReturnedFileCount: 1,
                 new CodebaseIndexStats(1, 1, 1, 1, 1),
