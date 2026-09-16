@@ -68,33 +68,6 @@
         "resolved": "1.9.1",
         "contentHash": "Ut5tZyCUwXMVdThoLvdvQ7GyLwjRMreR/p3LuMJvRiXidQ2AXxx2Tv8UOGtMxvL395AC3+IkHdN/kMfd+EPSEw=="
       }
-    },
-    "net10.0/win-x64": {
-      "org.k2fsa.portaudio.runtime.linux-aarch64": {
-        "type": "Transitive",
-        "resolved": "1.0.6",
-        "contentHash": "kha8bJ1Cqte5pe+V+IWK79OVfdgu0jeRFGlAVd1Iw0JBv04X238t7FVR3GPHK2ix7c1Vqb8yJhneEAkVfrEeeQ=="
-      },
-      "org.k2fsa.portaudio.runtime.linux-x64": {
-        "type": "Transitive",
-        "resolved": "1.0.6",
-        "contentHash": "0D0ECSNhKIAGWjrZuDkBS2GGuQD5l+Kqbfg/DSGQYxaVu/6Zc4fCOEf9uTwOHLyaSp3vINWH8Nw68nqctcqtRw=="
-      },
-      "org.k2fsa.portaudio.runtime.osx-arm64": {
-        "type": "Transitive",
-        "resolved": "1.0.6",
-        "contentHash": "BvxoZ5VtvC+R/gZSh5pzOAeoCDd6/1kfO4HKYavpuD179ZCOTwFZF3Zy6x5TDe0smX+NOwqqcHYswTf8IK5U0g=="
-      },
-      "org.k2fsa.portaudio.runtime.osx-x64": {
-        "type": "Transitive",
-        "resolved": "1.0.6",
-        "contentHash": "RuhJuQ1PXD6XEP/C3JqGkBXkYMDrG248Xkfo7TKUj9anOjhEWrf+B+TAuWImwbtPpYOv2v/MC0wDh/E80o/Chw=="
-      },
-      "org.k2fsa.portaudio.runtime.win-x64": {
-        "type": "Transitive",
-        "resolved": "1.0.6",
-        "contentHash": "IUmJ8Nw9G+D09OETUD39GLuFD3+uuZrXhy5iWS6Md0VZVtnKcC2gHweVUyOSIr/MZRLgSA+58PfixFLiIo8YUQ=="
-      }
     }
   }
 }
