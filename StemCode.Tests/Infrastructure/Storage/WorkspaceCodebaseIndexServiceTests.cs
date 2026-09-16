@@ -150,7 +150,10 @@ public sealed class WorkspaceCodebaseIndexServiceTests
 
         search.IndexWasUpdated.Should().BeTrue();
         search.Matches.Should().ContainSingle(match => match.Path == "second.cs");
-        var freshStatus = await sut.GetStatusAsync(CancellationToken.None);
+        CodebaseIndexStatusResult freshStatus = await PollUntilAsync(
+            () => sut.GetStatusAsync(CancellationToken.None),
+            result => !result.IsStale,
+            TimeSpan.FromSeconds(3));
         freshStatus.IsStale.Should().BeFalse();
     }
 

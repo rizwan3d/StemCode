@@ -914,7 +914,8 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         CodebaseIndexedFileDocument indexedFile)
     {
         return candidate.Length == indexedFile.Length &&
-            candidate.LastWriteTimeUtc == indexedFile.LastWriteTimeUtc;
+            candidate.LastWriteTimeUtc.ToUnixTimeMilliseconds() ==
+            indexedFile.LastWriteTimeUtc.ToUnixTimeMilliseconds();
     }
 
     private static bool OwnersEqual(

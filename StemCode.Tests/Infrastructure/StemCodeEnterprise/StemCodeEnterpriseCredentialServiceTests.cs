@@ -110,7 +110,7 @@ public sealed class StemCodeEnterpriseCredentialServiceTests
             .Returns(Task.CompletedTask);
         statusMessageWriter
             .Setup(writer => writer.ShowSuccessAsync(
-                "StemCode Enterprise sign-in completed.",
+                "StemCode subscription sign-in completed.",
                 It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
@@ -207,7 +207,7 @@ public sealed class StemCodeEnterpriseCredentialServiceTests
             .Returns(Task.CompletedTask);
         statusMessageWriter
             .Setup(writer => writer.ShowSuccessAsync(
-                "StemCode Enterprise sign-in completed.",
+                "StemCode subscription sign-in completed.",
                 It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
