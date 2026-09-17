@@ -56,7 +56,7 @@ function sha256(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex").toLowerCase();
 }
 
-function extractExecutable(zipBuffer, destinationPath) {
+function extractCliRuntime(zipBuffer, destinationDir) {
   const zip = new AdmZip(zipBuffer);
   const wanted = platform.executableFileName();
 
@@ -70,9 +70,14 @@ function extractExecutable(zipBuffer, destinationPath) {
     throw new Error(`Release archive did not contain the expected executable '${wanted}'.`);
   }
 
-  const data = entry.getData();
-  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
-  fs.writeFileSync(destinationPath, data);
+  fs.mkdirSync(destinationDir, { recursive: true });
+  zip.extractAllTo(destinationDir, true);
+
+  const destinationPath = path.join(destinationDir, wanted);
+  if (!fs.existsSync(destinationPath)) {
+    throw new Error(`StemCode CLI executable '${wanted}' was not installed from the release archive.`);
+  }
+
   if (process.platform !== "win32") {
     fs.chmodSync(destinationPath, 0o755);
   }
@@ -188,25 +193,23 @@ async function ensureBinary(options = {}) {
   }
 
   fs.mkdirSync(platform.vendorDir(), { recursive: true });
-  const tempBinaryPath = path.join(
-    platform.vendorDir(),
-    `.${platform.executableFileName()}.${process.pid}.tmp`
-  );
+  const tempCliDir = path.join(platform.vendorDir(), `.cli.${process.pid}.tmp`);
   const tempVoiceDir = path.join(platform.vendorDir(), `.voice.${process.pid}.tmp`);
 
   try {
     log("Extracting StemCode CLI...");
-    extractExecutable(archiveBuffer, tempBinaryPath);
+    fs.rmSync(tempCliDir, { recursive: true, force: true });
+    extractCliRuntime(archiveBuffer, tempCliDir);
 
     log("Extracting StemCode Voice runtime...");
     fs.rmSync(tempVoiceDir, { recursive: true, force: true });
     extractVoiceRuntime(voiceArchiveBuffer, tempVoiceDir);
 
+    fs.cpSync(tempCliDir, platform.vendorDir(), { recursive: true, force: true });
     fs.rmSync(platform.voiceDir(), { recursive: true, force: true });
     fs.renameSync(tempVoiceDir, platform.voiceDir());
-    fs.renameSync(tempBinaryPath, binaryPath);
   } finally {
-    fs.rmSync(tempBinaryPath, { force: true });
+    fs.rmSync(tempCliDir, { recursive: true, force: true });
     fs.rmSync(tempVoiceDir, { recursive: true, force: true });
   }
 

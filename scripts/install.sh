@@ -838,11 +838,16 @@ main() {
   voice_destination_dir="${install_dir}/voice"
 
   cp "$source_binary" "$destination_binary"
+  cp -R "${extract_dir}/." "$install_dir/"
+  if [[ "$source_binary" != "$destination_binary" ]]; then
+    cp "${install_dir}/${source_binary_name}" "$destination_binary"
+  fi
   rm -rf "$voice_destination_dir"
   mkdir -p "$voice_destination_dir"
   cp -R "${voice_extract_dir}/." "$voice_destination_dir/"
 
   if ! is_windows_platform "$platform"; then
+    chmod 0755 "${install_dir}/${source_binary_name}"
     chmod 0755 "$destination_binary"
     chmod 0755 "${voice_destination_dir}/${source_voice_binary_name}"
   fi

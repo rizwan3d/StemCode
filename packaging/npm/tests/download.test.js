@@ -103,6 +103,7 @@ function createReleaseAssets(tag, cliContents, voiceContents) {
   const voiceAsset = platform.voiceAssetName(rid);
   const cliZip = makeZip({
     [platform.executableFileName()]: cliContents,
+    "onnxruntime-native-file.txt": "native-runtime-content",
   });
   const voiceZip = makeZip({
     [platform.voiceExecutableFileName()]: voiceContents,
@@ -143,6 +144,7 @@ test("ensureBinary falls back to the alternate-case tag when the primary 404s", 
 
     assert.equal(result, path.join(tempDir, executable));
     assert.ok(fs.existsSync(result), "CLI binary should be extracted to disk");
+    assert.ok(fs.existsSync(path.join(tempDir, "onnxruntime-native-file.txt")), "CLI native files should be retained");
     assert.ok(fs.existsSync(path.join(voiceDir, voiceExecutable)), "Voice runtime should be extracted");
     assert.ok(fs.existsSync(path.join(voiceDir, "voice-native-file.txt")), "Voice native files should be retained");
   } finally {
@@ -176,6 +178,7 @@ test("ensureBinary uses the primary tag when it resolves successfully", async ()
 
     assert.equal(result, path.join(tempDir, executable));
     assert.ok(fs.existsSync(result), "CLI binary should be extracted to disk");
+    assert.ok(fs.existsSync(path.join(tempDir, "onnxruntime-native-file.txt")), "CLI native files should be retained");
     assert.ok(fs.existsSync(path.join(voiceDir, voiceExecutable)), "Voice runtime should be extracted");
     assert.ok(fs.existsSync(path.join(voiceDir, "voice-native-file.txt")), "Voice native files should be retained");
   } finally {

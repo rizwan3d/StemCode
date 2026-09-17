@@ -531,7 +531,9 @@ function Resolve-WaitForProcessId {
 function Start-DeferredInstall {
     param(
         [string]$SourcePath,
+        [string]$SourceDirectory,
         [string]$DestinationPath,
+        [string]$DestinationDirectory,
         [int]$ProcessId,
         [string]$CleanupRoot
     )
@@ -544,7 +546,13 @@ param(
     [string]$SourcePath,
 
     [Parameter(Mandatory = $true)]
+    [string]$SourceDirectory,
+
+    [Parameter(Mandatory = $true)]
     [string]$DestinationPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$DestinationDirectory,
 
     [int]$WaitForProcessId,
 
@@ -588,6 +596,29 @@ function Copy-WithRetry {
     }
 }
 
+function Copy-DirectoryWithRetry {
+    param(
+        [string]$SourceDirectory,
+        [string]$DestinationDirectory
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddMinutes(10)
+    while ($true) {
+        try {
+            New-Item -ItemType Directory -Path $DestinationDirectory -Force | Out-Null
+            Get-ChildItem -LiteralPath $SourceDirectory -Force | Copy-Item -Destination $DestinationDirectory -Recurse -Force
+            return
+        }
+        catch {
+            if ([DateTimeOffset]::UtcNow -ge $deadline) {
+                throw
+            }
+
+            Start-Sleep -Seconds 1
+        }
+    }
+}
+
 $completed = $false
 
 try {
@@ -602,6 +633,7 @@ try {
         }
     }
 
+    Copy-DirectoryWithRetry -SourceDirectory $SourceDirectory -DestinationDirectory $DestinationDirectory
     Copy-WithRetry -SourcePath $SourcePath -DestinationPath $DestinationPath
     Write-Log "Installed update to $DestinationPath."
     $completed = $true
@@ -623,8 +655,12 @@ finally {
         (ConvertTo-PowerShellLiteral -Value $scriptPath) +
         " -SourcePath " +
         (ConvertTo-PowerShellLiteral -Value $SourcePath) +
+        " -SourceDirectory " +
+        (ConvertTo-PowerShellLiteral -Value $SourceDirectory) +
         " -DestinationPath " +
         (ConvertTo-PowerShellLiteral -Value $DestinationPath) +
+        " -DestinationDirectory " +
+        (ConvertTo-PowerShellLiteral -Value $DestinationDirectory) +
         " -WaitForProcessId $ProcessId -CleanupRoot " +
         (ConvertTo-PowerShellLiteral -Value $CleanupRoot) +
         " -LogPath " +
@@ -722,11 +758,12 @@ try {
 
     $waitProcessId = Resolve-WaitForProcessId -RequestedProcessId $WaitForProcessId -DestinationPath $destinationPath
     if ($waitProcessId -gt 0) {
-        Start-DeferredInstall -SourcePath $sourcePath -DestinationPath $destinationPath -ProcessId $waitProcessId -CleanupRoot $tempRoot
+        Start-DeferredInstall -SourcePath $sourcePath -SourceDirectory $extractDir -DestinationPath $destinationPath -DestinationDirectory $InstallDir -ProcessId $waitProcessId -CleanupRoot $tempRoot
         $cleanupTempRoot = $false
     }
     else {
         try {
+            Get-ChildItem -LiteralPath $extractDir -Force | Copy-Item -Destination $InstallDir -Recurse -Force
             Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
         }
         catch {
