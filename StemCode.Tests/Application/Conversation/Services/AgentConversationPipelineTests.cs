@@ -3670,6 +3670,204 @@ public sealed class AgentConversationPipelineTests
     }
 
     [Fact]
+    public async Task ProcessAsync_Should_RequestReassessment_When_ToolActionAndResultRepeatWithoutFileEdits()
+    {
+        ReplSessionContext session = CreateSession();
+        Mock<IApiKeySecretStore> secretStore = new(MockBehavior.Strict);
+        secretStore
+            .Setup(store => store.LoadAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("test-key");
+
+        Mock<IConversationConfigurationAccessor> configurationAccessor = new(MockBehavior.Strict);
+        configurationAccessor
+            .Setup(accessor => accessor.GetSettings())
+            .Returns(CreateSettings());
+
+        Mock<IToolRegistry> toolRegistry = new(MockBehavior.Strict);
+        toolRegistry
+            .Setup(registry => registry.GetToolDefinitions())
+            .Returns([CreateToolDefinition(AgentToolNames.FileRead)]);
+
+        List<ConversationProviderRequest> requests = [];
+        Mock<IConversationProviderClient> providerClient = new(MockBehavior.Strict);
+        providerClient
+            .Setup(client => client.SendAsync(
+                It.IsAny<ConversationProviderRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<ConversationProviderRequest, CancellationToken>((request, _) =>
+            {
+                requests.Add(request);
+                return Task.FromResult(new ConversationProviderPayload(
+                    ProviderKind.OpenAiCompatible,
+                    """{ "choices": [] }""",
+                    $"resp_{requests.Count}"));
+            });
+
+        Mock<IConversationResponseMapper> responseMapper = new(MockBehavior.Strict);
+        responseMapper
+            .SetupSequence(mapper => mapper.Map(It.IsAny<ConversationProviderPayload>()))
+            .Returns(new ConversationResponse(
+                null,
+                [new ConversationToolCall("call_repeat_1", AgentToolNames.FileRead, """{ "path": "README.md", "limit": 20 }""")],
+                "resp_1"))
+            .Returns(new ConversationResponse(
+                null,
+                [new ConversationToolCall("call_repeat_2", AgentToolNames.FileRead, """{"limit":20,"path":"README.md"}""")],
+                "resp_2"))
+            .Returns(new ConversationResponse(
+                "I reassessed and have enough evidence.",
+                [],
+                "resp_3"));
+
+        Mock<IToolExecutionPipeline> toolExecutionPipeline = new(MockBehavior.Strict);
+        toolExecutionPipeline
+            .Setup(pipeline => pipeline.ExecuteAsync(
+                It.IsAny<IReadOnlyList<ConversationToolCall>>(),
+                session,
+                ConversationExecutionPhase.Execution,
+                It.Is<IReadOnlySet<string>>(names => names.Contains(AgentToolNames.FileRead)),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<ConversationToolCall>, ReplSessionContext, ConversationExecutionPhase, IReadOnlySet<string>, CancellationToken>(
+                (calls, _, _, _, _) => Task.FromResult(new ToolExecutionBatchResult([
+                    new ToolInvocationResult(
+                        calls[0].Id,
+                        calls[0].Name,
+                        ToolResult.Success(
+                            "Read README.md.",
+                            calls[0].Id == "call_repeat_1"
+                                ? """{"DisplayContent":"same content","RawContent":"same content"}"""
+                                : """{"RawContent":"same content","DisplayContent":"same content"}"""))
+                ])));
+
+        AgentConversationPipeline sut = CreateSut(
+            TimeProvider.System,
+            new HeuristicTokenEstimator(),
+            secretStore.Object,
+            providerClient.Object,
+            responseMapper.Object,
+            toolExecutionPipeline.Object,
+            toolRegistry.Object,
+            configurationAccessor.Object);
+
+        ConversationTurnResult result = await ProcessAsync(
+            sut,
+            "Inspect the README.",
+            session);
+
+        result.ResponseText.Should().Be("I reassessed and have enough evidence.");
+        requests.Should().HaveCount(3);
+        bool secondRequestHasGuard = requests[1].Messages.Any(message =>
+            message.Content != null &&
+            message.Content.Contains("Loop/stagnation guard:", StringComparison.Ordinal));
+        bool thirdRequestHasGuard = requests[2].Messages.Any(message =>
+            string.Equals(message.Role, "user", StringComparison.Ordinal) &&
+            message.Content != null &&
+            message.Content.Contains("Loop/stagnation guard:", StringComparison.Ordinal) &&
+            message.Content.Contains("Stop repeating that action.", StringComparison.Ordinal));
+        secondRequestHasGuard.Should().BeFalse();
+        thirdRequestHasGuard.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ProcessAsync_Should_NotRequestReassessment_When_RepeatedToolActionRecordsFileEdit()
+    {
+        ReplSessionContext session = CreateSession();
+        Mock<IApiKeySecretStore> secretStore = new(MockBehavior.Strict);
+        secretStore
+            .Setup(store => store.LoadAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("test-key");
+
+        Mock<IConversationConfigurationAccessor> configurationAccessor = new(MockBehavior.Strict);
+        configurationAccessor
+            .Setup(accessor => accessor.GetSettings())
+            .Returns(CreateSettings());
+
+        Mock<IToolRegistry> toolRegistry = new(MockBehavior.Strict);
+        toolRegistry
+            .Setup(registry => registry.GetToolDefinitions())
+            .Returns([CreateToolDefinition(AgentToolNames.FileWrite)]);
+
+        List<ConversationProviderRequest> requests = [];
+        Mock<IConversationProviderClient> providerClient = new(MockBehavior.Strict);
+        providerClient
+            .Setup(client => client.SendAsync(
+                It.IsAny<ConversationProviderRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<ConversationProviderRequest, CancellationToken>((request, _) =>
+            {
+                requests.Add(request);
+                return Task.FromResult(new ConversationProviderPayload(
+                    ProviderKind.OpenAiCompatible,
+                    """{ "choices": [] }""",
+                    $"resp_{requests.Count}"));
+            });
+
+        const string writeArguments = """{"path":"notes.txt","content":"hello","overwrite":true}""";
+        Mock<IConversationResponseMapper> responseMapper = new(MockBehavior.Strict);
+        responseMapper
+            .SetupSequence(mapper => mapper.Map(It.IsAny<ConversationProviderPayload>()))
+            .Returns(new ConversationResponse(
+                null,
+                [new ConversationToolCall("call_edit_1", AgentToolNames.FileWrite, writeArguments)],
+                "resp_1"))
+            .Returns(new ConversationResponse(
+                null,
+                [new ConversationToolCall("call_edit_2", AgentToolNames.FileWrite, writeArguments)],
+                "resp_2"))
+            .Returns(new ConversationResponse(
+                "Edits are complete.",
+                [],
+                "resp_3"));
+
+        Mock<IToolExecutionPipeline> toolExecutionPipeline = new(MockBehavior.Strict);
+        toolExecutionPipeline
+            .Setup(pipeline => pipeline.ExecuteAsync(
+                It.IsAny<IReadOnlyList<ConversationToolCall>>(),
+                session,
+                ConversationExecutionPhase.Execution,
+                It.Is<IReadOnlySet<string>>(names => names.Contains(AgentToolNames.FileWrite)),
+                It.IsAny<CancellationToken>()))
+            .Returns<IReadOnlyList<ConversationToolCall>, ReplSessionContext, ConversationExecutionPhase, IReadOnlySet<string>, CancellationToken>(
+                (calls, currentSession, _, _, _) =>
+                {
+                    currentSession.RecordFileEditTransaction(new WorkspaceFileEditTransaction(
+                        $"file_write ({calls[0].Id})",
+                        [new WorkspaceFileEditState("notes.txt", exists: true, content: $"before {calls[0].Id}")],
+                        [new WorkspaceFileEditState("notes.txt", exists: true, content: $"after {calls[0].Id}")]));
+
+                    return Task.FromResult(new ToolExecutionBatchResult([
+                        new ToolInvocationResult(
+                            calls[0].Id,
+                            calls[0].Name,
+                            ToolResult.Success(
+                                "Wrote file 'notes.txt'.",
+                                """{"Path":"notes.txt","AddedLineCount":1,"RemovedLineCount":1}"""))
+                    ]));
+                });
+
+        AgentConversationPipeline sut = CreateSut(
+            TimeProvider.System,
+            new HeuristicTokenEstimator(),
+            secretStore.Object,
+            providerClient.Object,
+            responseMapper.Object,
+            toolExecutionPipeline.Object,
+            toolRegistry.Object,
+            configurationAccessor.Object);
+
+        ConversationTurnResult result = await ProcessAsync(
+            sut,
+            "Write the note.",
+            session);
+
+        result.ResponseText.Should().Be("Edits are complete.");
+        requests.Should().HaveCount(3);
+        requests[2].Messages.Should().NotContain(message =>
+            message.Content != null &&
+            message.Content.Contains("Loop/stagnation guard:", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ProcessAsync_Should_ThrowConfiguredLimit_When_ProviderExceedsMaxToolRoundsPerTurn()
     {
         ReplSessionContext session = CreateSession();

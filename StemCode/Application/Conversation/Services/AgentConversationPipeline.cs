@@ -54,6 +54,16 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         If the listed work is truly complete, call update_plan with every item completed before returning final text.
         Do not repeat the final answer until the live plan has no in_progress or pending work.
         """;
+    private const int StagnantActionReassessmentThreshold = 2;
+    private const string StagnantActionReassessmentInstruction =
+        """
+        Loop/stagnation guard:
+        The last tool action repeated without changing files, arguments, hypotheses, or observable results.
+        Stop repeating that action. Reassess the task before making another tool call:
+        - state what the repeated result proves or rules out,
+        - choose a materially different next action, argument, or hypothesis, or
+        - provide the final answer if the available evidence is sufficient.
+        """;
     private const string InterruptedTurnRecoveryMessage =
         """
         Recovery context:
@@ -1133,6 +1143,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         int totalCachedInputTokens = 0;
         bool hasReportedCompletionTokens = false;
         ConversationTelemetryAccumulator telemetry = new();
+        StagnantActionTracker stagnantActionTracker = new();
         ExecutionPlanProgress? latestPlanProgress = null;
         string? phaseSystemPrompt = systemPrompt;
 
@@ -1189,6 +1200,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                     cancellationToken);
 
                 bool reportedToolResultsDuringExecution = false;
+                WorkspaceFileEditTransaction? pendingUndoBeforeToolExecution = GetPendingUndoFileEdit(session);
                 ToolExecutionBatchResult toolExecutionResult;
                 if (_toolExecutionPipeline is IStreamingToolExecutionPipeline streamingToolExecutionPipeline)
                 {
@@ -1215,6 +1227,9 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                         allowedToolNames,
                         cancellationToken);
                 }
+                bool recordedFileEdits = !ReferenceEquals(
+                    pendingUndoBeforeToolExecution,
+                    GetPendingUndoFileEdit(session));
 
                 ApplicationLogMessages.ConversationToolHandoffCompleted(_logger);
                 executedToolCalls.AddRange(response.ToolCalls);
@@ -1268,6 +1283,14 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                         CreateToolFeedbackContent(invocationResult, consecutiveToolFailureCount)));
                 }
 
+                if (stagnantActionTracker.Observe(
+                        response.ToolCalls,
+                        toolExecutionResult.Results,
+                        recordedFileEdits))
+                {
+                    messages.Add(ConversationRequestMessage.User(StagnantActionReassessmentInstruction));
+                }
+
                 continue;
             }
 
@@ -1313,6 +1336,13 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         throw new ConversationResponseException(
             $"The provider requested too many sequential tool rounds without producing a final assistant message. " +
             $"Configured limit: {settings.MaxToolRoundsPerTurn} round(s).");
+    }
+
+    private static WorkspaceFileEditTransaction? GetPendingUndoFileEdit(ReplSessionContext session)
+    {
+        return session.TryGetPendingUndoFileEdit(out WorkspaceFileEditTransaction? transaction)
+            ? transaction
+            : null;
     }
 
     private static bool IsWithinToolRoundLimit(
@@ -2997,6 +3027,138 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         }
 
         private int _lastInputTokenEstimate;
+    }
+
+    private sealed class StagnantActionTracker
+    {
+        private string? _lastSignature;
+        private int _repeatCount;
+
+        public bool Observe(
+            IReadOnlyList<ConversationToolCall> toolCalls,
+            IReadOnlyList<ToolInvocationResult> results,
+            bool recordedFileEdits)
+        {
+            ArgumentNullException.ThrowIfNull(toolCalls);
+            ArgumentNullException.ThrowIfNull(results);
+
+            if (recordedFileEdits)
+            {
+                Reset();
+                return false;
+            }
+
+            string signature = CreateSignature(toolCalls, results);
+            if (string.Equals(signature, _lastSignature, StringComparison.Ordinal))
+            {
+                _repeatCount++;
+            }
+            else
+            {
+                _lastSignature = signature;
+                _repeatCount = 1;
+            }
+
+            return _repeatCount >= StagnantActionReassessmentThreshold;
+        }
+
+        private void Reset()
+        {
+            _lastSignature = null;
+            _repeatCount = 0;
+        }
+
+        private static string CreateSignature(
+            IReadOnlyList<ConversationToolCall> toolCalls,
+            IReadOnlyList<ToolInvocationResult> results)
+        {
+            using MemoryStream stream = new();
+            using (Utf8JsonWriter writer = new(stream))
+            {
+                writer.WriteStartObject();
+                writer.WritePropertyName("ToolCalls");
+                writer.WriteStartArray();
+                foreach (ConversationToolCall toolCall in toolCalls)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("Name", toolCall.Name);
+                    writer.WriteString("ArgumentsJson", NormalizeJson(toolCall.ArgumentsJson));
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+                writer.WritePropertyName("Results");
+                writer.WriteStartArray();
+                foreach (ToolInvocationResult result in results)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("ToolName", result.ToolName);
+                    writer.WriteString("Status", result.Result.Status.ToString());
+                    writer.WriteBoolean("IsSuccess", result.Result.IsSuccess);
+                    writer.WriteString("Message", result.Result.Message);
+                    writer.WriteString("JsonResult", NormalizeJson(result.Result.JsonResult));
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+
+            return Convert.ToBase64String(stream.ToArray());
+        }
+
+        private static string NormalizeJson(string json)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(json);
+                using MemoryStream stream = new();
+                using (Utf8JsonWriter writer = new(stream))
+                {
+                    WriteCanonicalJson(document.RootElement, writer);
+                }
+
+                return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+            }
+            catch (JsonException)
+            {
+                return json.Trim();
+            }
+        }
+
+        private static void WriteCanonicalJson(
+            JsonElement element,
+            Utf8JsonWriter writer)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    writer.WriteStartObject();
+                    foreach (JsonProperty property in element.EnumerateObject()
+                                 .OrderBy(static property => property.Name, StringComparer.Ordinal))
+                    {
+                        writer.WritePropertyName(property.Name);
+                        WriteCanonicalJson(property.Value, writer);
+                    }
+
+                    writer.WriteEndObject();
+                    break;
+
+                case JsonValueKind.Array:
+                    writer.WriteStartArray();
+                    foreach (JsonElement item in element.EnumerateArray())
+                    {
+                        WriteCanonicalJson(item, writer);
+                    }
+
+                    writer.WriteEndArray();
+                    break;
+
+                default:
+                    element.WriteTo(writer);
+                    break;
+            }
+        }
     }
 
     private sealed class CompletedAssistantTurn
