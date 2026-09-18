@@ -633,11 +633,19 @@ jobs:
           ref: ${{ env.RELEASE_REF }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
+          node-version: 24
+          package-manager-cache: false
+          
+      - name: Setup npm
+        run: npm install --global npm@lates
 
+      - name: Verify npm OIDC requirements
+        run: |
+          node --version
+          npm --version
+          
       - name: Set package version
         working-directory: packaging/npm
         run: npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
