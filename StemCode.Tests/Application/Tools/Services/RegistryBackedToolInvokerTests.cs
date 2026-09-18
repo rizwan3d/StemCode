@@ -7,6 +7,7 @@ using StemCode.Application.Tools.Models;
 using StemCode.Application.Tools.Serialization;
 using StemCode.Application.Tools.Services;
 using StemCode.Domain.Models;
+using System.Globalization;
 using System.Text.Json;
 
 namespace StemCode.Tests.Application.Tools.Services;
@@ -276,6 +277,106 @@ public sealed class RegistryBackedToolInvokerTests
     }
 
     [Fact]
+    public async Task InvokeAsync_Should_CacheSuccessfulFileReadsWithEquivalentArguments()
+    {
+        string workspacePath = CreateTempWorkspace(("README.md", "hello"));
+        try
+        {
+            CountingReadTool readTool = new();
+            RegistryBackedToolInvoker sut = CreateAutomaticInvoker(readTool);
+            ReplSessionContext session = CreateWorkspaceSession(workspacePath);
+
+            ToolInvocationResult first = await sut.InvokeAsync(
+                new ConversationToolCall("call_1", AgentToolNames.FileRead, """{ "path": "README.md", "limit": 20 }"""),
+                session,
+                ConversationExecutionPhase.Execution,
+                CreateAllowedToolNames(AgentToolNames.FileRead),
+                CancellationToken.None);
+            ToolInvocationResult second = await sut.InvokeAsync(
+                new ConversationToolCall("call_2", AgentToolNames.FileRead, """{ "limit": 20, "path": "README.md" }"""),
+                session,
+                ConversationExecutionPhase.Execution,
+                CreateAllowedToolNames(AgentToolNames.FileRead),
+                CancellationToken.None);
+
+            first.Result.Status.Should().Be(ToolResultStatus.Success);
+            second.Result.Status.Should().Be(ToolResultStatus.Success);
+            second.ToolCallId.Should().Be("call_2");
+            second.Result.JsonResult.Should().Be(first.Result.JsonResult);
+            readTool.ExecuteCount.Should().Be(1);
+        }
+        finally
+        {
+            Directory.Delete(workspacePath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InvokeAsync_Should_ClearReadCacheAfterMutatingTool()
+    {
+        string workspacePath = CreateTempWorkspace(("README.md", "hello"));
+        try
+        {
+            CountingReadTool readTool = new();
+            MutatingWriteTool writeTool = new();
+            RegistryBackedToolInvoker sut = CreateAutomaticInvoker(readTool, writeTool);
+            ReplSessionContext session = CreateWorkspaceSession(workspacePath);
+
+            await sut.InvokeAsync(
+                new ConversationToolCall("call_1", AgentToolNames.FileRead, """{ "path": "README.md" }"""),
+                session,
+                ConversationExecutionPhase.Execution,
+                CreateAllowedToolNames(AgentToolNames.FileRead, AgentToolNames.FileWrite),
+                CancellationToken.None);
+            await sut.InvokeAsync(
+                new ConversationToolCall("call_2", AgentToolNames.FileWrite, """{ "path": "README.md" }"""),
+                session,
+                ConversationExecutionPhase.Execution,
+                CreateAllowedToolNames(AgentToolNames.FileRead, AgentToolNames.FileWrite),
+                CancellationToken.None);
+            await sut.InvokeAsync(
+                new ConversationToolCall("call_3", AgentToolNames.FileRead, """{ "path": "README.md" }"""),
+                session,
+                ConversationExecutionPhase.Execution,
+                CreateAllowedToolNames(AgentToolNames.FileRead, AgentToolNames.FileWrite),
+                CancellationToken.None);
+
+            readTool.ExecuteCount.Should().Be(2);
+            writeTool.ExecuteCount.Should().Be(1);
+        }
+        finally
+        {
+            Directory.Delete(workspacePath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task InvokeAsync_Should_CacheSuccessfulSafeShellChecks()
+    {
+        CountingShellStatusTool shellTool = new();
+        RegistryBackedToolInvoker sut = CreateAutomaticInvoker(shellTool);
+
+        ToolInvocationResult first = await sut.InvokeAsync(
+            new ConversationToolCall("call_1", AgentToolNames.ShellCommand, """{ "command": "git status --short" }"""),
+            Session,
+            ConversationExecutionPhase.Execution,
+            CreateAllowedToolNames(AgentToolNames.ShellCommand),
+            CancellationToken.None);
+        ToolInvocationResult second = await sut.InvokeAsync(
+            new ConversationToolCall("call_2", AgentToolNames.ShellCommand, """{ "command": "git status --short" }"""),
+            Session,
+            ConversationExecutionPhase.Execution,
+            CreateAllowedToolNames(AgentToolNames.ShellCommand),
+            CancellationToken.None);
+
+        first.Result.Status.Should().Be(ToolResultStatus.Success);
+        second.Result.Status.Should().Be(ToolResultStatus.Success);
+        second.ToolCallId.Should().Be("call_2");
+        second.Result.JsonResult.Should().Be(first.Result.JsonResult);
+        shellTool.ExecuteCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task InvokeAsync_Should_RunLifecycleHooksAroundToolCall()
     {
         RecordingLifecycleHookService hookService = new();
@@ -484,6 +585,127 @@ public sealed class RegistryBackedToolInvokerTests
     private static IReadOnlySet<string> CreateAllowedToolNames(params string[] toolNames)
     {
         return new HashSet<string>(toolNames, StringComparer.Ordinal);
+    }
+
+    private static RegistryBackedToolInvoker CreateAutomaticInvoker(params ITool[] tools)
+    {
+        return new RegistryBackedToolInvoker(
+            new ToolRegistry(tools, new ToolPermissionParser()),
+            new ToolPermissionEvaluator(new StubWorkspaceRootProvider(), DefaultPermissionSettings),
+            new FixedPermissionApprovalPrompt(PermissionApprovalChoice.DenyOnce));
+    }
+
+    private static ReplSessionContext CreateWorkspaceSession(string workspacePath)
+    {
+        return new ReplSessionContext(
+            new AgentProviderProfile(ProviderKind.OpenAi, null),
+            "gpt-5-mini",
+            ["gpt-5-mini"],
+            workspacePath: workspacePath);
+    }
+
+    private static string CreateTempWorkspace(params (string RelativePath, string Content)[] files)
+    {
+        string workspacePath = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            $"stemcode-registry-invoker-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(workspacePath);
+        foreach ((string relativePath, string content) in files)
+        {
+            string fullPath = System.IO.Path.Combine(workspacePath, relativePath);
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(fullPath)!);
+            File.WriteAllText(fullPath, content);
+        }
+
+        return workspacePath;
+    }
+
+    private sealed class CountingReadTool : ITool
+    {
+        public int ExecuteCount { get; private set; }
+
+        public string Description => "Counting read tool";
+
+        public string Name => AgentToolNames.FileRead;
+
+        public string PermissionRequirements => """{ "approvalMode": "Automatic" }""";
+
+        public string Schema => """{ "type": "object", "properties": { "path": { "type": "string" }, "limit": { "type": "integer" } }, "additionalProperties": false }""";
+
+        public Task<ToolResult> ExecuteAsync(
+            ToolExecutionContext context,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ExecuteCount++;
+            return Task.FromResult(ToolResultFactory.Success(
+                $"Read count {ExecuteCount}.",
+                new ToolErrorPayload("ok", ExecuteCount.ToString(CultureInfo.InvariantCulture)),
+                ToolJsonContext.Default.ToolErrorPayload));
+        }
+    }
+
+    private sealed class MutatingWriteTool : ITool
+    {
+        public int ExecuteCount { get; private set; }
+
+        public string Description => "Mutating write tool";
+
+        public string Name => AgentToolNames.FileWrite;
+
+        public string PermissionRequirements => """{ "approvalMode": "Automatic" }""";
+
+        public string Schema => """{ "type": "object", "properties": { "path": { "type": "string" } }, "additionalProperties": false }""";
+
+        public Task<ToolResult> ExecuteAsync(
+            ToolExecutionContext context,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ExecuteCount++;
+            return Task.FromResult(ToolResultFactory.Success(
+                "Wrote file.",
+                new ToolErrorPayload("ok", "wrote"),
+                ToolJsonContext.Default.ToolErrorPayload));
+        }
+    }
+
+    private sealed class CountingShellStatusTool : ITool
+    {
+        public int ExecuteCount { get; private set; }
+
+        public string Description => "Counting shell status tool";
+
+        public string Name => AgentToolNames.ShellCommand;
+
+        public string PermissionRequirements => """
+            {
+              "approvalMode": "Automatic",
+              "toolTags": ["bash"],
+              "shell": {
+                "commandArgumentName": "command"
+              }
+            }
+            """;
+
+        public string Schema => """{ "type": "object", "properties": { "command": { "type": "string" } }, "additionalProperties": false }""";
+
+        public Task<ToolResult> ExecuteAsync(
+            ToolExecutionContext context,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ExecuteCount++;
+            return Task.FromResult(ToolResultFactory.Success(
+                "Git status complete.",
+                new ShellCommandExecutionResult(
+                    "git status --short",
+                    ".",
+                    0,
+                    $"status call {ExecuteCount}",
+                    string.Empty),
+                ToolJsonContext.Default.ShellCommandExecutionResult));
+        }
     }
 
     private sealed class EchoTool : ITool

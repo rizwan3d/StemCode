@@ -3,7 +3,9 @@ using StemCode.Application.Exceptions;
 using StemCode.Application.Models;
 using StemCode.Application.Permissions;
 using StemCode.Application.Tools.Serialization;
+using StemCode.Application.Utilities;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace StemCode.Application.Tools.Services;
@@ -11,14 +13,19 @@ namespace StemCode.Application.Tools.Services;
 internal sealed class RegistryBackedToolInvoker : IToolInvoker
 {
     private static readonly TimeSpan AgentDelegateTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan CacheEntryLifetime = TimeSpan.FromMinutes(10);
+    private const int MaxCachedToolResults = 256;
     private const int FallbackDefaultTimeoutSeconds = 180;
 
+    private readonly object _cacheSyncRoot = new();
+    private readonly Dictionary<ToolResultCacheKey, ToolResultCacheEntry> _toolResultCache = new();
     private readonly TimeSpan _defaultTimeout;
     private readonly ILifecycleHookService _lifecycleHookService;
     private readonly IPermissionApprovalPrompt _permissionApprovalPrompt;
     private readonly ToolPermissionEvaluator _permissionEvaluator;
     private readonly SemaphoreSlim _permissionApprovalSemaphore = new(1, 1);
     private readonly IToolRegistry _toolRegistry;
+    private long _cacheUseSequence;
 
     public RegistryBackedToolInvoker(
         IToolRegistry toolRegistry,
@@ -177,38 +184,24 @@ internal sealed class RegistryBackedToolInvoker : IToolInvoker
             return CreateHookBlockedInvocationResult(toolCall, beforeHookResult);
         }
 
-        TimeSpan timeout = GetToolTimeout(toolCall.Name);
-        using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(timeout);
-
         ToolResult toolResult;
-        try
+        bool executedTool = false;
+        ToolResultCacheKey? cacheKey = TryCreateCacheKey(
+            executionContext,
+            out ToolResultCacheValidation? beforeValidation);
+        if (cacheKey is not null &&
+            TryGetCachedToolResult(cacheKey, out ToolResult? cachedResult))
         {
-            toolResult = await registration.Tool.ExecuteAsync(
+            toolResult = cachedResult;
+        }
+        else
+        {
+            executedTool = true;
+            toolResult = await ExecuteToolAsync(
+                registration.Tool,
+                toolCall.Name,
                 executionContext,
-                timeoutSource.Token);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
-        {
-            toolResult = ToolResultFactory.ExecutionError(
-                "tool_timeout",
-                $"Tool '{toolCall.Name}' timed out after {timeout.TotalSeconds:0} seconds.",
-                new ToolRenderPayload(
-                    $"Tool timed out: {toolCall.Name}",
-                    $"'{toolCall.Name}' did not finish within {timeout.TotalSeconds:0} seconds."));
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            toolResult = ToolResultFactory.ExecutionError(
-                "tool_execution_failed",
-                $"Tool execution failed unexpectedly: {exception.Message}",
-                new ToolRenderPayload(
-                    $"Tool failed: {toolCall.Name}",
-                    exception.Message));
+                cancellationToken);
         }
 
         LifecycleHookRunResult afterHookResult = await RunHooksAsync(
@@ -217,9 +210,518 @@ internal sealed class RegistryBackedToolInvoker : IToolInvoker
             toolResult,
             cancellationToken);
 
-        return !afterHookResult.IsAllowed
-            ? CreateHookBlockedInvocationResult(toolCall, afterHookResult)
-            : new ToolInvocationResult(toolCall.Id, toolCall.Name, toolResult);
+        if (!afterHookResult.IsAllowed)
+        {
+            if (executedTool &&
+                ShouldInvalidateCacheAfterToolResult(toolCall.Name, toolResult))
+            {
+                InvalidateSessionCache(session);
+            }
+
+            return CreateHookBlockedInvocationResult(toolCall, afterHookResult);
+        }
+
+        if (cacheKey is not null)
+        {
+            if (executedTool &&
+                toolResult.IsSuccess)
+            {
+                TryStoreCachedToolResult(
+                    cacheKey,
+                    toolResult,
+                    beforeValidation,
+                    executionContext);
+            }
+        }
+        else if (executedTool &&
+                 ShouldInvalidateCacheAfterToolResult(toolCall.Name, toolResult))
+        {
+            InvalidateSessionCache(session);
+        }
+
+        return new ToolInvocationResult(toolCall.Id, toolCall.Name, toolResult);
+    }
+
+    private async Task<ToolResult> ExecuteToolAsync(
+        ITool tool,
+        string toolName,
+        ToolExecutionContext executionContext,
+        CancellationToken cancellationToken)
+    {
+        TimeSpan timeout = GetToolTimeout(toolName);
+        using CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(timeout);
+
+        try
+        {
+            return await tool.ExecuteAsync(
+                executionContext,
+                timeoutSource.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeoutSource.IsCancellationRequested)
+        {
+            return ToolResultFactory.ExecutionError(
+                "tool_timeout",
+                $"Tool '{toolName}' timed out after {timeout.TotalSeconds:0} seconds.",
+                new ToolRenderPayload(
+                    $"Tool timed out: {toolName}",
+                    $"'{toolName}' did not finish within {timeout.TotalSeconds:0} seconds."));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return ToolResultFactory.ExecutionError(
+                "tool_execution_failed",
+                $"Tool execution failed unexpectedly: {exception.Message}",
+                new ToolRenderPayload(
+                    $"Tool failed: {toolName}",
+                    exception.Message));
+        }
+    }
+
+    private ToolResultCacheKey? TryCreateCacheKey(
+        ToolExecutionContext context,
+        out ToolResultCacheValidation? validation)
+    {
+        validation = null;
+        if (!IsCacheableToolCall(context))
+        {
+            return null;
+        }
+
+        validation = CreateCacheValidation(context);
+        return new ToolResultCacheKey(
+            context.Session.SessionId,
+            Path.GetFullPath(context.Session.WorkspacePath),
+            context.ExecutionPhase,
+            context.ToolName,
+            context.Session.WorkingDirectory,
+            CreateCanonicalJson(context.Arguments));
+    }
+
+    private bool TryGetCachedToolResult(
+        ToolResultCacheKey key,
+        out ToolResult result)
+    {
+        result = null!;
+        lock (_cacheSyncRoot)
+        {
+            if (!_toolResultCache.TryGetValue(key, out ToolResultCacheEntry? entry))
+            {
+                return false;
+            }
+
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            if (now - entry.CachedAtUtc > CacheEntryLifetime ||
+                !IsCacheValidationCurrent(entry.Validation))
+            {
+                _toolResultCache.Remove(key);
+                return false;
+            }
+
+            entry.LastUsed = ++_cacheUseSequence;
+            result = entry.Result;
+            return true;
+        }
+    }
+
+    private void TryStoreCachedToolResult(
+        ToolResultCacheKey key,
+        ToolResult result,
+        ToolResultCacheValidation? beforeValidation,
+        ToolExecutionContext context)
+    {
+        ToolResultCacheValidation? afterValidation = CreateCacheValidation(context);
+        if (!CacheValidationMatches(beforeValidation, afterValidation))
+        {
+            return;
+        }
+
+        lock (_cacheSyncRoot)
+        {
+            _toolResultCache[key] = new ToolResultCacheEntry(
+                result,
+                afterValidation,
+                DateTimeOffset.UtcNow,
+                ++_cacheUseSequence);
+
+            if (_toolResultCache.Count <= MaxCachedToolResults)
+            {
+                return;
+            }
+
+            foreach (ToolResultCacheKey staleKey in _toolResultCache
+                         .OrderBy(static pair => pair.Value.LastUsed)
+                         .Take(_toolResultCache.Count - MaxCachedToolResults)
+                         .Select(static pair => pair.Key)
+                         .ToArray())
+            {
+                _toolResultCache.Remove(staleKey);
+            }
+        }
+    }
+
+    private void InvalidateSessionCache(ReplSessionContext session)
+    {
+        lock (_cacheSyncRoot)
+        {
+            foreach (ToolResultCacheKey key in _toolResultCache.Keys
+                         .Where(key => string.Equals(key.SessionId, session.SessionId, StringComparison.Ordinal))
+                         .ToArray())
+            {
+                _toolResultCache.Remove(key);
+            }
+        }
+    }
+
+    private static bool ShouldInvalidateCacheAfterToolResult(
+        string toolName,
+        ToolResult result)
+    {
+        if (result.Status is ToolResultStatus.PermissionDenied or
+            ToolResultStatus.InvalidArguments or
+            ToolResultStatus.NotFound)
+        {
+            return false;
+        }
+
+        if (toolName.StartsWith(AgentToolNames.McpToolPrefix, StringComparison.Ordinal) ||
+            toolName.StartsWith(AgentToolNames.CustomToolPrefix, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return toolName is AgentToolNames.ApplyPatch or
+            AgentToolNames.FileWrite or
+            AgentToolNames.InsertContent or
+            AgentToolNames.FileDelete or
+            AgentToolNames.SearchAndReplace or
+            AgentToolNames.ShellCommand or
+            AgentToolNames.AgentDelegate or
+            AgentToolNames.AgentOrchestrate or
+            AgentToolNames.CodebaseIndex;
+    }
+
+    private static bool IsCacheableToolCall(ToolExecutionContext context)
+    {
+        return context.ToolName switch
+        {
+            AgentToolNames.FileRead => true,
+            AgentToolNames.TextSearch => true,
+            AgentToolNames.SearchFiles => true,
+            AgentToolNames.SkillLoad => true,
+            AgentToolNames.DirectoryList => !ToolArguments.GetBoolean(context.Arguments, "recursive"),
+            AgentToolNames.ShellCommand => IsCacheableShellCheck(context.Arguments),
+            _ => false
+        };
+    }
+
+    private static bool IsCacheableShellCheck(JsonElement arguments)
+    {
+        string? terminalAction = ToolArguments.GetOptionalString(arguments, "terminal_action");
+        if (!string.IsNullOrWhiteSpace(terminalAction) &&
+            !string.Equals(terminalAction, "run", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (ToolArguments.GetBoolean(arguments, "background") ||
+            ToolArguments.GetBoolean(arguments, "pty"))
+        {
+            return false;
+        }
+
+        if (ShellCommandSandboxArguments.TryGetSandboxPermissions(
+                arguments,
+                "sandbox_permissions",
+                out ShellCommandSandboxPermissions sandboxPermissions,
+                out _) &&
+            sandboxPermissions == ShellCommandSandboxPermissions.RequireEscalated)
+        {
+            return false;
+        }
+
+        if (!ToolArguments.TryGetNonEmptyString(arguments, "command", out string? command))
+        {
+            return false;
+        }
+
+        string normalizedCommand = ShellCommandText.NormalizeCommandText(command!);
+        if (ShellCommandText.ContainsControlSyntax(normalizedCommand))
+        {
+            return false;
+        }
+
+        IReadOnlyList<ShellCommandSegment> segments = ShellCommandText.ParseSegments(normalizedCommand);
+        if (segments.Count != 1)
+        {
+            return false;
+        }
+
+        string[] tokens = ShellCommandText.Tokenize(segments[0].CommandText);
+        if (tokens.Length == 0)
+        {
+            return false;
+        }
+
+        string commandName = ShellCommandText.NormalizeCommandToken(tokens[0]).ToLowerInvariant();
+        return commandName switch
+        {
+            "git" => IsCacheableGitCheck(tokens),
+            "dotnet" or
+            "node" or
+            "npm" or
+            "python" or
+            "python3" or
+            "py" => IsVersionProbe(tokens),
+            "pwd" or
+            "ls" or
+            "dir" or
+            "rg" or
+            "grep" or
+            "findstr" or
+            "cat" or
+            "type" or
+            "get-content" or
+            "head" or
+            "tail" or
+            "wc" => true,
+            _ => false
+        };
+    }
+
+    private static bool IsCacheableGitCheck(IReadOnlyList<string> tokens)
+    {
+        int index = 1;
+        while (index < tokens.Count &&
+               tokens[index].StartsWith("-", StringComparison.Ordinal))
+        {
+            if (string.Equals(tokens[index], "-C", StringComparison.Ordinal) &&
+                index + 1 < tokens.Count)
+            {
+                index += 2;
+                continue;
+            }
+
+            return false;
+        }
+
+        if (index >= tokens.Count)
+        {
+            return false;
+        }
+
+        string subcommand = tokens[index].ToLowerInvariant();
+        return subcommand switch
+        {
+            "status" or
+            "diff" or
+            "rev-parse" or
+            "ls-files" or
+            "log" or
+            "show" => true,
+            "branch" => IsCacheableGitBranch(tokens, index + 1),
+            _ => false
+        };
+    }
+
+    private static bool IsCacheableGitBranch(
+        IReadOnlyList<string> tokens,
+        int firstArgumentIndex)
+    {
+        if (firstArgumentIndex >= tokens.Count)
+        {
+            return true;
+        }
+
+        for (int index = firstArgumentIndex; index < tokens.Count; index++)
+        {
+            if (tokens[index] is not ("--show-current" or "-a" or "-r" or "-v" or "-vv"))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsVersionProbe(IReadOnlyList<string> tokens)
+    {
+        return tokens.Count is >= 2 and <= 3 &&
+               tokens.Skip(1).All(static token =>
+                   token is "--version" or "-v" or "-V" or "--info");
+    }
+
+    private static ToolResultCacheValidation? CreateCacheValidation(
+        ToolExecutionContext context)
+    {
+        return context.ToolName switch
+        {
+            AgentToolNames.FileRead => TryCreatePathValidation(context, fileRequired: true),
+            AgentToolNames.DirectoryList => TryCreatePathValidation(context, fileRequired: false),
+            _ => null
+        };
+    }
+
+    private static ToolResultCacheValidation? TryCreatePathValidation(
+        ToolExecutionContext context,
+        bool fileRequired)
+    {
+        string? requestedPath = ToolArguments.GetOptionalString(context.Arguments, "path");
+        if (fileRequired &&
+            string.IsNullOrWhiteSpace(requestedPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            string relativePath = context.Session.ResolvePathFromWorkingDirectory(requestedPath);
+            string fullPath = WorkspaceResolvedPath.Resolve(
+                context.Session.WorkspacePath,
+                relativePath,
+                ToolPathAccessKind.Read).CanonicalFullPath;
+            return TryCreateFileSystemValidation(fullPath);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static ToolResultCacheValidation? TryCreateFileSystemValidation(string fullPath)
+    {
+        try
+        {
+            if (File.Exists(fullPath))
+            {
+                FileInfo info = new(fullPath);
+                return new ToolResultCacheValidation(
+                    Path.GetFullPath(fullPath),
+                    Exists: true,
+                    IsDirectory: false,
+                    Length: info.Length,
+                    LastWriteTimeUtc: info.LastWriteTimeUtc);
+            }
+
+            if (Directory.Exists(fullPath))
+            {
+                DirectoryInfo info = new(fullPath);
+                return new ToolResultCacheValidation(
+                    Path.GetFullPath(fullPath),
+                    Exists: true,
+                    IsDirectory: true,
+                    Length: 0,
+                    LastWriteTimeUtc: info.LastWriteTimeUtc);
+            }
+
+            return new ToolResultCacheValidation(
+                Path.GetFullPath(fullPath),
+                Exists: false,
+                IsDirectory: false,
+                Length: 0,
+                LastWriteTimeUtc: DateTime.MinValue);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static bool CacheValidationMatches(
+        ToolResultCacheValidation? before,
+        ToolResultCacheValidation? after)
+    {
+        if (before is null || after is null)
+        {
+            return before is null && after is null;
+        }
+
+        return AreSameValidation(before, after);
+    }
+
+    private static bool IsCacheValidationCurrent(ToolResultCacheValidation? validation)
+    {
+        if (validation is null)
+        {
+            return true;
+        }
+
+        ToolResultCacheValidation? current = TryCreateFileSystemValidation(validation.FullPath);
+        return current is not null &&
+               AreSameValidation(validation, current);
+    }
+
+    private static bool AreSameValidation(
+        ToolResultCacheValidation left,
+        ToolResultCacheValidation right)
+    {
+        return WorkspacePath.PathEquals(left.FullPath, right.FullPath) &&
+               left.Exists == right.Exists &&
+               left.IsDirectory == right.IsDirectory &&
+               left.Length == right.Length &&
+               left.LastWriteTimeUtc == right.LastWriteTimeUtc;
+    }
+
+    private static string CreateCanonicalJson(JsonElement element)
+    {
+        using MemoryStream stream = new();
+        using (Utf8JsonWriter writer = new(stream))
+        {
+            WriteCanonicalJson(element, writer);
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static void WriteCanonicalJson(
+        JsonElement element,
+        Utf8JsonWriter writer)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+                foreach (JsonProperty property in element
+                             .EnumerateObject()
+                             .OrderBy(static property => property.Name, StringComparer.Ordinal))
+                {
+                    writer.WritePropertyName(property.Name);
+                    WriteCanonicalJson(property.Value, writer);
+                }
+
+                writer.WriteEndObject();
+                break;
+
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (JsonElement item in element.EnumerateArray())
+                {
+                    WriteCanonicalJson(item, writer);
+                }
+
+                writer.WriteEndArray();
+                break;
+
+            default:
+                element.WriteTo(writer);
+                break;
+        }
     }
 
     private TimeSpan GetToolTimeout(string toolName)
@@ -656,6 +1158,44 @@ internal sealed class RegistryBackedToolInvoker : IToolInvoker
 
         return argumentsDocument.RootElement.Clone();
     }
+
+    private sealed record ToolResultCacheKey(
+        string SessionId,
+        string WorkspacePath,
+        ConversationExecutionPhase ExecutionPhase,
+        string ToolName,
+        string WorkingDirectory,
+        string ArgumentsSignature);
+
+    private sealed class ToolResultCacheEntry
+    {
+        public ToolResultCacheEntry(
+            ToolResult result,
+            ToolResultCacheValidation? validation,
+            DateTimeOffset cachedAtUtc,
+            long lastUsed)
+        {
+            Result = result;
+            Validation = validation;
+            CachedAtUtc = cachedAtUtc;
+            LastUsed = lastUsed;
+        }
+
+        public DateTimeOffset CachedAtUtc { get; }
+
+        public long LastUsed { get; set; }
+
+        public ToolResult Result { get; }
+
+        public ToolResultCacheValidation? Validation { get; }
+    }
+
+    private sealed record ToolResultCacheValidation(
+        string FullPath,
+        bool Exists,
+        bool IsDirectory,
+        long Length,
+        DateTime LastWriteTimeUtc);
 
     private sealed class DisabledLifecycleHookService : ILifecycleHookService
     {
