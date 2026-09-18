@@ -148,13 +148,9 @@ async function ensureBinary(options = {}) {
     ? tag.trim()
     : platform.resolveTag();
 
-  // Release tags have shipped under both v/V casings. Use one casing for both
-  // archives so the CLI and Voice runtime always come from the same release.
-  const candidateTags = [resolvedTag];
-  const alternate = platform.alternateTag(resolvedTag);
-  if (alternate && alternate !== resolvedTag) {
-    candidateTags.push(alternate);
-  }
+  // Release tags have shipped with uppercase V, lowercase v, and no prefix.
+  // Use one tag for both archives so the CLI and Voice runtime match.
+  const candidateTags = platform.releaseTagCandidates(resolvedTag);
 
   let archiveBuffer = null;
   let voiceArchiveBuffer = null;
@@ -186,9 +182,7 @@ async function ensureBinary(options = {}) {
       throw lastError;
     }
     throw new Error(
-      `Could not find release assets ${asset} and ${voiceAsset} for tag ${resolvedTag}` +
-        (alternate && alternate !== resolvedTag ? ` or ${alternate}` : "") +
-        "."
+      `Could not find release assets ${asset} and ${voiceAsset} for tag ${candidateTags.join(" or ")}.`
     );
   }
 

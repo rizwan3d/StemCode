@@ -152,6 +152,38 @@ test("ensureBinary falls back to the alternate-case tag when the primary 404s", 
   }
 });
 
+test("ensureBinary falls back to an unprefixed tag when prefixed tags 404", async () => {
+  const executable = platform.executableFileName();
+  const voiceExecutable = platform.voiceExecutableFileName();
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "stemcode-dl-"));
+  const voiceDir = path.join(tempDir, "voice");
+
+  try {
+    const fetch = makeFetch({
+      missingTags: new Set(["V1.1.17", "v1.1.17"]),
+      assetsByTag: createReleaseAssets("1.1.17", "fake-stemcode-binary", "fake-voice-binary"),
+    });
+
+    const result = await withDownloadOverrides(
+      {
+        fetch,
+        installedBinaryPath: () => path.join(tempDir, executable),
+        installedVoiceBinaryPath: () => path.join(voiceDir, voiceExecutable),
+        vendorDir: () => tempDir,
+        voiceDir: () => voiceDir,
+        cliVersion: "1.1.17", // resolveTag() => V1.1.17 (primary)
+      },
+      () => download.ensureBinary({ force: true, log: () => {} })
+    );
+
+    assert.equal(result, path.join(tempDir, executable));
+    assert.ok(fs.existsSync(result), "CLI binary should be extracted to disk");
+    assert.ok(fs.existsSync(path.join(voiceDir, voiceExecutable)), "Voice runtime should be extracted");
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("ensureBinary uses the primary tag when it resolves successfully", async () => {
   const executable = platform.executableFileName();
   const voiceExecutable = platform.voiceExecutableFileName();

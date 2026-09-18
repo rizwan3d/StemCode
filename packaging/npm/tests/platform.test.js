@@ -3,7 +3,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { resolveTag, resolveVersion, alternateTag } = require("../scripts/platform.js");
+const {
+  resolveTag,
+  resolveVersion,
+  alternateTag,
+  releaseTagCandidates,
+} = require("../scripts/platform.js");
 
 function withEnv(vars, fn) {
   const prev = {};
@@ -64,4 +69,10 @@ test("alternateTag leaves tags without a v/V prefix unchanged", () => {
   assert.equal(alternateTag("1.1.10"), "1.1.10");
   assert.equal(alternateTag(""), "");
   assert.equal(alternateTag(undefined), undefined);
+});
+
+test("releaseTagCandidates includes v, V, and unprefixed release tags", () => {
+  assert.deepEqual(releaseTagCandidates("V1.1.17"), ["V1.1.17", "v1.1.17", "1.1.17"]);
+  assert.deepEqual(releaseTagCandidates("v1.1.17"), ["v1.1.17", "V1.1.17", "1.1.17"]);
+  assert.deepEqual(releaseTagCandidates("1.1.17"), ["1.1.17"]);
 });

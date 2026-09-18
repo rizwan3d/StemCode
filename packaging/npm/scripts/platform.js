@@ -81,6 +81,25 @@ function alternateTag(tag) {
   return tag;
 }
 
+// GitHub releases have been published as "V<version>", "v<version>", and plain
+// "<version>". Return the tags to try in order without duplicates.
+function releaseTagCandidates(tag) {
+  if (!tag) return [];
+
+  const candidates = [tag];
+  const alternate = alternateTag(tag);
+  if (alternate && !candidates.includes(alternate)) {
+    candidates.push(alternate);
+  }
+
+  const unprefixed = tag.replace(/^v/i, "");
+  if (unprefixed && !candidates.includes(unprefixed)) {
+    candidates.push(unprefixed);
+  }
+
+  return candidates;
+}
+
 function baseDownloadUrl(tagOverride) {
   const override = process.env.STEMCODE_CLI_BASE_URL;
   if (override && override.trim()) {
@@ -130,6 +149,7 @@ module.exports = {
   resolveVersion,
   resolveTag,
   alternateTag,
+  releaseTagCandidates,
   baseDownloadUrl,
   assetName,
   voiceAssetName,
