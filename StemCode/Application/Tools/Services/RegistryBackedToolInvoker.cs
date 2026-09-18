@@ -2,6 +2,7 @@ using StemCode.Application.Abstractions;
 using StemCode.Application.Exceptions;
 using StemCode.Application.Models;
 using StemCode.Application.Permissions;
+using StemCode.Application.Tools.Models;
 using StemCode.Application.Tools.Serialization;
 using StemCode.Application.Utilities;
 using System.Globalization;
