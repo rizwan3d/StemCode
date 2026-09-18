@@ -639,7 +639,7 @@ jobs:
           package-manager-cache: false
           
       - name: Setup npm
-        run: npm install --global npm@lates
+        run: npm install --global npm@latest
 
       - name: Verify npm OIDC requirements
         run: |
