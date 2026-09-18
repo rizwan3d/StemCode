@@ -635,7 +635,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Set package version
@@ -644,12 +644,5 @@ jobs:
 
       - name: Publish to npm
         working-directory: packaging/npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
-            echo "NPM_TOKEN secret is required to publish the npm package." >&2
-            exit 1
-          fi
-          npm publish --access public --provenance
+        run: |          
+          npm publish --access public
