@@ -103,6 +103,35 @@ public sealed class ShellCommandServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteAsync_Should_UseCmdFastPath_ForSimpleWindowsExternalCommands()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        FakeProcessRunner processRunner = new();
+        processRunner.EnqueueResult(new ProcessExecutionResult(0, "ok", string.Empty));
+        ShellCommandService sut = new(
+            processRunner,
+            new StubWorkspaceRootProvider(_workspaceRoot),
+            new PermissionSettings
+            {
+                SandboxMode = ToolSandboxMode.DangerFullAccess
+            });
+
+        await sut.ExecuteAsync(
+            new ShellCommandExecutionRequest("dotnet test", null),
+            CancellationToken.None);
+
+        processRunner.Requests.Should().ContainSingle();
+        ProcessExecutionRequest request = processRunner.Requests[0];
+        request.FileName.Should().EndWith("cmd.exe");
+        request.Arguments.Should().Equal("/d", "/s", "/c", "dotnet test");
+        request.MaxOutputCharacters.Should().Be(8000);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_Should_UseExecutionPolicyBypass_ForWindowsPowerShell()
     {
         if (!OperatingSystem.IsWindows())
@@ -121,14 +150,14 @@ public sealed class ShellCommandServiceTests : IDisposable
             });
 
         await sut.ExecuteAsync(
-            new ShellCommandExecutionRequest("npm run dev", null),
+            new ShellCommandExecutionRequest("Write-Output ready", null),
             CancellationToken.None);
 
         processRunner.Requests.Should().ContainSingle();
         ProcessExecutionRequest request = processRunner.Requests[0];
         request.FileName.Should().Be("powershell");
         request.Arguments.Should().ContainInOrder("-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command");
-        request.Arguments[^1].Should().Contain("npm run dev");
+        request.Arguments[^1].Should().Contain("Write-Output ready");
     }
 
     [Fact]
@@ -387,7 +416,8 @@ public sealed class ShellCommandServiceTests : IDisposable
         windowsSandboxProcessRunner.Requests.Should().ContainSingle();
         ProcessExecutionRequest request = windowsSandboxProcessRunner.Requests[0].Request;
         WindowsSandboxExecutionContext context = windowsSandboxProcessRunner.Requests[0].Context;
-        request.FileName.Should().Be("powershell");
+        request.FileName.Should().EndWith("cmd.exe");
+        request.Arguments.Should().Equal("/d", "/s", "/c", "dotnet --version");
         request.EnvironmentVariables!["STEMCODE_SANDBOX_ENFORCEMENT"].Should().Be("windows-sandbox");
         context.Mode.Should().Be(ToolSandboxMode.WorkspaceWrite);
         context.PolicyCwd.Should().Be(Path.GetFullPath(_workspaceRoot));
@@ -480,7 +510,8 @@ public sealed class ShellCommandServiceTests : IDisposable
         windowsSandboxProcessRunner.BackgroundRequests.Should().ContainSingle();
         ProcessExecutionRequest request = windowsSandboxProcessRunner.BackgroundRequests[0].Request;
         WindowsSandboxExecutionContext context = windowsSandboxProcessRunner.BackgroundRequests[0].Context;
-        request.FileName.Should().Be("powershell");
+        request.FileName.Should().EndWith("cmd.exe");
+        request.Arguments.Should().Equal("/d", "/s", "/c", "npm run dev");
         request.EnvironmentVariables!["STEMCODE_SANDBOX_ENFORCEMENT"].Should().Be("windows-sandbox");
         context.Mode.Should().Be(ToolSandboxMode.WorkspaceWrite);
 

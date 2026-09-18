@@ -19,6 +19,34 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
     private const int MaxBackgroundOutputCharacters = 16_000;
     private const int DefaultCompletedBackgroundTerminalTtlSeconds = 300;
     private const int DefaultMaxConcurrentBackgroundTerminalsPerSession = 4;
+    private static readonly HashSet<string> WindowsCmdFastPathCommands = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bun",
+        "cargo",
+        "deno",
+        "dotnet",
+        "fd",
+        "git",
+        "go",
+        "gradle",
+        "java",
+        "javac",
+        "mvn",
+        "node",
+        "npm",
+        "npx",
+        "nuget",
+        "pip",
+        "pip3",
+        "pnpm",
+        "python",
+        "python3",
+        "rg",
+        "rustc",
+        "tsc",
+        "tsx",
+        "yarn"
+    };
     private const string RunningStatus = "running";
     private const string ExitedStatus = "exited";
     private const string FailedStatus = "failed";
@@ -471,16 +499,8 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
         string workingDirectory = ResolveWorkspacePath(request.WorkingDirectory, directoryRequired: true);
         string workspaceRoot = Path.GetFullPath(_workspaceRootProvider.GetWorkspaceRoot());
         ToolSandboxMode effectiveSandboxMode = GetEffectiveSandboxMode(request);
-        string commandText = OperatingSystem.IsWindows()
-            ? BuildWindowsCommandText(request.Command)
-            : request.Command;
         ProcessExecutionRequest shellRequest = OperatingSystem.IsWindows()
-            ? new ProcessExecutionRequest(
-                "powershell",
-                ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", commandText],
-                WorkingDirectory: workingDirectory,
-                MaxOutputCharacters: MaxOutputCharacters,
-                UsePseudoTerminal: request.PseudoTerminal)
+            ? CreateWindowsShellRequest(request, workingDirectory)
             : new ProcessExecutionRequest(
                 "/bin/bash",
                 ["-lc", request.Command],
@@ -509,6 +529,75 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
             effectiveSandboxMode,
             sandboxPlan,
             processRequest);
+    }
+
+    private static ProcessExecutionRequest CreateWindowsShellRequest(
+        ShellCommandExecutionRequest request,
+        string workingDirectory)
+    {
+        if (TryCreateWindowsCmdFastPathRequest(request, workingDirectory, out ProcessExecutionRequest? fastPathRequest))
+        {
+            return fastPathRequest!;
+        }
+
+        string commandText = BuildWindowsCommandText(request.Command);
+        return new ProcessExecutionRequest(
+            "powershell",
+            ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", commandText],
+            WorkingDirectory: workingDirectory,
+            MaxOutputCharacters: MaxOutputCharacters,
+            UsePseudoTerminal: request.PseudoTerminal);
+    }
+
+    private static bool TryCreateWindowsCmdFastPathRequest(
+        ShellCommandExecutionRequest request,
+        string workingDirectory,
+        out ProcessExecutionRequest? processRequest)
+    {
+        processRequest = null;
+
+        if (request.PseudoTerminal ||
+            ShellCommandText.ContainsControlSyntax(request.Command) ||
+            !ShellCommandText.TryGetCommandName(request.Command, out string commandName) ||
+            !IsWindowsCmdFastPathCommand(commandName))
+        {
+            return false;
+        }
+
+        processRequest = new ProcessExecutionRequest(
+            GetWindowsCmdPath(),
+            ["/d", "/s", "/c", request.Command],
+            WorkingDirectory: workingDirectory,
+            MaxOutputCharacters: MaxOutputCharacters);
+        return true;
+    }
+
+    private static bool IsWindowsCmdFastPathCommand(string commandName)
+    {
+        if (WindowsCmdFastPathCommands.Contains(commandName))
+        {
+            return true;
+        }
+
+        string extension = Path.GetExtension(commandName);
+        return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".bat", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetWindowsCmdPath()
+    {
+        string systemDirectory = Environment.SystemDirectory;
+        if (!string.IsNullOrWhiteSpace(systemDirectory))
+        {
+            string cmdPath = Path.Combine(systemDirectory, "cmd.exe");
+            if (File.Exists(cmdPath))
+            {
+                return cmdPath;
+            }
+        }
+
+        return "cmd.exe";
     }
 
     private ToolSandboxMode GetEffectiveSandboxMode(ShellCommandExecutionRequest request)
