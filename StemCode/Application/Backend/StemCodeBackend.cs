@@ -179,10 +179,7 @@ public sealed class StemCodeBackend : IStemCodeBackend
                 cancellationToken);
         }
 
-        if (options.ContextWindowTokens is > 0)
-        {
-            _session.SetContextWindowOverride(options.ContextWindowTokens);
-        }
+        ApplyRuntimeContextWindowOverride(_session);
 
         await PromptForUpdateIfAvailableAsync(options.SkipUpdateCheck, cancellationToken);
         _editListStartIndex = _session.GetRecordedEditCount();
@@ -234,6 +231,7 @@ public sealed class StemCodeBackend : IStemCodeBackend
         {
             await _sessionAppService.SaveIfDirtyAsync(_session, cancellationToken);
             _session = result.SessionOverride;
+            ApplyRuntimeContextWindowOverride(_session);
             _editListStartIndex = _session.GetRecordedEditCount();
         }
 
@@ -499,6 +497,14 @@ public sealed class StemCodeBackend : IStemCodeBackend
         return estimatedTokens > int.MaxValue
             ? int.MaxValue
             : Math.Max(session.TotalEstimatedOutputTokens, (int)estimatedTokens);
+    }
+
+    private void ApplyRuntimeContextWindowOverride(ReplSessionContext session)
+    {
+        if (_runtimeArguments.ContextWindowTokens is > 0)
+        {
+            session.SetContextWindowOverride(_runtimeArguments.ContextWindowTokens);
+        }
     }
 
     private static IReadOnlyDictionary<string, int> CreateModelContextWindowMap(
