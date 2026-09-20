@@ -99,6 +99,8 @@ internal static class CliApplication
               --no-old-reader      Resume a section without replaying old messages to the screen
               --profile <name>     Use an agent profile
               --thinking <on|off>  Override thinking mode
+              --context-size <n>   Cap context window for this run
+                                   Presets: 8k, 32k, 64k, 125k, 256k; custom token counts supported
               -v, --version        Show version
               -h, --help           Show help
               --doctor             Run system diagnostics and print doctor report
