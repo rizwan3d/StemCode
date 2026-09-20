@@ -1,3 +1,5 @@
+using StemCode.Application.Models;
+
 namespace StemCode.Application.Backend;
 
 internal sealed record BackendRuntimeArguments(
@@ -5,6 +7,7 @@ internal sealed record BackendRuntimeArguments(
     string? SectionId,
     string? ProfileName,
     string? ThinkingMode,
+    int? ContextWindowTokens,
     string? AppSurface,
     bool SkipUpdateCheck)
 {
@@ -13,6 +16,7 @@ internal sealed record BackendRuntimeArguments(
         SectionId: null,
         ProfileName: null,
         ThinkingMode: null,
+        ContextWindowTokens: null,
         AppSurface: null,
         SkipUpdateCheck: false);
 
@@ -70,6 +74,8 @@ internal sealed record BackendRuntimeArguments(
 
         public string? ThinkingMode { get; private set; }
 
+        public int? ContextWindowTokens { get; private set; }
+
         public string? AppSurface => _appSurface;
 
         public bool SkipUpdateCheck { get; private set; }
@@ -89,6 +95,7 @@ internal sealed record BackendRuntimeArguments(
                 SectionId,
                 ProfileName,
                 ThinkingMode,
+                ContextWindowTokens,
                 _appSurface,
                 SkipUpdateCheck);
         }
@@ -119,6 +126,12 @@ internal sealed record BackendRuntimeArguments(
             if (TryConsumeOption(args, ref index, "--thinking", out string? thinkingMode))
             {
                 ThinkingMode = thinkingMode;
+                return true;
+            }
+
+            if (TryConsumeOption(args, ref index, "--context-size", out string? contextSize))
+            {
+                ContextWindowTokens = ContextSizeOptions.Parse(contextSize!);
                 return true;
             }
 
