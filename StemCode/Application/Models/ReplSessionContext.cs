@@ -27,6 +27,7 @@ public sealed class ReplSessionContext
     private readonly HashSet<string> _availableModelIds;
     private Dictionary<string, int> _modelContextWindowTokens;
     private Dictionary<string, ModelContextMetadata> _modelContextMetadata;
+    private int? _contextWindowOverrideTokens;
     private List<WorkspaceFileEditTransaction>? _batchedFileEditTransactions;
     private readonly List<ConversationRequestMessage> _conversationHistory = [];
     private readonly List<ConversationSectionTurn> _conversationTurns = [];
@@ -189,11 +190,29 @@ public sealed class ReplSessionContext
 
     public IReadOnlyDictionary<string, ModelContextMetadata> ModelContextMetadata => _modelContextMetadata;
 
-    public int? ActiveModelContextWindowTokens => _modelContextWindowTokens.TryGetValue(
+    public int? ContextWindowOverrideTokens => _contextWindowOverrideTokens;
+
+    public int? ActiveModelReportedContextWindowTokens => _modelContextWindowTokens.TryGetValue(
         ActiveModelId,
         out int contextWindowTokens)
             ? contextWindowTokens
             : null;
+
+    public int? ActiveModelContextWindowTokens
+    {
+        get
+        {
+            int? reportedContextWindowTokens = ActiveModelReportedContextWindowTokens;
+            if (_contextWindowOverrideTokens is not > 0)
+            {
+                return reportedContextWindowTokens;
+            }
+
+            return reportedContextWindowTokens is > 0
+                ? Math.Min(reportedContextWindowTokens.Value, _contextWindowOverrideTokens.Value)
+                : _contextWindowOverrideTokens.Value;
+        }
+    }
 
     public ModelContextMetadata? ActiveModelContextMetadata => _modelContextMetadata.TryGetValue(
         ActiveModelId,
@@ -393,6 +412,16 @@ public sealed class ReplSessionContext
 
         PendingExecutionPlan = null;
         IsPersistedStateDirty = true;
+    }
+
+    public void SetContextWindowOverride(int? contextWindowTokens)
+    {
+        if (contextWindowTokens is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(contextWindowTokens));
+        }
+
+        _contextWindowOverrideTokens = contextWindowTokens;
     }
 
     public void SetActiveModel(string modelId)
