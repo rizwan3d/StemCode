@@ -10,6 +10,59 @@ namespace StemCode.Tests.Application.Models;
 public sealed class ReplSessionContextTests
 {
     [Fact]
+    public void SetContextWindowOverride_Should_CapProviderReportedWindow()
+    {
+        ReplSessionContext session = new(
+            new AgentProviderProfile(ProviderKind.Ollama, null),
+            "model-a",
+            ["model-a"],
+            modelContextWindowTokens: new Dictionary<string, int>
+            {
+                ["model-a"] = 128_000
+            });
+
+        session.SetContextWindowOverride(64_000);
+
+        session.ContextWindowOverrideTokens.Should().Be(64_000);
+        session.ActiveModelReportedContextWindowTokens.Should().Be(128_000);
+        session.ActiveModelContextWindowTokens.Should().Be(64_000);
+        session.ActiveModelContextMetadata!.ContextWindowTokens.Should().Be(128_000);
+        session.IsPersistedStateDirty.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SetContextWindowOverride_Should_NotExceedProviderReportedWindow()
+    {
+        ReplSessionContext session = new(
+            new AgentProviderProfile(ProviderKind.Ollama, null),
+            "model-a",
+            ["model-a"],
+            modelContextWindowTokens: new Dictionary<string, int>
+            {
+                ["model-a"] = 128_000
+            });
+
+        session.SetContextWindowOverride(256_000);
+
+        session.ActiveModelReportedContextWindowTokens.Should().Be(128_000);
+        session.ActiveModelContextWindowTokens.Should().Be(128_000);
+    }
+
+    [Fact]
+    public void SetContextWindowOverride_Should_WorkWhenProviderDoesNotReportWindow()
+    {
+        ReplSessionContext session = new(
+            new AgentProviderProfile(ProviderKind.Ollama, null),
+            "model-a",
+            ["model-a"]);
+
+        session.SetContextWindowOverride(32_000);
+
+        session.ActiveModelReportedContextWindowTokens.Should().BeNull();
+        session.ActiveModelContextWindowTokens.Should().Be(32_000);
+    }
+
+    [Fact]
     public void SessionResumeCommand_Should_UseCliExecutableName()
     {
         ReplSessionContext session = CreateSession();
