@@ -229,9 +229,10 @@ public sealed class StemCodeBackend : IStemCodeBackend
         if (result.SessionOverride is not null &&
             !ReferenceEquals(result.SessionOverride, _session))
         {
+            int? contextWindowOverrideTokens = _session.ContextWindowOverrideTokens;
             await _sessionAppService.SaveIfDirtyAsync(_session, cancellationToken);
             _session = result.SessionOverride;
-            ApplyRuntimeContextWindowOverride(_session);
+            _session.SetContextWindowOverride(contextWindowOverrideTokens);
             _editListStartIndex = _session.GetRecordedEditCount();
         }
 
