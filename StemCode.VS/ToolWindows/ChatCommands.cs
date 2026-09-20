@@ -25,6 +25,7 @@ namespace StemCode.VS.ToolWindows
             new ChatCommandSuggestion("/clone", "/clone", "Duplicate the current session.", "/clone"),
             new ChatCommandSuggestion("/compact", "/compact [retained-turns]", "Manually compact the session context.", "/compact "),
             new ChatCommandSuggestion("/config", "/config", "Show provider, profile, thinking, and model details.", "/config"),
+            new ChatCommandSuggestion("/context-size", "/context-size [show|auto|8k|32k|64k|125k|256k|<tokens>]", "Show, set, or clear the session context window cap.", "/context-size "),
             new ChatCommandSuggestion("/copy", "/copy", "Copy the last agent message to the clipboard.", "/copy"),
             new ChatCommandSuggestion("/deny", "/deny <tool-or-tag> [pattern]", "Add a session-scoped deny override.", "/deny "),
             new ChatCommandSuggestion("/exit", "/exit", "Exit the interactive shell.", "/exit"),
