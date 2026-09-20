@@ -338,6 +338,7 @@ stemcode --session <session-guid>
 | `--section <id>` | Compatibility alias for `--session`. |
 | `--profile <name>` | Start with a profile. |
 | `--thinking <on\|off>` | Start with thinking on or off. |
+| `--context-size <size>` | Cap the context window for this run. Presets include `8k`, `32k`, `64k`, `125k`, and `256k`; custom values such as `96k` or `96000` are also accepted. The effective size never exceeds the context window reported by the provider API. Omit this option to keep the existing behavior and defaults. |
 | `-v, --version` | Show the StemCode CLI version. |
 | `--doctor` | Run system diagnostics and print the doctor report. |
 | `--no-update-check` | Skip checking for application updates on startup. |
