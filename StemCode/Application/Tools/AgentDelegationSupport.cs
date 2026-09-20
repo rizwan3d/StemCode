@@ -27,6 +27,11 @@ internal static class AgentDelegationSupport
             modelContextMetadata: parentSession.ModelContextMetadata,
             activeProviderName: parentSession.ActiveProviderName);
 
+        if (parentSession.ContextWindowOverrideTokens is > 0)
+        {
+            childSession.SetContextWindowOverride(parentSession.ContextWindowOverrideTokens);
+        }
+
         _ = childSession.TrySetWorkingDirectory(parentSession.WorkingDirectory, out _);
 
         foreach (PermissionRule rule in parentSession.PermissionOverrides)
