@@ -179,6 +179,11 @@ public sealed class StemCodeBackend : IStemCodeBackend
                 cancellationToken);
         }
 
+        if (options.ContextWindowTokens is > 0)
+        {
+            _session.SetContextWindowOverride(options.ContextWindowTokens);
+        }
+
         await PromptForUpdateIfAvailableAsync(options.SkipUpdateCheck, cancellationToken);
         _editListStartIndex = _session.GetRecordedEditCount();
 
