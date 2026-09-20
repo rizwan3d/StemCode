@@ -16,6 +16,7 @@ internal static class ReplCommandCatalog
         Create<CodebaseIndexCommandHandler>("index", "Update, rebuild, inspect, or list the local codebase index.", "/index [update|status|rebuild|list] [limit]"),
         Create<CompactCommandHandler>("compact", "Manually compact the session context.", "/compact [retained-turns]"),
         Create<ConfigCommandHandler>("config", "Show provider, config-path, active-profile, thinking, and active-model details.", "/config"),
+        Create<ContextSizeCommandHandler>("context-size", "Show, set, or clear the session context window cap.", "/context-size [show|auto|8k|32k|64k|125k|256k|<tokens>]"),
         Create<CopyCommandHandler>("copy", "Copy the last agent message to the clipboard.", "/copy"),
         Create<DisableAnalyticsCommandHandler>("disableanalytics", "Disable product analytics for this workspace.", "/disableanalytics"),
         Create<DoctorCommandHandler>("doctor", "Show comprehensive system diagnostics for StemCode.", "/doctor"),
