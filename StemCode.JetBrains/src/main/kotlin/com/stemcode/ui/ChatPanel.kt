@@ -1140,6 +1140,7 @@ class ChatPanel(private val project: Project) : BorderLayoutPanel() {
         "/clone" to "Duplicate the current session.",
         "/compact [retained-turns]" to "Manually compact the session context.",
         "/config" to "Show provider, profile, thinking, and model details.",
+        "/context-size [show|auto|8k|32k|64k|125k|256k|<tokens>]" to "Show, set, or clear the session context window cap.",
         "/copy" to "Copy the last agent message to the clipboard.",
         "/deny <tool-or-tag> [pattern]" to "Add a session-scoped deny override.",
         "/exit" to "Exit the interactive shell.",
