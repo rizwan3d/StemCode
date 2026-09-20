@@ -14,6 +14,7 @@ export const CHAT_COMMANDS: ChatCommandSuggestion[] = [
     { command: '/clone', usage: '/clone', description: 'Duplicate the current session.', insertText: '/clone' },
     { command: '/compact', usage: '/compact [retained-turns]', description: 'Manually compact the session context.', insertText: '/compact ' },
     { command: '/config', usage: '/config', description: 'Show provider, profile, thinking, and model details.', insertText: '/config' },
+    { command: '/context-size', usage: '/context-size [show|auto|8k|32k|64k|125k|256k|<tokens>]', description: 'Show, set, or clear the session context window cap.', insertText: '/context-size ' },
     { command: '/copy', usage: '/copy', description: 'Copy the last agent message to the clipboard.', insertText: '/copy' },
     { command: '/deny', usage: '/deny <tool-or-tag> [pattern]', description: 'Add a session-scoped deny override.', insertText: '/deny ' },
     { command: '/exit', usage: '/exit', description: 'Exit the interactive shell.', insertText: '/exit' },
