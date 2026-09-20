@@ -24,6 +24,7 @@ public partial class ChatViewModel : ViewModelBase, IAsyncDisposable
         new("/allow", "/allow <tool-or-tag> [pattern]", "Add a session-scoped allow override.", true),
         new("/budget", "/budget [status|local|cloud]", "Show or configure budget controls.", false),
         new("/config", "/config", "Show provider, session, profile, thinking, and model details.", false),
+        new("/context-size", "/context-size [show|auto|8k|32k|64k|125k|256k|<tokens>]", "Show, set, or clear the session context window cap.", true),
         new("/deny", "/deny <tool-or-tag> [pattern]", "Add a session-scoped deny override.", true),
         new("/help", "/help", "List available commands and usage.", false),
         new("/init", "/init [recommended|minimal|custom]", "Choose workspace-local StemCode files.", false),
