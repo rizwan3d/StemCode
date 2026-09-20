@@ -357,6 +357,7 @@ stemcode --session <session-guid>
 | `/clone` | Duplicate the current session at the current position. |
 | `/compact [retained-turns]` | Manually compact the session context. |
 | `/config` | Show provider, config path, active profile, thinking, and active model details. |
+| `/context-size [show\|auto\|8k\|32k\|64k\|125k\|256k\|<tokens>]` | Show, set, or clear the context window cap for the active session. Values above a provider-reported window are capped to that reported limit. |
 | `/copy` | Copy the last agent message to the clipboard. |
 | `/disableanalytics` | Disable product analytics for this workspace. |
 | `/doctor` | Show comprehensive system diagnostics for StemCode. |
