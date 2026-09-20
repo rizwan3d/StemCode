@@ -13,6 +13,7 @@ public sealed class BackendRuntimeArgumentsTests
                 "--profile", "review",
                 "--section=section-1",
                 "--thinking", "off",
+                "--context-size", "125k",
                 "--surface", "VSCode",
                 "--no-update-check",
                 "--sandbox-mode", "danger-full-access"
@@ -22,12 +23,14 @@ public sealed class BackendRuntimeArgumentsTests
             "--profile", "review",
             "--section=section-1",
             "--thinking", "off",
+            "--context-size", "125k",
             "--surface", "VSCode",
             "--no-update-check",
             "--Application:Permissions:SandboxMode=DangerFullAccess");
         arguments.SectionId.Should().Be("section-1");
         arguments.ProfileName.Should().Be("review");
         arguments.ThinkingMode.Should().Be("off");
+        arguments.ContextWindowTokens.Should().Be(125_000);
         arguments.AppSurface.Should().Be(BackendRuntimeOptions.VsCodeSurface);
         arguments.SkipUpdateCheck.Should().BeTrue();
     }
@@ -66,6 +69,24 @@ public sealed class BackendRuntimeArgumentsTests
 
         act.Should().Throw<ArgumentException>()
             .WithMessage("Missing value for --thinking.");
+    }
+
+    [Fact]
+    public void Parse_Should_ParseManualContextSize()
+    {
+        BackendRuntimeArguments arguments = BackendRuntimeArguments.Parse(["--context-size=96000"]);
+
+        arguments.ContextWindowTokens.Should().Be(96_000);
+        arguments.RawArgs.Should().Equal("--context-size=96000");
+    }
+
+    [Fact]
+    public void Parse_Should_RejectInvalidContextSize()
+    {
+        Action act = () => BackendRuntimeArguments.Parse(["--context-size", "1k"]);
+
+        act.Should().Throw<ArgumentException>()
+            .WithMessage("Invalid context size*");
     }
 
     [Fact]
