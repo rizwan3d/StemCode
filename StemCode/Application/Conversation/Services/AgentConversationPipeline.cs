@@ -2018,7 +2018,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         int toolDefinitionTokens)
     {
         int contextWindowTokens = modelContextMetadata?.ContextWindowTokens is > 0
-            ? modelContextMetadata.ContextWindowTokens
+            ? Math.Min(modelContextMetadata.ContextWindowTokens, fallbackContextWindowTokens)
             : fallbackContextWindowTokens;
         double effectivePercent = modelContextMetadata?.EffectiveContextWindowPercent is > 0d and <= 1d
             ? modelContextMetadata.EffectiveContextWindowPercent.Value
