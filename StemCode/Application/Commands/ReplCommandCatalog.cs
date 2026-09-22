@@ -21,7 +21,7 @@ internal static class ReplCommandCatalog
         Create<DoctorCommandHandler>("doctor", "Show comprehensive system diagnostics for StemCode.", "/doctor"),
         Create<DenyCommandHandler>("deny", "Add a session-scoped deny override for a tool/tag and optional target pattern.", "/deny <tool-or-tag> [pattern]", requiresArgument: true),
         Create<ExitCommandHandler>("exit", "Exit the interactive shell.", "/exit"),
-        Create<ExportCommandHandler>("export", "Export the current session as JSON or HTML.", "/export [json|html] [path]"),
+        Create<ExportCommandHandler>("export", "Export the current session as JSON, HTML, or trajectory HTML.", "/export [json|html|trajectory] [path]"),
         Create<ForkCommandHandler>("fork", "Create a new fork from a previous user message.", "/fork [turn-number]"),
         Create<HelpCommandHandler>("help", "List the available shell commands and their usage.", "/help"),
         Create<ImportCommandHandler>("import", "Import a session from JSON and switch to the imported copy.", "/import <json-path>", requiresArgument: true),

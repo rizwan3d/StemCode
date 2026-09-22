@@ -31,10 +31,42 @@ public static partial class Program
 
         for (int index = startLine; index < endLine; index++)
         {
-            rendered.Add(readerLines[index].Markup);
+            ReaderViewLine line = readerLines[index];
+            rendered.Add(IsSelectedReaderLine(state, readerLines, index)
+                ? $"[black on grey85]{Markup.Escape(line.Plain)}[/]"
+                : line.Markup);
         }
 
         return new Markup(string.Join('\n', rendered));
+    }
+
+    private static bool IsSelectedReaderLine(
+        AppState state,
+        IReadOnlyList<ReaderViewLine> lines,
+        int lineIndex)
+    {
+        if (lines[lineIndex].SelectionKey is null)
+        {
+            return false;
+        }
+
+        int selectableIndex = 0;
+        for (int index = 0; index <= lineIndex; index++)
+        {
+            if (lines[index].SelectionKey is null)
+            {
+                continue;
+            }
+
+            if (index == lineIndex)
+            {
+                return selectableIndex == state.ReaderSelectedSelectableIndex;
+            }
+
+            selectableIndex++;
+        }
+
+        return false;
     }
 
     private static string BuildReaderHeaderMarkup(AppState state, int startLine, int endLine, int totalLines)
@@ -163,6 +195,37 @@ public static partial class Program
         int width = Math.Max(20, GetWindowWidth() - 1);
         int lineCount = BuildReaderDisplayLines(state, width).Count;
         return Math.Max(0, lineCount - GetReaderViewportLineCount());
+    }
+
+    private static int GetReaderSelectableCount(AppState state)
+    {
+        int width = Math.Max(20, GetWindowWidth() - 1);
+        return BuildReaderDisplayLines(state, width)
+            .Count(static line => line.SelectionKey is not null);
+    }
+
+    private static int GetReaderSelectedLineIndex(AppState state)
+    {
+        int width = Math.Max(20, GetWindowWidth() - 1);
+        List<ReaderViewLine> lines = BuildReaderDisplayLines(state, width);
+        int selectableIndex = 0;
+
+        for (int index = 0; index < lines.Count; index++)
+        {
+            if (lines[index].SelectionKey is null)
+            {
+                continue;
+            }
+
+            if (selectableIndex == state.ReaderSelectedSelectableIndex)
+            {
+                return index;
+            }
+
+            selectableIndex++;
+        }
+
+        return -1;
     }
 
     // ---- Copy mode (in-app keyboard selection) ----

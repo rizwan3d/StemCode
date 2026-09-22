@@ -273,6 +273,11 @@ public static partial class Program
             return;
         }
 
+        if (TryHandleTrajectoryView(state, command))
+        {
+            return;
+        }
+
         if (TryHandleTerminalView(state, command))
         {
             return;

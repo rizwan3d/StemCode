@@ -10,18 +10,25 @@ namespace StemCode.Application.Commands;
 
 internal sealed class ExportCommandHandler : IReplCommandHandler
 {
+    private const string HtmlFormat = "html";
+    private const string JsonFormat = "json";
+    private const string TrajectoryFormat = "trajectory";
     private readonly ISelectionPrompt _selectionPrompt;
+    private readonly ISessionEventLogService _sessionEventLogService;
 
-    public ExportCommandHandler(ISelectionPrompt selectionPrompt)
+    public ExportCommandHandler(
+        ISelectionPrompt selectionPrompt,
+        ISessionEventLogService sessionEventLogService)
     {
         _selectionPrompt = selectionPrompt;
+        _sessionEventLogService = sessionEventLogService;
     }
 
     public string CommandName => "export";
 
-    public string Description => "Export the current session as JSON or HTML.";
+    public string Description => "Export the current session as JSON, HTML, or trajectory HTML.";
 
-    public string Usage => "/export [json|html] [path]";
+    public string Usage => "/export [json|html|trajectory] [path]";
 
     public async Task<ReplCommandResult> ExecuteAsync(
         ReplCommandContext context,
@@ -45,8 +52,12 @@ internal sealed class ExportCommandHandler : IReplCommandHandler
                                 "Portable session backup that can be imported later."),
                             new SelectionPromptOption<string>(
                                 "HTML",
-                                "html",
-                                "Readable transcript for sharing or review.")
+                                HtmlFormat,
+                                "Readable transcript for sharing or review."),
+                            new SelectionPromptOption<string>(
+                                "Trajectory HTML",
+                                TrajectoryFormat,
+                                "Full event stream with reasoning, tool calls, tool results, and output.")
                         ],
                         "Esc cancels export.",
                         DefaultIndex: 0,
@@ -61,8 +72,8 @@ internal sealed class ExportCommandHandler : IReplCommandHandler
         else
         {
             string firstArgument = context.Arguments[0].Trim();
-            format = firstArgument.ToLowerInvariant();
-            if (format is "json" or "html")
+            format = NormalizeFormat(firstArgument);
+            if (format is JsonFormat or HtmlFormat or TrajectoryFormat)
             {
                 if (context.ArgumentText.Length > firstArgument.Length)
                 {
@@ -72,18 +83,22 @@ internal sealed class ExportCommandHandler : IReplCommandHandler
             else
             {
                 requestedPath = context.ArgumentText;
-                format = Path.GetExtension(requestedPath).TrimStart('.').ToLowerInvariant();
+                format = NormalizeFormat(Path.GetExtension(requestedPath).TrimStart('.'));
             }
         }
 
-        if (format is not ("json" or "html"))
+        if (format is not (JsonFormat or HtmlFormat or TrajectoryFormat))
         {
             return ReplCommandResult.Continue(
-                "Usage: /export [json|html] [path]",
+                "Usage: /export [json|html|trajectory] [path]",
                 ReplFeedbackKind.Error);
         }
 
-        string extension = format == "json" ? "json" : "html";
+        string extension = format == JsonFormat
+            ? "json"
+            : format == TrajectoryFormat
+                ? "trajectory.html"
+                : "html";
         string filePath = string.IsNullOrWhiteSpace(requestedPath)
             ? SessionCommandSupport.CreateDefaultExportPath(context.Session, extension)
             : SessionCommandSupport.ResolvePath(requestedPath);
@@ -91,9 +106,18 @@ internal sealed class ExportCommandHandler : IReplCommandHandler
             context.Session,
             DateTimeOffset.UtcNow);
 
-        if (format == "json")
+        if (format == JsonFormat)
         {
             await SessionCommandSupport.ExportJsonAsync(snapshot, filePath, cancellationToken);
+        }
+        else if (format == TrajectoryFormat)
+        {
+            string eventLogPath = _sessionEventLogService.GetStoragePath(context.Session.SectionId);
+            await SessionCommandSupport.ExportTrajectoryHtmlAsync(
+                snapshot,
+                eventLogPath,
+                filePath,
+                cancellationToken);
         }
         else
         {
@@ -102,6 +126,16 @@ internal sealed class ExportCommandHandler : IReplCommandHandler
 
         return ReplCommandResult.Continue(
             $"Exported session as {format.ToUpperInvariant()}:\n{filePath}");
+    }
+
+    private static string NormalizeFormat(string value)
+    {
+        string normalized = value.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "traj" or "trajectory" or "trajecotry" => TrajectoryFormat,
+            _ => normalized
+        };
     }
 }
 
