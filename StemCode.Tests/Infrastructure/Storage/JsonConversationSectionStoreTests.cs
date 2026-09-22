@@ -151,6 +151,51 @@ public sealed class JsonConversationSectionStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ListAsync_Should_IgnoreSessionRecordFiles()
+    {
+        StubUserDataPathProvider pathProvider = new(_tempRoot);
+        JsonConversationSectionStore sut = new(pathProvider);
+        ConversationSectionSnapshot snapshot = new(
+            Guid.NewGuid().ToString("D"),
+            "Real Section",
+            new DateTimeOffset(2026, 4, 21, 1, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 4, 21, 1, 5, 0, TimeSpan.Zero),
+            new AgentProviderProfile(ProviderKind.OpenAiCompatible, "https://provider.example.com/v1"),
+            "gpt-5-mini",
+            ["gpt-5-mini"],
+            [],
+            0);
+        await sut.SaveAsync(snapshot, CancellationToken.None);
+
+        string sessionsDirectory = pathProvider.GetSessionsDirectoryPath();
+        string parentSessionId = Guid.NewGuid().ToString("D");
+        await File.WriteAllTextAsync(
+            Path.Combine(sessionsDirectory, $"{parentSessionId}.json"),
+            $$"""
+            {
+              "sessionId": "{{parentSessionId}}",
+              "createdAtUtc": "2026-04-21T01:00:00+00:00",
+              "updatedAtUtc": "2026-04-21T01:05:00+00:00",
+              "sectionIds": ["{{snapshot.SectionId}}"],
+              "accumulatedContext": {
+                "completedSectionSummaries": [],
+                "files": [],
+                "edits": [],
+                "terminalHistory": []
+              }
+            }
+            """,
+            CancellationToken.None);
+
+        IReadOnlyList<ConversationSectionSnapshot> snapshots = await sut.ListAsync(CancellationToken.None);
+        ConversationSectionSnapshot? parentRecord = await sut.LoadAsync(parentSessionId, CancellationToken.None);
+
+        snapshots.Should().ContainSingle();
+        snapshots[0].SectionId.Should().Be(snapshot.SectionId);
+        parentRecord.Should().BeNull();
+    }
+
+    [Fact]
     public async Task SaveAsync_ThenLoadAsync_Should_PreserveInterruptedTurn()
     {
         StubUserDataPathProvider pathProvider = new(_tempRoot);

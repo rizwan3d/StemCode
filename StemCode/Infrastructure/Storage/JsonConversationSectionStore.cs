@@ -31,6 +31,11 @@ internal sealed class JsonConversationSectionStore : IConversationSectionStore
 
         try
         {
+            if (!IsSectionSnapshotJson(json))
+            {
+                return null;
+            }
+
             ConversationSectionSnapshot? snapshot = JsonSerializer.Deserialize(
                 json,
                 ConversationSectionStorageJsonContext.Default.ConversationSectionSnapshot);
@@ -46,6 +51,20 @@ internal sealed class JsonConversationSectionStore : IConversationSectionStore
         {
             return null;
         }
+    }
+
+    private static bool IsSectionSnapshotJson(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("sectionId", out JsonElement sectionId) ||
+            sectionId.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(sectionId.GetString());
     }
 
     public async Task<IReadOnlyList<ConversationSectionSnapshot>> ListAsync(
