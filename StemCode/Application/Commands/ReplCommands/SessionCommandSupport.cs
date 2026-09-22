@@ -1,5 +1,6 @@
 using StemCode.Application.Abstractions;
 using StemCode.Application.Models;
+using StemCode.Application.Trajectory;
 using StemCode.Domain.Models;
 using StemCode.Infrastructure.Storage;
 using System.Globalization;
@@ -253,16 +254,7 @@ internal static class SessionCommandSupport
 
     public static string CreatePreview(string value, int maxLength = 72)
     {
-        string normalized = string.Join(
-            ' ',
-            value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-
-        if (normalized.Length <= maxLength)
-        {
-            return normalized;
-        }
-
-        return normalized[..Math.Max(0, maxLength - 3)].TrimEnd() + "...";
+        return TrajectoryFormatting.CreatePreview(value, maxLength);
     }
 
     private static string CreateHtmlTranscript(ConversationSectionSnapshot snapshot)
@@ -351,39 +343,7 @@ internal static class SessionCommandSupport
         string eventLogPath,
         CancellationToken cancellationToken)
     {
-        if (!File.Exists(eventLogPath))
-        {
-            return [];
-        }
-
-        List<SessionEventRecord> events = [];
-        await foreach (string line in File.ReadLinesAsync(eventLogPath, cancellationToken))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                continue;
-            }
-
-            try
-            {
-                SessionEventRecord? record = JsonSerializer.Deserialize(
-                    line,
-                    SessionEventLogJsonContext.Default.SessionEventRecord);
-                if (record is not null)
-                {
-                    events.Add(record);
-                }
-            }
-            catch (JsonException)
-            {
-            }
-        }
-
-        return events
-            .OrderBy(static record => record.EventSequenceId ?? long.MaxValue)
-            .ThenBy(static record => record.TimestampUtc)
-            .ToArray();
+        return await TrajectoryLogReader.LoadFromFileAsync(eventLogPath, cancellationToken);
     }
 
     private static string CreateTrajectoryHtml(
@@ -461,7 +421,7 @@ internal static class SessionCommandSupport
         AppendMetric(builder, failureCount, "errors");
         AppendMetric(builder, firstTimestamp is null || lastTimestamp is null
             ? string.Empty
-            : FormatDuration(lastTimestamp.Value - firstTimestamp.Value), "span");
+            : TrajectoryFormatting.FormatDuration(lastTimestamp.Value - firstTimestamp.Value), "span");
         builder.AppendLine("</section>");
 
         builder.AppendLine("<div class=\"layout\">");
@@ -470,7 +430,7 @@ internal static class SessionCommandSupport
         {
             builder.AppendLine("<h2>Run outline</h2>");
             builder.Append("<div class=\"timeline\">");
-            builder.Append(Html(BuildTrajectoryTimeline(events)));
+            builder.Append(Html(TrajectorySummaryBuilder.BuildTimeline(events, maxWidth: 120)));
             builder.AppendLine("</div>");
             builder.AppendLine("<p class=\"legend\">Legend: U user, M model/prompt, C chunk, A assistant, T tool, R retry, E error, P plan.</p>");
             if (toolNames.Length > 0)
@@ -753,9 +713,7 @@ internal static class SessionCommandSupport
 
     private static string FormatEventType(string eventType)
     {
-        return string.Join(
-            ' ',
-            eventType.Split('_', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return TrajectoryFormatting.FormatEventType(eventType);
     }
 
     private static string? PrettyJsonOrRaw(string? value)
@@ -784,174 +742,19 @@ internal static class SessionCommandSupport
         }
     }
 
-    private static string BuildTrajectoryTimeline(IReadOnlyList<SessionEventRecord> events)
-    {
-        if (events.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        const int MaxWidth = 120;
-        if (events.Count <= MaxWidth)
-        {
-            return new string(events.Select(GetTimelineMarker).ToArray());
-        }
-
-        char[] markers = new char[MaxWidth];
-        for (int index = 0; index < MaxWidth; index++)
-        {
-            int eventIndex = (int)Math.Floor(index * (events.Count / (double)MaxWidth));
-            markers[index] = GetTimelineMarker(events[Math.Min(eventIndex, events.Count - 1)]);
-        }
-
-        return new string(markers);
-    }
-
-    private static char GetTimelineMarker(SessionEventRecord record)
-    {
-        string eventType = record.EventType;
-        if (eventType.Contains("user", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'U';
-        }
-
-        if (eventType.Contains("retry", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'R';
-        }
-
-        if (eventType.Contains("chunk", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("delta", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("first_token", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'C';
-        }
-
-        if (eventType.Contains("model", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("prompt", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'M';
-        }
-
-        if (eventType.Contains("tool", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'T';
-        }
-
-        if (eventType.Contains("assistant", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'A';
-        }
-
-        if (eventType.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("error", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'E';
-        }
-
-        if (eventType.Contains("plan", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'P';
-        }
-
-        return '.';
-    }
-
     private static string? FormatUsage(SessionEventRecord record)
     {
-        List<string> parts = [];
-        AddNumber(parts, "input", record.InputTokens);
-        AddNumber(parts, "cacheRead", record.CacheReadTokens);
-        AddNumber(parts, "cacheWrite", record.CacheWriteTokens);
-        AddNumber(parts, "output", record.OutputTokens);
-        AddNumber(parts, "reasoning", record.ReasoningTokens);
-        AddNumber(parts, "itemsReplaced", record.ItemsReplaced);
-        AddNumber(parts, "tokensReplaced", record.TokensReplaced);
-        return parts.Count == 0 ? null : string.Join("  ", parts);
+        return TrajectoryFormatting.FormatUsage(record);
     }
 
     private static string? FormatTiming(SessionEventRecord record)
     {
-        List<string> parts = [];
-        AddText(parts, "requestStart", FormatOptionalTimestamp(record.RequestStartedAtUtc));
-        AddText(parts, "firstToken", FormatOptionalTimestamp(record.FirstTokenAtUtc));
-        AddText(parts, "completed", FormatOptionalTimestamp(record.CompletedAtUtc));
-        AddDuration(parts, "total", record.TotalDurationMs);
-        AddDuration(parts, "TTFT", record.TtftMs);
-        AddDuration(parts, "generation", record.GenerationDurationMs);
-        if (record.TokensPerSecond is not null)
-        {
-            parts.Add("tokens/sec=" + record.TokensPerSecond.Value.ToString("0.##", CultureInfo.InvariantCulture));
-        }
-
-        return parts.Count == 0 ? null : string.Join("  ", parts);
+        return TrajectoryFormatting.FormatTimingBlock(record);
     }
 
     private static string? FormatErrors(SessionEventRecord record)
     {
-        List<string> parts = [];
-        AddText(parts, "type", record.ErrorType);
-        AddText(parts, "code", record.ErrorCode);
-        AddNumber(parts, "retry", record.RetryNumber);
-        AddNumber(parts, "maxRetries", record.MaxRetries);
-        AddNumber(parts, "delayMs", record.RetryDelayMs);
-        return parts.Count == 0 ? null : string.Join("  ", parts);
-    }
-
-    private static void AddNumber(List<string> parts, string label, int? value)
-    {
-        if (value is not null)
-        {
-            parts.Add(label + "=" + value.Value.ToString(CultureInfo.InvariantCulture));
-        }
-    }
-
-    private static void AddDuration(List<string> parts, string label, double? milliseconds)
-    {
-        if (milliseconds is not null)
-        {
-            parts.Add(label + "=" + FormatDuration(TimeSpan.FromMilliseconds(milliseconds.Value)));
-        }
-    }
-
-    private static void AddText(List<string> parts, string label, string? value)
-    {
-        if (!string.IsNullOrWhiteSpace(value))
-        {
-            parts.Add(label + "=" + value.Trim());
-        }
-    }
-
-    private static string FormatDuration(TimeSpan duration)
-    {
-        if (duration < TimeSpan.Zero)
-        {
-            duration = TimeSpan.Zero;
-        }
-
-        if (duration.TotalMilliseconds < 1000)
-        {
-            return ((int)Math.Round(duration.TotalMilliseconds)).ToString(CultureInfo.InvariantCulture) + "ms";
-        }
-
-        if (duration.TotalMinutes < 1)
-        {
-            return duration.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + "s";
-        }
-
-        if (duration.TotalHours < 1)
-        {
-            return ((int)duration.TotalMinutes).ToString(CultureInfo.InvariantCulture) + "m " +
-                duration.Seconds.ToString(CultureInfo.InvariantCulture) + "s";
-        }
-
-        return ((int)duration.TotalHours).ToString(CultureInfo.InvariantCulture) + "h " +
-            duration.Minutes.ToString(CultureInfo.InvariantCulture) + "m";
-    }
-
-    private static string? FormatOptionalTimestamp(DateTimeOffset? value)
-    {
-        return value is null ? null : FormatTimestamp(value.Value);
+        return TrajectoryFormatting.FormatErrors(record);
     }
 
     private static string Html(string value)
