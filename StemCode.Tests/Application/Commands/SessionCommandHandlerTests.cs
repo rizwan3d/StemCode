@@ -52,7 +52,7 @@ public sealed class SessionCommandHandlerTests : IDisposable
         ExportCommandHandler sut = new(new ThrowingSelectionPrompt(), new FixedSessionEventLogService(eventLogPath));
 
         ReplCommandResult result = await sut.ExecuteAsync(
-            CreateContext(session, "trajecotry " + exportPath),
+            CreateContext(session, "trajectory " + exportPath),
             CancellationToken.None);
 
         result.Message.Should().Contain("Exported session as TRAJECTORY");

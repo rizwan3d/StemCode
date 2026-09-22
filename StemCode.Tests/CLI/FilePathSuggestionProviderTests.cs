@@ -71,6 +71,22 @@ public sealed class FilePathSuggestionProviderTests : IDisposable
     }
 
     [Fact]
+    public void GetSuggestions_Should_SuggestWorkspaceFilesForTrajectoryExportCommand()
+    {
+        WriteFile("exports/session.trajectory.html", "<html></html>");
+
+        IReadOnlyList<FilePathSuggestion> suggestions = FilePathSuggestionProvider.GetSuggestions(
+            _workspaceRoot,
+            "/export trajectory exports/se",
+            maxCount: 8);
+
+        suggestions.Should().ContainSingle();
+        suggestions[0].DisplayPath.Should().Be("exports/session.trajectory.html");
+        suggestions[0].CompletedInput.Should().Be("/export trajectory exports/session.trajectory.html");
+        suggestions[0].IsDirectory.Should().BeFalse();
+    }
+
+    [Fact]
     public void GetSuggestions_Should_RejectPathsThatEscapeWorkspace()
     {
         IReadOnlyList<FilePathSuggestion> suggestions = FilePathSuggestionProvider.GetSuggestions(
