@@ -6,6 +6,7 @@ internal static class FilePathSuggestionProvider
     private const string ImportCommandPrefix = "/import ";
     private const string ExportJsonCommandPrefix = "/export json ";
     private const string ExportHtmlCommandPrefix = "/export html ";
+    private const string ExportTrajectoryCommandPrefix = "/export trajectory ";
     private const string DirectShellPrefix = "!";
     private static readonly char[] DirectorySeparators = ['/', '\\'];
 
@@ -165,6 +166,7 @@ internal static class FilePathSuggestionProvider
             TryCreateRequest(input, ImportCommandPrefix, fullRoot, homeDirectory, jsonOnly: true, out request) ||
             TryCreateRequest(input, ExportJsonCommandPrefix, fullRoot, homeDirectory, jsonOnly: false, out request) ||
             TryCreateRequest(input, ExportHtmlCommandPrefix, fullRoot, homeDirectory, jsonOnly: false, out request) ||
+            TryCreateRequest(input, ExportTrajectoryCommandPrefix, fullRoot, homeDirectory, jsonOnly: false, out request) ||
             TryCreateBangRequest(input, fullRoot, homeDirectory, out request) ||
             TryCreatePlainPathRequest(input, fullRoot, homeDirectory, out request))
         {
