@@ -1,6 +1,6 @@
+using StemCode.Application.Models;
+using StemCode.Application.Trajectory;
 using System.Globalization;
-using System.Text;
-using System.Text.Json;
 using Spectre.Console;
 
 namespace StemCode.CLI;
@@ -78,8 +78,8 @@ public static partial class Program
             return lines;
         }
 
-        List<TrajectoryEventRecord> events = LoadTrajectoryEvents(eventLogPath);
-        AddTrajectorySummary(lines, BuildTrajectorySummary(events));
+        IReadOnlyList<SessionEventRecord> events = LoadTrajectoryEvents(eventLogPath);
+        AddTrajectorySummary(lines, TrajectorySummaryBuilder.Build(events));
         AddStyledLine(lines, string.Empty, string.Empty);
         AddStyledLine(lines, "Event stream", "[bold white]Event stream[/]");
         AddStyledLine(lines, string.Empty, string.Empty);
@@ -96,7 +96,7 @@ public static partial class Program
                 continue;
             }
 
-            if (!TryParseTrajectoryEvent(rawLine, out TrajectoryEventRecord record))
+            if (!TryParseTrajectoryEvent(rawLine, out SessionEventRecord record))
             {
                 eventIndex++;
                 AddEventHeader(lines, eventIndex, "invalid event", null, null, null, null);
@@ -143,7 +143,7 @@ public static partial class Program
             AddOptionalTrajectoryBlock(lines, "Tool result", PrettyJsonOrRaw(record.ToolResultJson), contentWidth, "green");
             AddOptionalTrajectoryBlock(lines, "Raw", PrettyJsonOrRaw(record.RawJson), contentWidth, "grey");
             AddStyledLine(lines, string.Empty, string.Empty);
-            previousTimestamp = record.TimestampUtc ?? previousTimestamp;
+            previousTimestamp = record.TimestampUtc;
         }
 
         if (eventIndex == 0)
@@ -181,8 +181,8 @@ public static partial class Program
             return lines;
         }
 
-        List<TrajectoryEventRecord> events = LoadTrajectoryEvents(eventLogPath);
-        AddTrajectorySummary(lines, BuildTrajectorySummary(events));
+        IReadOnlyList<SessionEventRecord> events = LoadTrajectoryEvents(eventLogPath);
+        AddTrajectorySummary(lines, TrajectorySummaryBuilder.Build(events));
         AddStyledLine(lines, string.Empty, string.Empty);
         AddStyledLine(lines, "Steps", "[bold white]Steps[/]");
         AddStyledLine(lines, string.Empty, string.Empty);
@@ -200,7 +200,7 @@ public static partial class Program
             }
 
             eventIndex++;
-            if (!TryParseTrajectoryEvent(rawLine, out TrajectoryEventRecord record))
+            if (!TryParseTrajectoryEvent(rawLine, out SessionEventRecord record))
             {
                 AddSelectableEventRow(
                     lines,
@@ -232,7 +232,7 @@ public static partial class Program
                 record.ToolName,
                 location,
                 BuildTrajectoryStepSummary(record, timing));
-            previousTimestamp = record.TimestampUtc ?? previousTimestamp;
+            previousTimestamp = record.TimestampUtc;
         }
 
         if (eventIndex == 0)
@@ -317,7 +317,7 @@ public static partial class Program
 
             eventIndex++;
             bool isSelected = eventIndex == selectedEventIndex;
-            if (!TryParseTrajectoryEvent(rawLine, out TrajectoryEventRecord record))
+            if (!TryParseTrajectoryEvent(rawLine, out SessionEventRecord record))
             {
                 if (isSelected)
                 {
@@ -354,7 +354,7 @@ public static partial class Program
                 return lines;
             }
 
-            previousTimestamp = record.TimestampUtc ?? previousTimestamp;
+            previousTimestamp = record.TimestampUtc;
         }
 
         AddWrappedStyledText(
@@ -365,147 +365,9 @@ public static partial class Program
         return lines;
     }
 
-    private static List<TrajectoryEventRecord> LoadTrajectoryEvents(string eventLogPath)
+    private static IReadOnlyList<SessionEventRecord> LoadTrajectoryEvents(string eventLogPath)
     {
-        List<TrajectoryEventRecord> events = [];
-        foreach (string rawLine in File.ReadLines(eventLogPath))
-        {
-            if (TryParseTrajectoryEvent(rawLine, out TrajectoryEventRecord record))
-            {
-                events.Add(record);
-            }
-        }
-
-        return events;
-    }
-
-    private static TrajectorySummary BuildTrajectorySummary(IReadOnlyList<TrajectoryEventRecord> events)
-    {
-        DateTimeOffset? firstTimestamp = null;
-        DateTimeOffset? lastTimestamp = null;
-        foreach (TrajectoryEventRecord record in events)
-        {
-            if (record.TimestampUtc is not DateTimeOffset timestamp)
-            {
-                continue;
-            }
-
-            firstTimestamp = firstTimestamp is null || timestamp < firstTimestamp.Value
-                ? timestamp
-                : firstTimestamp;
-            lastTimestamp = lastTimestamp is null || timestamp > lastTimestamp.Value
-                ? timestamp
-                : lastTimestamp;
-        }
-
-        string[] toolNames = events
-            .Select(static record => record.ToolName)
-            .Where(static toolName => !string.IsNullOrWhiteSpace(toolName))
-            .Select(static toolName => toolName!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(static toolName => toolName, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        string[] workingDirectories = events
-            .Select(static record => record.WorkingDirectory)
-            .Where(static workingDirectory => !string.IsNullOrWhiteSpace(workingDirectory))
-            .Select(static workingDirectory => workingDirectory!.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Take(4)
-            .ToArray();
-
-        return new TrajectorySummary(
-            events.Count,
-            CountEvents(events, "user_input"),
-            CountEvents(events, "assistant_reasoning"),
-            CountEvents(events, "assistant_output"),
-            CountEvents(events, "assistant_tool_call_request"),
-            CountEvents(events, "tool_call_response"),
-            CountEvents(events, "execution_plan"),
-            CountEvents(events, "turn_failed"),
-            firstTimestamp,
-            lastTimestamp,
-            toolNames,
-            workingDirectories,
-            BuildTrajectoryTimeline(events));
-    }
-
-    private static int CountEvents(IReadOnlyList<TrajectoryEventRecord> events, string eventType)
-    {
-        return events.Count(record => string.Equals(record.EventType, eventType, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string BuildTrajectoryTimeline(IReadOnlyList<TrajectoryEventRecord> events)
-    {
-        if (events.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        const int MaxWidth = 80;
-        if (events.Count <= MaxWidth)
-        {
-            return new string(events.Select(GetTimelineMarker).ToArray());
-        }
-
-        char[] markers = new char[MaxWidth];
-        for (int index = 0; index < MaxWidth; index++)
-        {
-            int eventIndex = (int)Math.Floor(index * (events.Count / (double)MaxWidth));
-            markers[index] = GetTimelineMarker(events[Math.Min(eventIndex, events.Count - 1)]);
-        }
-
-        return new string(markers);
-    }
-
-    private static char GetTimelineMarker(TrajectoryEventRecord record)
-    {
-        string eventType = record.EventType;
-        if (eventType.Contains("user", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'U';
-        }
-
-        if (eventType.Contains("retry", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'R';
-        }
-
-        if (eventType.Contains("chunk", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("delta", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("first_token", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'C';
-        }
-
-        if (eventType.Contains("model", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("prompt", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'M';
-        }
-
-        if (eventType.Contains("tool", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'T';
-        }
-
-        if (eventType.Contains("assistant", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'A';
-        }
-
-        if (eventType.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
-            eventType.Contains("error", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'E';
-        }
-
-        if (eventType.Contains("plan", StringComparison.OrdinalIgnoreCase))
-        {
-            return 'P';
-        }
-
-        return '.';
+        return TrajectoryLogReader.LoadFromFile(eventLogPath);
     }
 
     private static void AddTrajectorySummary(List<ReaderViewLine> lines, TrajectorySummary summary)
@@ -568,177 +430,9 @@ public static partial class Program
         return Path.Combine(folderPath, "StemCode");
     }
 
-    private static bool TryParseTrajectoryEvent(string json, out TrajectoryEventRecord record)
+    private static bool TryParseTrajectoryEvent(string json, out SessionEventRecord record)
     {
-        record = default;
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(json);
-            JsonElement root = document.RootElement;
-            if (root.ValueKind != JsonValueKind.Object)
-            {
-                return false;
-            }
-
-            record = new TrajectoryEventRecord(
-                TryGetDateTimeOffset(root, "timestampUtc"),
-                TryGetString(root, "sectionId"),
-                TryGetString(root, "parentSessionId"),
-                TryGetString(root, "eventType") ?? "event",
-                TryGetString(root, "agentProfileName"),
-                TryGetString(root, "modelId"),
-                TryGetString(root, "workingDirectory"),
-                TryGetString(root, "text"),
-                TryGetString(root, "toolCallId"),
-                TryGetString(root, "toolName"),
-                TryGetString(root, "toolArgumentsJson"),
-                TryGetString(root, "toolStatus"),
-                TryGetString(root, "toolMessage"),
-                TryGetString(root, "toolResultJson"),
-                TryGetString(root, "errorType"),
-                TryGetInt64(root, "eventSequenceId"),
-                TryGetString(root, "turnId"),
-                TryGetInt32(root, "turnIndex"),
-                TryGetString(root, "stepId"),
-                TryGetInt32(root, "stepIndex"),
-                TryGetString(root, "modelRequestId"),
-                TryGetString(root, "assistantMessageId"),
-                TryGetString(root, "toolResultId"),
-                TryGetString(root, "parentCallId"),
-                TryGetString(root, "source"),
-                TryGetString(root, "systemPrompt"),
-                TryGetString(root, "toolsJson"),
-                TryGetString(root, "toolSchemaJson"),
-                TryGetString(root, "requestOptionsJson"),
-                TryGetString(root, "inputJson"),
-                TryGetString(root, "outputJson"),
-                TryGetString(root, "thinkingJson"),
-                TryGetString(root, "rawJson"),
-                TryGetString(root, "status"),
-                TryGetString(root, "errorCode"),
-                TryGetInt32(root, "retryNumber"),
-                TryGetInt32(root, "maxRetries"),
-                TryGetInt32(root, "retryDelayMs"),
-                TryGetInt32(root, "inputTokens"),
-                TryGetInt32(root, "cacheReadTokens"),
-                TryGetInt32(root, "cacheWriteTokens"),
-                TryGetInt32(root, "outputTokens"),
-                TryGetInt32(root, "reasoningTokens"),
-                TryGetDateTimeOffset(root, "requestStartedAtUtc"),
-                TryGetDateTimeOffset(root, "firstTokenAtUtc"),
-                TryGetDateTimeOffset(root, "completedAtUtc"),
-                TryGetDouble(root, "totalDurationMs"),
-                TryGetDouble(root, "ttftMs"),
-                TryGetDouble(root, "generationDurationMs"),
-                TryGetDouble(root, "tokensPerSecond"),
-                TryGetBool(root, "isPartial"),
-                TryGetBool(root, "isRunning"),
-                TryGetBool(root, "interrupted"),
-                TryGetString(root, "summary"),
-                TryGetInt32(root, "itemsReplaced"),
-                TryGetInt32(root, "tokensReplaced"));
-            return true;
-        }
-        catch (JsonException)
-        {
-            return false;
-        }
-    }
-
-    private static string? TryGetString(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out JsonElement value) ||
-            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        return value.ValueKind == JsonValueKind.String
-            ? value.GetString()
-            : value.GetRawText();
-    }
-
-    private static DateTimeOffset? TryGetDateTimeOffset(JsonElement root, string propertyName)
-    {
-        string? value = TryGetString(root, propertyName);
-        return DateTimeOffset.TryParse(
-            value,
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-            out DateTimeOffset parsed)
-                ? parsed
-                : null;
-    }
-
-    private static int? TryGetInt32(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out JsonElement value) ||
-            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int number))
-        {
-            return number;
-        }
-
-        return int.TryParse(TryGetString(root, propertyName), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
-            ? parsed
-            : null;
-    }
-
-    private static long? TryGetInt64(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out JsonElement value) ||
-            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long number))
-        {
-            return number;
-        }
-
-        return long.TryParse(TryGetString(root, propertyName), NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed)
-            ? parsed
-            : null;
-    }
-
-    private static double? TryGetDouble(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out JsonElement value) ||
-            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out double number))
-        {
-            return number;
-        }
-
-        return double.TryParse(TryGetString(root, propertyName), NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
-            ? parsed
-            : null;
-    }
-
-    private static bool? TryGetBool(JsonElement root, string propertyName)
-    {
-        if (!root.TryGetProperty(propertyName, out JsonElement value) ||
-            value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
-        {
-            return null;
-        }
-
-        return value.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            _ => bool.TryParse(TryGetString(root, propertyName), out bool parsed) ? parsed : null
-        };
+        return TrajectoryLogReader.TryParseLine(json, out record);
     }
 
     private static void AddTurnSeparator(List<ReaderViewLine> lines, int turnIndex, DateTimeOffset? timestampUtc)
@@ -812,7 +506,7 @@ public static partial class Program
             eventIndex.ToString(CultureInfo.InvariantCulture)));
     }
 
-    private static string BuildTrajectoryStepSummary(TrajectoryEventRecord record, string timing)
+    private static string BuildTrajectoryStepSummary(SessionEventRecord record, string timing)
     {
         List<string> parts = [];
         AddText(parts, "status", record.Status ?? record.ToolStatus);
@@ -851,7 +545,7 @@ public static partial class Program
 
     private static void AddTrajectoryEventDetails(
         List<ReaderViewLine> lines,
-        TrajectoryEventRecord record,
+        SessionEventRecord record,
         int contentWidth)
     {
         AddTrajectoryMetadata(lines, record, contentWidth);
@@ -873,7 +567,7 @@ public static partial class Program
         AddOptionalTrajectoryBlock(lines, "Raw", PrettyJsonOrRaw(record.RawJson), contentWidth, "grey");
     }
 
-    private static void AddTrajectoryMetadata(List<ReaderViewLine> lines, TrajectoryEventRecord record, int width)
+    private static void AddTrajectoryMetadata(List<ReaderViewLine> lines, SessionEventRecord record, int width)
     {
         List<string> metadata = [];
         AddMetadata(metadata, "section", record.SectionId);
@@ -956,16 +650,12 @@ public static partial class Program
 
     private static string FormatTrajectoryEventType(string eventType)
     {
-        return string.Join(
-            ' ',
-            eventType.Split('_', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return TrajectoryFormatting.FormatEventType(eventType);
     }
 
     private static string FormatTrajectoryTimestamp(DateTimeOffset? value)
     {
-        return value is null
-            ? string.Empty
-            : value.Value.UtcDateTime.ToString("u", CultureInfo.InvariantCulture);
+        return TrajectoryFormatting.FormatTimestamp(value);
     }
 
     private static string FormatTrajectoryTiming(
@@ -973,115 +663,32 @@ public static partial class Program
         DateTimeOffset? previousTimestampUtc,
         DateTimeOffset? turnStartedAtUtc)
     {
-        if (timestampUtc is null)
-        {
-            return string.Empty;
-        }
-
-        List<string> parts = [];
-        if (previousTimestampUtc is not null)
-        {
-            parts.Add("+" + FormatDuration(timestampUtc.Value - previousTimestampUtc.Value));
-        }
-
-        if (turnStartedAtUtc is not null)
-        {
-            parts.Add("turn+" + FormatDuration(timestampUtc.Value - turnStartedAtUtc.Value));
-        }
-
-        return string.Join(" ", parts);
+        return TrajectoryFormatting.FormatTiming(timestampUtc, previousTimestampUtc, turnStartedAtUtc);
     }
 
     private static string FormatDuration(TimeSpan duration)
     {
-        if (duration < TimeSpan.Zero)
-        {
-            duration = TimeSpan.Zero;
-        }
-
-        if (duration.TotalMilliseconds < 1000)
-        {
-            return ((int)Math.Round(duration.TotalMilliseconds)).ToString(CultureInfo.InvariantCulture) + "ms";
-        }
-
-        if (duration.TotalMinutes < 1)
-        {
-            return duration.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + "s";
-        }
-
-        if (duration.TotalHours < 1)
-        {
-            return ((int)duration.TotalMinutes).ToString(CultureInfo.InvariantCulture) + "m " +
-                duration.Seconds.ToString(CultureInfo.InvariantCulture) + "s";
-        }
-
-        return ((int)duration.TotalHours).ToString(CultureInfo.InvariantCulture) + "h " +
-            duration.Minutes.ToString(CultureInfo.InvariantCulture) + "m";
+        return TrajectoryFormatting.FormatDuration(duration);
     }
 
     private static string? PrettyJsonOrRaw(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(value);
-            using MemoryStream stream = new();
-            using (Utf8JsonWriter writer = new(stream, new JsonWriterOptions { Indented = true }))
-            {
-                document.RootElement.WriteTo(writer);
-            }
-
-            return Encoding.UTF8.GetString(stream.ToArray());
-        }
-        catch (JsonException)
-        {
-            return value;
-        }
+        return TrajectoryFormatting.PrettyJsonOrRaw(value);
     }
 
-    private static string? FormatTrajectoryUsage(TrajectoryEventRecord record)
+    private static string? FormatTrajectoryUsage(SessionEventRecord record)
     {
-        List<string> parts = [];
-        AddNumber(parts, "input", record.InputTokens);
-        AddNumber(parts, "cacheRead", record.CacheReadTokens);
-        AddNumber(parts, "cacheWrite", record.CacheWriteTokens);
-        AddNumber(parts, "output", record.OutputTokens);
-        AddNumber(parts, "reasoning", record.ReasoningTokens);
-        AddNumber(parts, "itemsReplaced", record.ItemsReplaced);
-        AddNumber(parts, "tokensReplaced", record.TokensReplaced);
-        return parts.Count == 0 ? null : string.Join("  ", parts);
+        return TrajectoryFormatting.FormatUsage(record);
     }
 
-    private static string? FormatTrajectoryTimingBlock(TrajectoryEventRecord record)
+    private static string? FormatTrajectoryTimingBlock(SessionEventRecord record)
     {
-        List<string> parts = [];
-        AddText(parts, "requestStart", FormatTrajectoryTimestamp(record.RequestStartedAtUtc));
-        AddText(parts, "firstToken", FormatTrajectoryTimestamp(record.FirstTokenAtUtc));
-        AddText(parts, "completed", FormatTrajectoryTimestamp(record.CompletedAtUtc));
-        AddDurationMs(parts, "total", record.TotalDurationMs);
-        AddDurationMs(parts, "TTFT", record.TtftMs);
-        AddDurationMs(parts, "generation", record.GenerationDurationMs);
-        if (record.TokensPerSecond is not null)
-        {
-            parts.Add("tokens/sec=" + record.TokensPerSecond.Value.ToString("0.##", CultureInfo.InvariantCulture));
-        }
-
-        return parts.Count == 0 ? null : string.Join("  ", parts);
+        return TrajectoryFormatting.FormatTimingBlock(record);
     }
 
-    private static string? FormatTrajectoryErrors(TrajectoryEventRecord record)
+    private static string? FormatTrajectoryErrors(SessionEventRecord record)
     {
-        List<string> parts = [];
-        AddText(parts, "type", record.ErrorType);
-        AddText(parts, "code", record.ErrorCode);
-        AddNumber(parts, "retry", record.RetryNumber);
-        AddNumber(parts, "maxRetries", record.MaxRetries);
-        AddNumber(parts, "delayMs", record.RetryDelayMs);
-        return parts.Count == 0 ? null : string.Join("  ", parts);
+        return TrajectoryFormatting.FormatErrors(record);
     }
 
     private static void AddNumber(List<string> parts, string label, int? value)
@@ -1092,14 +699,6 @@ public static partial class Program
         }
     }
 
-    private static void AddDurationMs(List<string> parts, string label, double? value)
-    {
-        if (value is not null)
-        {
-            parts.Add(label + "=" + FormatDuration(TimeSpan.FromMilliseconds(value.Value)));
-        }
-    }
-
     private static void AddText(List<string> parts, string label, string? value)
     {
         if (!string.IsNullOrWhiteSpace(value))
@@ -1107,77 +706,4 @@ public static partial class Program
             parts.Add(label + "=" + value.Trim());
         }
     }
-
-    private readonly record struct TrajectoryEventRecord(
-        DateTimeOffset? TimestampUtc,
-        string? SectionId,
-        string? ParentSessionId,
-        string EventType,
-        string? AgentProfileName,
-        string? ModelId,
-        string? WorkingDirectory,
-        string? Text,
-        string? ToolCallId,
-        string? ToolName,
-        string? ToolArgumentsJson,
-        string? ToolStatus,
-        string? ToolMessage,
-        string? ToolResultJson,
-        string? ErrorType,
-        long? EventSequenceId,
-        string? TurnId,
-        int? TurnIndex,
-        string? StepId,
-        int? StepIndex,
-        string? ModelRequestId,
-        string? AssistantMessageId,
-        string? ToolResultId,
-        string? ParentCallId,
-        string? Source,
-        string? SystemPrompt,
-        string? ToolsJson,
-        string? ToolSchemaJson,
-        string? RequestOptionsJson,
-        string? InputJson,
-        string? OutputJson,
-        string? ThinkingJson,
-        string? RawJson,
-        string? Status,
-        string? ErrorCode,
-        int? RetryNumber,
-        int? MaxRetries,
-        int? RetryDelayMs,
-        int? InputTokens,
-        int? CacheReadTokens,
-        int? CacheWriteTokens,
-        int? OutputTokens,
-        int? ReasoningTokens,
-        DateTimeOffset? RequestStartedAtUtc,
-        DateTimeOffset? FirstTokenAtUtc,
-        DateTimeOffset? CompletedAtUtc,
-        double? TotalDurationMs,
-        double? TtftMs,
-        double? GenerationDurationMs,
-        double? TokensPerSecond,
-        bool? IsPartial,
-        bool? IsRunning,
-        bool? Interrupted,
-        string? Summary,
-        int? ItemsReplaced,
-        int? TokensReplaced);
-
-    private readonly record struct TrajectorySummary(
-        int EventCount,
-        int UserTurnCount,
-        int ReasoningCount,
-        int AssistantOutputCount,
-        int ToolRequestCount,
-        int ToolResultCount,
-        int PlanCount,
-        int FailureCount,
-        DateTimeOffset? FirstTimestampUtc,
-        DateTimeOffset? LastTimestampUtc,
-        IReadOnlyList<string> ToolNames,
-        IReadOnlyList<string> WorkingDirectories,
-        string Timeline);
 }
