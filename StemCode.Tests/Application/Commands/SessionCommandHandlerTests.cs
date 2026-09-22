@@ -24,7 +24,7 @@ public sealed class SessionCommandHandlerTests : IDisposable
         ReplSessionContext session = CreateSession();
         session.AddConversationTurn("hello", "world");
         string exportPath = Path.Combine(_tempDirectory, "session.json");
-        ExportCommandHandler sut = new(new ThrowingSelectionPrompt());
+        ExportCommandHandler sut = new(new ThrowingSelectionPrompt(), new NullSessionEventLogService(_tempDirectory));
 
         ReplCommandResult result = await sut.ExecuteAsync(
             CreateContext(session, "json " + exportPath),
@@ -38,6 +38,28 @@ public sealed class SessionCommandHandlerTests : IDisposable
         snapshot.Should().NotBeNull();
         snapshot!.Turns.Should().HaveCount(1);
         snapshot.Turns[0].AssistantResponse.Should().Be("world");
+    }
+
+    [Fact]
+    public async Task ExportAsync_Should_WriteTrajectoryHtmlExport()
+    {
+        ReplSessionContext session = CreateSession();
+        string eventLogPath = Path.Combine(_tempDirectory, session.SectionId + ".events.jsonl");
+        await File.WriteAllTextAsync(
+            eventLogPath,
+            "{\"timestampUtc\":\"2026-05-20T01:00:00Z\",\"sectionId\":\"" + session.SectionId + "\",\"eventType\":\"assistant_reasoning\",\"agentProfileName\":\"build\",\"modelId\":\"model-a\",\"workingDirectory\":\".\",\"text\":\"inspect <repo>\"}\n");
+        string exportPath = Path.Combine(_tempDirectory, "trajectory.html");
+        ExportCommandHandler sut = new(new ThrowingSelectionPrompt(), new FixedSessionEventLogService(eventLogPath));
+
+        ReplCommandResult result = await sut.ExecuteAsync(
+            CreateContext(session, "trajecotry " + exportPath),
+            CancellationToken.None);
+
+        result.Message.Should().Contain("Exported session as TRAJECTORY");
+        string html = await File.ReadAllTextAsync(exportPath);
+        html.Should().Contain("trajectory");
+        html.Should().Contain("assistant reasoning");
+        html.Should().Contain("inspect &lt;repo&gt;");
     }
 
     [Fact]
@@ -374,6 +396,75 @@ public sealed class SessionCommandHandlerTests : IDisposable
         {
             throw new PromptCancelledException();
         }
+    }
+
+    private class NullSessionEventLogService : ISessionEventLogService
+    {
+        private readonly string _directory;
+
+        public NullSessionEventLogService(string directory)
+        {
+            _directory = directory;
+        }
+
+        public virtual string GetStoragePath(string sectionId)
+            => Path.Combine(_directory, sectionId + ".events.jsonl");
+
+        public Task RecordAssistantOutputAsync(
+            ReplSessionContext session,
+            string outputText,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task RecordAssistantReasoningAsync(
+            ReplSessionContext session,
+            string reasoningText,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task RecordExecutionPlanAsync(
+            ReplSessionContext session,
+            ExecutionPlanProgress executionPlanProgress,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task RecordToolCallRequestedAsync(
+            ReplSessionContext session,
+            ConversationToolCall toolCall,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task RecordToolResultAsync(
+            ReplSessionContext session,
+            ToolInvocationResult invocationResult,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task RecordTurnFailureAsync(
+            ReplSessionContext session,
+            string input,
+            Exception exception,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
+        public Task RecordUserInputAsync(
+            ReplSessionContext session,
+            string input,
+            CancellationToken cancellationToken)
+            => Task.CompletedTask;
+    }
+
+    private sealed class FixedSessionEventLogService : NullSessionEventLogService
+    {
+        private readonly string _path;
+
+        public FixedSessionEventLogService(string path)
+            : base(Path.GetDirectoryName(path) ?? ".")
+        {
+            _path = path;
+        }
+
+        public override string GetStoragePath(string sectionId) => _path;
     }
 
     private sealed class ThrowingTextPrompt : ITextPrompt

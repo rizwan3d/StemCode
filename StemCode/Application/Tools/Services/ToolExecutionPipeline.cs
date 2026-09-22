@@ -8,6 +8,7 @@ internal sealed class ToolExecutionPipeline : IStreamingToolExecutionPipeline
     private const int DefaultMaxParallelToolExecutions = 4;
 
     private readonly IToolAuditLogService? _toolAuditLogService;
+    private readonly ISessionEventLogService? _sessionEventLogService;
     private readonly IProductTelemetry? _telemetry;
     private readonly ILessonMemoryService? _lessonMemoryService;
     private readonly int _maxParallelToolExecutions;
@@ -20,6 +21,7 @@ internal sealed class ToolExecutionPipeline : IStreamingToolExecutionPipeline
         IToolInvoker toolInvoker,
         ILessonMemoryService? lessonMemoryService = null,
         IToolAuditLogService? toolAuditLogService = null,
+        ISessionEventLogService? sessionEventLogService = null,
         IProductTelemetry? telemetry = null,
         TimeProvider? timeProvider = null,
         int maxParallelToolExecutions = DefaultMaxParallelToolExecutions)
@@ -28,6 +30,7 @@ internal sealed class ToolExecutionPipeline : IStreamingToolExecutionPipeline
         _toolInvoker = toolInvoker;
         _lessonMemoryService = lessonMemoryService;
         _toolAuditLogService = toolAuditLogService;
+        _sessionEventLogService = sessionEventLogService;
         _telemetry = telemetry;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _maxParallelToolExecutions = Math.Max(1, maxParallelToolExecutions);
@@ -215,19 +218,58 @@ internal sealed class ToolExecutionPipeline : IStreamingToolExecutionPipeline
         CancellationToken cancellationToken)
     {
         DateTimeOffset startedAtUtc = _timeProvider.GetUtcNow();
-        ToolInvocationResult result = await _toolInvoker.InvokeAsync(
+        await RecordToolCallStartedAsync(
             toolCall,
             session,
-            executionPhase,
-            allowedToolNames,
-            cancellationToken);
-        DateTimeOffset completedAtUtc = _timeProvider.GetUtcNow();
-
-        return new ToolExecutionRecord(
-            toolCall,
-            result,
             startedAtUtc,
-            completedAtUtc);
+            cancellationToken);
+
+        try
+        {
+            ToolInvocationResult result = await _toolInvoker.InvokeAsync(
+                toolCall,
+                session,
+                executionPhase,
+                allowedToolNames,
+                cancellationToken);
+            DateTimeOffset completedAtUtc = _timeProvider.GetUtcNow();
+            await RecordToolCallCompletedAsync(
+                toolCall,
+                result,
+                session,
+                startedAtUtc,
+                completedAtUtc,
+                cancellationToken);
+
+            return new ToolExecutionRecord(
+                toolCall,
+                result,
+                startedAtUtc,
+                completedAtUtc);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            DateTimeOffset completedAtUtc = _timeProvider.GetUtcNow();
+            ToolInvocationResult failedResult = new(
+                toolCall.Id,
+                toolCall.Name,
+                ToolResult.ExecutionError(
+                    exception.Message,
+                    "{\"error\":\"tool invocation failed\"}"),
+                toolNameRecognized: allowedToolNames.Contains(toolCall.Name));
+            await RecordToolCallCompletedAsync(
+                toolCall,
+                failedResult,
+                session,
+                startedAtUtc,
+                completedAtUtc,
+                cancellationToken);
+            throw;
+        }
     }
 
     private async Task CompleteToolExecutionAsync(
@@ -255,6 +297,68 @@ internal sealed class ToolExecutionPipeline : IStreamingToolExecutionPipeline
         if (onToolResult is not null)
         {
             await onToolResult(record.InvocationResult, cancellationToken);
+        }
+    }
+
+    private async Task RecordToolCallStartedAsync(
+        ConversationToolCall toolCall,
+        ReplSessionContext session,
+        DateTimeOffset startedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.StartToolCallAsync(
+                session,
+                toolCall,
+                startedAtUtc,
+                parentCallId: null,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordToolCallCompletedAsync(
+        ConversationToolCall toolCall,
+        ToolInvocationResult result,
+        ReplSessionContext session,
+        DateTimeOffset startedAtUtc,
+        DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.CompleteToolCallAsync(
+                session,
+                toolCall,
+                result,
+                startedAtUtc,
+                completedAtUtc,
+                parentCallId: null,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
         }
     }
 

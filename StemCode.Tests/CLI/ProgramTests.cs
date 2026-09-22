@@ -871,6 +871,317 @@ public sealed class ProgramTests
     }
 
     [Fact]
+    public async Task BuildTrajectoryReaderLines_Should_RenderEscapedEventStream()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "stemcode-trajectory-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string eventLogPath = Path.Combine(directory, "session.events.jsonl");
+        await File.WriteAllTextAsync(
+            eventLogPath,
+            """
+            {"timestampUtc":"2026-05-20T01:00:00Z","sectionId":"session-id","eventType":"user_input","agentProfileName":"build","modelId":"model-a","workingDirectory":".","text":"fix it"}
+            {"timestampUtc":"2026-05-20T01:00:02Z","sectionId":"session-id","eventType":"assistant_reasoning","agentProfileName":"build","modelId":"model-a","workingDirectory":".","text":"inspect <repo>"}
+            {"timestampUtc":"2026-05-20T01:01:00Z","sectionId":"session-id","eventType":"tool_call_response","agentProfileName":"build","modelId":"model-a","workingDirectory":".","toolCallId":"call-1","toolName":"shell_command","toolStatus":"Success","toolResultJson":"{\"exitCode\":0,\"output\":\"done\"}"}
+            """);
+
+        try
+        {
+            IReadOnlyList<ReaderViewLine> lines = Program.BuildTrajectoryReaderLines(
+                "session-id",
+                eventLogPath,
+                width: 100);
+
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("Events: 3") && line.Contains("Turns: 1"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("-- Turn 1"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("#002 assistant reasoning") && line.Contains("turn+2.0s"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("toolCall=call-1"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("model=model-a") && line.Contains("profile=build"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("Tools: shell_command"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("Working directories: ."));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("Duration: 1m 0s"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("#003 tool call response"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("shell_command"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("Success"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("fix it"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("inspect <repo>"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("\"exitCode\": 0"));
+            lines.Select(static line => line.Markup)
+                .Should()
+                .Contain(line => line.Contains("inspect <repo>"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildTrajectoryReaderLines_Should_ShowEmptyLogMessage()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "stemcode-trajectory-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string eventLogPath = Path.Combine(directory, "session.events.jsonl");
+        await File.WriteAllTextAsync(eventLogPath, string.Empty);
+
+        try
+        {
+            IReadOnlyList<ReaderViewLine> lines = Program.BuildTrajectoryReaderLines(
+                "session-id",
+                eventLogPath,
+                width: 100);
+
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("Events: 0"));
+            lines.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("exists but is empty"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task BuildTrajectoryStepReaderLines_Should_RenderSelectableStepsAndDetails()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "stemcode-trajectory-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string eventLogPath = Path.Combine(directory, "session.events.jsonl");
+        await File.WriteAllTextAsync(
+            eventLogPath,
+            """
+            {"timestampUtc":"2026-05-20T01:00:00Z","sectionId":"session-id","eventType":"user_input","text":"fix it"}
+            {"timestampUtc":"2026-05-20T01:00:02Z","sectionId":"session-id","eventType":"assistant_tool_call_request","toolName":"shell_command","toolArgumentsJson":"{\"cmd\":\"dotnet test\"}"}
+            """);
+
+        try
+        {
+            IReadOnlyList<ReaderViewLine> steps = Program.BuildTrajectoryStepReaderLines(
+                "session-id",
+                eventLogPath,
+                width: 100);
+
+            steps.Where(static line => line.SelectionKey is not null)
+                .Select(static line => line.SelectionKey)
+                .Should()
+                .Equal("1", "2");
+            steps.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("#002 assistant tool call request") && line.Contains("shell_command"));
+
+            IReadOnlyList<ReaderViewLine> details = Program.BuildTrajectoryEventDetailLines(
+                "session-id",
+                eventLogPath,
+                width: 100,
+                selectedEventIndex: 2);
+
+            details.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("#002 assistant tool call request"));
+            details.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("Tool arguments"));
+            details.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("\"cmd\": \"dotnet test\""));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task HandleReaderViewKey_Should_OpenTrajectoryDetails_ForCarriageReturnEnter()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "stemcode-trajectory-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string eventLogPath = Path.Combine(directory, "session.events.jsonl");
+        await File.WriteAllTextAsync(
+            eventLogPath,
+            """
+            {"timestampUtc":"2026-05-20T01:00:00Z","sectionId":"session-id","eventType":"user_input","text":"fix it"}
+            """);
+
+        try
+        {
+            AppState state = new(
+                new UiBridge(),
+                new Mock<IStemCodeBackend>(MockBehavior.Strict).Object)
+            {
+                SessionId = "session-id",
+                IsReaderViewActive = true,
+                ReaderViewKind = "trajectory",
+                ReaderViewDataPath = eventLogPath,
+                ReaderViewStyledLines = Program.BuildTrajectoryStepReaderLines(
+                    "session-id",
+                    eventLogPath,
+                    width: 100)
+            };
+
+            MethodInfo handleReaderViewKey = typeof(Program).GetMethod(
+                "HandleReaderViewKey",
+                BindingFlags.NonPublic | BindingFlags.Static)!;
+            handleReaderViewKey.Invoke(
+                null,
+                [state, new ConsoleKeyInfo('\r', 0, shift: false, alt: false, control: false)]);
+
+            state.ReaderViewTitle.Should().Be("TRAJECTORY STEP");
+            state.ReaderViewParentStyledLines.Should().NotBeNull();
+            state.ReaderViewStyledLines!.Select(static line => line.Plain)
+                .Should()
+                .Contain(line => line.Contains("#001 user input"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task HandleReaderViewKey_Should_ReturnFromTrajectoryDetails_ForRawEscape()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "stemcode-trajectory-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string eventLogPath = Path.Combine(directory, "session.events.jsonl");
+        await File.WriteAllTextAsync(
+            eventLogPath,
+            """
+            {"timestampUtc":"2026-05-20T01:00:00Z","sectionId":"session-id","eventType":"user_input","text":"fix it"}
+            """);
+
+        try
+        {
+            IReadOnlyList<ReaderViewLine> parentLines = Program.BuildTrajectoryStepReaderLines(
+                "session-id",
+                eventLogPath,
+                width: 100);
+            AppState state = new(
+                new UiBridge(),
+                new Mock<IStemCodeBackend>(MockBehavior.Strict).Object)
+            {
+                SessionId = "session-id",
+                IsReaderViewActive = true,
+                ReaderViewTitle = "TRAJECTORY STEP",
+                ReaderViewKind = "trajectory",
+                ReaderViewDataPath = eventLogPath,
+                ReaderViewStyledLines = Program.BuildTrajectoryEventDetailLines(
+                    "session-id",
+                    eventLogPath,
+                    width: 100,
+                    selectedEventIndex: 1),
+                ReaderViewParentStyledLines = parentLines,
+                ReaderViewParentTitle = "TRAJECTORY",
+                ReaderViewParentInstructions = "select a step"
+            };
+
+            MethodInfo handleReaderViewKey = typeof(Program).GetMethod(
+                "HandleReaderViewKey",
+                BindingFlags.NonPublic | BindingFlags.Static)!;
+            handleReaderViewKey.Invoke(
+                null,
+                [state, new ConsoleKeyInfo('\u001b', 0, shift: false, alt: false, control: false)]);
+
+            state.IsReaderViewActive.Should().BeTrue();
+            state.ReaderViewTitle.Should().Be("TRAJECTORY");
+            state.ReaderViewStyledLines.Should().BeSameAs(parentLines);
+            state.ReaderViewParentStyledLines.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task HandleReaderViewKey_Should_ExitTrajectoryList_ForRawEscape()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "stemcode-trajectory-view-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string eventLogPath = Path.Combine(directory, "session.events.jsonl");
+        await File.WriteAllTextAsync(
+            eventLogPath,
+            """
+            {"timestampUtc":"2026-05-20T01:00:00Z","sectionId":"session-id","eventType":"user_input","text":"fix it"}
+            """);
+
+        try
+        {
+            AppState state = new(
+                new UiBridge(),
+                new Mock<IStemCodeBackend>(MockBehavior.Strict).Object)
+            {
+                SessionId = "session-id",
+                IsReaderViewActive = true,
+                ReaderViewTitle = "TRAJECTORY",
+                ReaderViewKind = "trajectory",
+                ReaderViewDataPath = eventLogPath,
+                ReaderViewStyledLines = Program.BuildTrajectoryStepReaderLines(
+                    "session-id",
+                    eventLogPath,
+                    width: 100)
+            };
+
+            MethodInfo handleReaderViewKey = typeof(Program).GetMethod(
+                "HandleReaderViewKey",
+                BindingFlags.NonPublic | BindingFlags.Static)!;
+            handleReaderViewKey.Invoke(
+                null,
+                [state, new ConsoleKeyInfo('\u001b', 0, shift: false, alt: false, control: false)]);
+
+            state.IsReaderViewActive.Should().BeFalse();
+            state.ReaderViewStyledLines.Should().BeNull();
+            state.ReaderViewKind.Should().BeNull();
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SanitizeCommitMessageSuggestion_Should_KeepSingleCleanSubjectLine()
     {
         MethodInfo sanitizeCommitMessageSuggestion = typeof(Program).GetMethod(

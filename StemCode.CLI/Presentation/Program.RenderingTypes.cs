@@ -2,7 +2,8 @@ namespace StemCode.CLI;
 
 internal readonly record struct ReaderViewLine(
     string Markup,
-    string Plain);
+    string Plain,
+    string? SelectionKey = null);
 
 public static partial class Program
 {

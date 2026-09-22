@@ -197,6 +197,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
     private readonly IToolOutputFormatter _toolOutputFormatter;
     private readonly IReplSectionService? _sectionService;
     private readonly ICodebaseIndexService? _codebaseIndexService;
+    private readonly ISessionEventLogService? _sessionEventLogService;
     private readonly CodebaseIndexSettings _codebaseIndexSettings;
     private readonly ILogger<AgentConversationPipeline> _logger;
 
@@ -220,7 +221,8 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         IWorkspaceAgentProfilePromptProvider? workspaceAgentProfilePromptProvider = null,
         IReplSectionService? sectionService = null,
         ICodebaseIndexService? codebaseIndexService = null,
-        CodebaseIndexSettings? codebaseIndexSettings = null)
+        CodebaseIndexSettings? codebaseIndexSettings = null,
+        ISessionEventLogService? sessionEventLogService = null)
     {
         _timeProvider = timeProvider;
         _tokenEstimator = tokenEstimator;
@@ -242,6 +244,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         _sectionService = sectionService;
         _codebaseIndexService = codebaseIndexService;
         _codebaseIndexSettings = codebaseIndexSettings ?? new CodebaseIndexSettings();
+        _sessionEventLogService = sessionEventLogService;
         _logger = logger;
     }
 
@@ -281,6 +284,13 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         ConversationSectionTurn pendingTurn = session.CreatePendingConversationTurn(
             normalizedInput,
             normalizedAttachments);
+        int turnIndex = session.ConversationTurns.Count;
+        await RecordTurnStartedAsync(
+            session,
+            pendingTurn.TurnId,
+            turnIndex,
+            normalizedInput,
+            cancellationToken);
         await PersistSessionStateAsync(session, cancellationToken);
 
         try
@@ -308,12 +318,19 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                     preparedTurn.Attachments,
                     cancellationToken);
 
-                return await FinalizeCompletedTurnAsync(
+                ConversationTurnResult approvedResult = await FinalizeCompletedTurnAsync(
                     pendingTurn.TurnId,
                     preparedTurn.NormalizedInput,
                     session,
                     approvedTurn,
                     cancellationToken);
+                await RecordTurnEndedAsync(
+                    session,
+                    pendingTurn.TurnId,
+                    turnIndex,
+                    "completed",
+                    cancellationToken);
+                return approvedResult;
             }
 
             List<ConversationRequestMessage> messages =
@@ -348,17 +365,25 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                 session,
                 session.ShowThinking);
 
-            return await FinalizeCompletedTurnAsync(
+            ConversationTurnResult finalResult = await FinalizeCompletedTurnAsync(
                 pendingTurn.TurnId,
                 preparedTurn.NormalizedInput,
                 session,
                 completedTurn,
                 cancellationToken);
+            await RecordTurnEndedAsync(
+                session,
+                pendingTurn.TurnId,
+                turnIndex,
+                "completed",
+                cancellationToken);
+            return finalResult;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             session.TryCancelConversationTurn(pendingTurn.TurnId);
             await PersistSessionStateIgnoringErrorsAsync(session, cancellationToken);
+            await RecordTurnEndedIgnoringErrorsAsync(session, pendingTurn.TurnId, turnIndex, "cancelled");
             throw;
         }
         catch (OperationCanceledException)
@@ -369,6 +394,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                     session,
                     new ConversationProviderException("The conversation request was cancelled.")));
             await PersistSessionStateIgnoringErrorsAsync(session, cancellationToken);
+            await RecordTurnEndedIgnoringErrorsAsync(session, pendingTurn.TurnId, turnIndex, "interrupted");
             throw;
         }
         catch (Exception exception)
@@ -378,6 +404,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                 failureInfo: CreateFailureInfo(session, exception));
             await PersistSessionStateIgnoringErrorsAsync(session, cancellationToken);
             await RunAfterTaskFailedHookAsync(normalizedInput, session, exception, cancellationToken);
+            await RecordTurnEndedIgnoringErrorsAsync(session, pendingTurn.TurnId, turnIndex, "failed");
             throw;
         }
         finally
@@ -1149,9 +1176,21 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
 
         for (int round = 0; IsWithinToolRoundLimit(round, settings.MaxToolRoundsPerTurn); round++)
         {
+            int stepIndex = round + 1;
+            string stepId = CreateStableTrajectoryId(turnId, "step", stepIndex);
+            await RecordStepStartedAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                cancellationToken);
+
             ConversationResponse response = await SendAndMapResponseAsync(
                 apiKey,
                 session,
+                turnId,
+                stepId,
+                stepIndex,
                 messages,
                 phaseSystemPrompt,
                 availableTools,
@@ -1159,6 +1198,12 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                 timeoutSource,
                 telemetry,
                 progressSink,
+                cancellationToken);
+            await RecordStepEndedAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
                 cancellationToken);
 
             if (response.CompletionTokens is > 0)
@@ -1549,6 +1594,9 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
     private async Task<ConversationResponse> SendAndMapResponseAsync(
         string apiKey,
         ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
         IReadOnlyList<ConversationRequestMessage> messages,
         string? systemPrompt,
         IReadOnlyList<ToolDefinition> availableTools,
@@ -1562,9 +1610,13 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
 
         for (int attempt = 0; attempt <= RetryableProviderOutputRetryLimit; attempt++)
         {
-            ConversationProviderPayload providerPayload = await SendProviderRequestAsync(
+            ModelRequestExchange exchange = await SendProviderRequestAsync(
                 apiKey,
                 session,
+                turnId,
+                stepId,
+                stepIndex,
+                attempt + 1,
                 messages,
                 requestSystemPrompt,
                 availableTools,
@@ -1576,15 +1628,44 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
 
             try
             {
-                ConversationResponse response = _responseMapper.Map(providerPayload)
+                ConversationResponse response = _responseMapper.Map(exchange.Payload)
                     ?? throw new ConversationResponseException(
                         "The provider response mapper returned no normalized response.");
                 telemetry.ReplaceLastEstimatedInputTokens(GetReportedInputTokens(response));
+                await RecordModelRequestCompletedAsync(
+                    session,
+                    turnId,
+                    stepId,
+                    stepIndex,
+                    exchange,
+                    response,
+                    "completed",
+                    null,
+                    cancellationToken);
                 return response;
             }
             catch (ConversationResponseException exception)
                 when (exception.IsRetryableProviderOutput && attempt < RetryableProviderOutputRetryLimit)
             {
+                await RecordModelRequestCompletedAsync(
+                    session,
+                    turnId,
+                    stepId,
+                    stepIndex,
+                    exchange,
+                    null,
+                    "rejected",
+                    exception,
+                    cancellationToken);
+                await RecordProviderOutputRetryAsync(
+                    session,
+                    turnId,
+                    stepId,
+                    stepIndex,
+                    attempt + 1,
+                    RetryableProviderOutputRetryLimit,
+                    exception,
+                    cancellationToken);
                 requestSystemPrompt = CreateProviderRetrySystemPrompt(
                     systemPrompt,
                     exception,
@@ -1593,14 +1674,44 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
             }
             catch (ConversationResponseException exception) when (exception.IsRetryableProviderOutput)
             {
+                await RecordModelRequestCompletedAsync(
+                    session,
+                    turnId,
+                    stepId,
+                    stepIndex,
+                    exchange,
+                    null,
+                    "failed",
+                    exception,
+                    cancellationToken);
                 throw CreateProviderOutputExhaustedException(exception);
             }
-            catch (ConversationResponseException)
+            catch (ConversationResponseException exception)
             {
+                await RecordModelRequestCompletedAsync(
+                    session,
+                    turnId,
+                    stepId,
+                    stepIndex,
+                    exchange,
+                    null,
+                    "failed",
+                    exception,
+                    cancellationToken);
                 throw;
             }
             catch (Exception exception)
             {
+                await RecordModelRequestCompletedAsync(
+                    session,
+                    turnId,
+                    stepId,
+                    stepIndex,
+                    exchange,
+                    null,
+                    "failed",
+                    exception,
+                    cancellationToken);
                 throw new ConversationResponseException(
                     "The provider response could not be normalized into the internal conversation model.",
                     exception);
@@ -1765,9 +1876,13 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         }
     }
 
-    private async Task<ConversationProviderPayload> SendProviderRequestAsync(
+    private async Task<ModelRequestExchange> SendProviderRequestAsync(
         string apiKey,
         ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        int attemptNumber,
         IReadOnlyList<ConversationRequestMessage> messages,
         string? systemPrompt,
         IReadOnlyList<ToolDefinition> availableTools,
@@ -1788,6 +1903,12 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                 messages,
                 systemPrompt,
                 availableTools);
+            await RecordCompactionIfChangedAsync(
+                session,
+                messages,
+                systemPrompt,
+                preparedRequest,
+                cancellationToken);
 
             ConversationProviderRequest request = new(
                 session.ProviderProfile,
@@ -1805,12 +1926,76 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                 ShowThinking: session.ShowThinking);
 
             telemetry.AddEstimatedInputTokens(EstimateInputTokens(request));
+            string modelRequestId = CreateStableTrajectoryId(
+                turnId,
+                "request",
+                stepIndex,
+                attemptNumber);
+            DateTimeOffset startedAtUtc = _timeProvider.GetUtcNow();
+            DateTimeOffset? firstTokenAtUtc = null;
+
+            await RecordPromptSnapshotAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                modelRequestId,
+                preparedRequest.SystemPrompt,
+                preparedRequest.Messages,
+                availableTools,
+                request,
+                cancellationToken);
+            await RecordModelRequestStartedAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                modelRequestId,
+                request,
+                startedAtUtc,
+                cancellationToken);
 
             ConversationProviderPayload payload = await _providerClient.SendAsync(
-                request,
+                request with
+                {
+                    OnAssistantMessageChunkAsync = async (text, textCancellationToken) =>
+                    {
+                        DateTimeOffset chunkAtUtc = _timeProvider.GetUtcNow();
+                        bool isFirstChunk = firstTokenAtUtc is null;
+                        firstTokenAtUtc ??= chunkAtUtc;
+                        await RecordModelChunkAsync(
+                            session,
+                            turnId,
+                            stepId,
+                            stepIndex,
+                            modelRequestId,
+                            text,
+                            chunkAtUtc,
+                            isFirstChunk,
+                            textCancellationToken);
+                        await progressSink.ReportAssistantMessageChunkAsync(text, textCancellationToken);
+                    },
+                    OnProviderRetryAsync = async (retryProgress, retryCancellationToken) =>
+                    {
+                        await RecordRetryAsync(
+                            session,
+                            turnId,
+                            stepId,
+                            stepIndex,
+                            modelRequestId,
+                            retryProgress,
+                            retryCancellationToken);
+                        await progressSink.ReportProviderRetryAsync(retryProgress, retryCancellationToken);
+                    }
+                },
                 timeoutSource.Token);
             telemetry.AddProviderRetryCount(payload.RetryCount);
-            return payload;
+            return new ModelRequestExchange(
+                modelRequestId,
+                startedAtUtc,
+                firstTokenAtUtc,
+                _timeProvider.GetUtcNow(),
+                payload);
         }
         catch (ConversationProviderException)
         {
@@ -2874,6 +3059,435 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         await _sectionService.SaveIfDirtyAsync(session, cancellationToken);
     }
 
+    private async Task RecordTurnStartedAsync(
+        ReplSessionContext session,
+        string turnId,
+        int turnIndex,
+        string input,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.StartTurnAsync(
+                session,
+                turnId,
+                turnIndex,
+                input,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordTurnEndedAsync(
+        ReplSessionContext session,
+        string turnId,
+        int turnIndex,
+        string status,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.EndTurnAsync(
+                session,
+                turnId,
+                turnIndex,
+                status,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordTurnEndedIgnoringErrorsAsync(
+        ReplSessionContext session,
+        string turnId,
+        int turnIndex,
+        string status)
+    {
+        try
+        {
+            await RecordTurnEndedAsync(
+                session,
+                turnId,
+                turnIndex,
+                status,
+                CancellationToken.None);
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordStepStartedAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.StartStepAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordStepEndedAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.EndStepAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordPromptSnapshotAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        string modelRequestId,
+        string? systemPrompt,
+        IReadOnlyList<ConversationRequestMessage> messages,
+        IReadOnlyList<ToolDefinition> availableTools,
+        ConversationProviderRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.RecordPromptSnapshotAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                modelRequestId,
+                systemPrompt,
+                messages,
+                availableTools,
+                request,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordModelRequestStartedAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        string modelRequestId,
+        ConversationProviderRequest request,
+        DateTimeOffset startedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.StartModelRequestAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                modelRequestId,
+                request,
+                startedAtUtc,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordModelChunkAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        string modelRequestId,
+        string text,
+        DateTimeOffset timestampUtc,
+        bool isFirstChunk,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.RecordModelChunkAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                modelRequestId,
+                text,
+                timestampUtc,
+                isFirstChunk,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordModelRequestCompletedAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        ModelRequestExchange exchange,
+        ConversationResponse? response,
+        string status,
+        Exception? exception,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.CompleteModelRequestAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                exchange.ModelRequestId,
+                status,
+                exchange.StartedAtUtc,
+                exchange.FirstTokenAtUtc,
+                exchange.CompletedAtUtc,
+                exchange.Payload,
+                response,
+                exception,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private async Task RecordRetryAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        string modelRequestId,
+        ProviderRetryProgress retryProgress,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.RecordRetryAsync(
+                session,
+                turnId,
+                stepId,
+                stepIndex,
+                modelRequestId,
+                retryProgress,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private Task RecordProviderOutputRetryAsync(
+        ReplSessionContext session,
+        string turnId,
+        string stepId,
+        int stepIndex,
+        int retryNumber,
+        int maxRetries,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        return RecordRetryAsync(
+            session,
+            turnId,
+            stepId,
+            stepIndex,
+            CreateStableTrajectoryId(turnId, "request", stepIndex, retryNumber),
+            new ProviderRetryProgress(
+                retryNumber,
+                maxRetries,
+                exception.Message),
+            cancellationToken);
+    }
+
+    private async Task RecordCompactionIfChangedAsync(
+        ReplSessionContext session,
+        IReadOnlyList<ConversationRequestMessage> originalMessages,
+        string? originalSystemPrompt,
+        PreparedConversationRequest preparedRequest,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        int removedMessageCount = Math.Max(0, originalMessages.Count - preparedRequest.Messages.Count);
+        int originalTokens = EstimatePromptTokens(originalSystemPrompt, originalMessages);
+        int preparedTokens = EstimatePromptTokens(preparedRequest.SystemPrompt, preparedRequest.Messages);
+        bool systemPromptChanged = !string.Equals(
+            originalSystemPrompt?.Trim(),
+            preparedRequest.SystemPrompt?.Trim(),
+            StringComparison.Ordinal);
+        int replacedTokens = Math.Max(0, originalTokens - preparedTokens);
+
+        if (removedMessageCount == 0 && replacedTokens == 0 && !systemPromptChanged)
+        {
+            return;
+        }
+
+        string summary =
+            $"Prepared request context compacted: removed {removedMessageCount.ToString(CultureInfo.InvariantCulture)} message(s), " +
+            $"replaced about {replacedTokens.ToString(CultureInfo.InvariantCulture)} token(s).";
+
+        try
+        {
+            await _sessionEventLogService.RecordCompactionAsync(
+                session,
+                summary,
+                removedMessageCount,
+                replacedTokens,
+                rawOutput: null,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
+    }
+
+    private int EstimatePromptTokens(
+        string? systemPrompt,
+        IReadOnlyList<ConversationRequestMessage> messages)
+    {
+        int total = string.IsNullOrWhiteSpace(systemPrompt)
+            ? 0
+            : _tokenEstimator.Estimate(systemPrompt);
+        foreach (ConversationRequestMessage message in messages)
+        {
+            total += EstimateMessageTokens(message);
+        }
+
+        return total;
+    }
+
+    private static string CreateStableTrajectoryId(
+        string turnId,
+        string kind,
+        int index,
+        int? attempt = null)
+    {
+        string id = $"{turnId}-{kind}-{index.ToString(CultureInfo.InvariantCulture)}";
+        return attempt is null
+            ? id
+            : id + "-" + attempt.Value.ToString(CultureInfo.InvariantCulture);
+    }
+
     private async Task PersistSessionStateIgnoringErrorsAsync(
         ReplSessionContext session,
         CancellationToken cancellationToken)
@@ -3028,6 +3642,13 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
 
         private int _lastInputTokenEstimate;
     }
+
+    private sealed record ModelRequestExchange(
+        string ModelRequestId,
+        DateTimeOffset StartedAtUtc,
+        DateTimeOffset? FirstTokenAtUtc,
+        DateTimeOffset CompletedAtUtc,
+        ConversationProviderPayload Payload);
 
     private sealed class StagnantActionTracker
     {

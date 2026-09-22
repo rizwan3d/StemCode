@@ -180,6 +180,7 @@ public sealed class StemCodeBackend : IStemCodeBackend
         }
 
         ApplyRuntimeContextWindowOverride(_session);
+        await RecordSessionStartedAsync(_session, cancellationToken);
 
         await PromptForUpdateIfAvailableAsync(options.SkipUpdateCheck, cancellationToken);
         _editListStartIndex = _session.GetRecordedEditCount();
@@ -427,6 +428,20 @@ public sealed class StemCodeBackend : IStemCodeBackend
                 }
                 finally
                 {
+                    if (_sessionEventLogService is not null)
+                    {
+                        try
+                        {
+                            await _sessionEventLogService.EndSessionAsync(
+                                _session,
+                                "completed",
+                                CancellationToken.None);
+                        }
+                        catch
+                        {
+                        }
+                    }
+
                     await _sessionAppService.StopAsync(_session, CancellationToken.None);
                 }
             }
@@ -654,6 +669,30 @@ public sealed class StemCodeBackend : IStemCodeBackend
                 session,
                 input,
                 cancellationToken);
+    }
+
+    private async Task RecordSessionStartedAsync(
+        ReplSessionContext session,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionEventLogService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _sessionEventLogService.StartSessionAsync(
+                session,
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+        }
     }
 
     private Task RecordAssistantOutputAsync(

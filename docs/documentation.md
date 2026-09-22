@@ -363,7 +363,7 @@ stemcode --session <session-guid>
 | `/doctor` | Show comprehensive system diagnostics for StemCode. |
 | `/deny <tool-or-tag> [pattern]` | Add a session-scoped deny override for a tool/tag and optional target pattern. |
 | `/exit` | Exit the interactive shell. |
-| `/export [json\|html] [path]` | Export the current session as JSON or HTML. |
+| `/export [json\|html\|trajectory] [path]` | Export the current session as JSON, readable HTML, or trajectory HTML with the full event stream. |
 | `/fork [turn-number]` | Create a new fork from a previous user message. |
 | `/help` | List the available shell commands and their usage. |
 | `/import <json-path>` | Import a session from JSON and switch to the imported copy. |
@@ -392,6 +392,7 @@ stemcode --session <session-guid>
 | `/terminals [view [<terminal-id>]\|stop <terminal-id>\|stop all]` | List, view, or stop background terminals for the current session. |
 | /thinking [on\|off] | Show or set thinking mode for subsequent prompts. |
 | `/tooloutput [compact\|full\|auto]` | Show or toggle whether tool results print their complete output or a compact preview. `auto` follows the active agent profile. |
+| `/trajectory` | Open the current session trajectory event stream with scroll navigation. |
 | `/tree` | Navigate the session tree and switch branches. |
 | `/update [now]` | Check for StemCode updates and install the latest release. |
 | `/undo` | Roll back the most recent tracked file edit transaction. |

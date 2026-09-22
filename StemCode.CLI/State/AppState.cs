@@ -131,6 +131,8 @@ public sealed class AppState
 
     public int ReaderScrollOffset { get; set; }
 
+    public int ReaderSelectedSelectableIndex { get; set; }
+
     public string? ReaderViewTitle { get; set; }
 
     public string? ReaderViewInstructions { get; set; }
@@ -138,6 +140,20 @@ public sealed class AppState
     public IReadOnlyList<string>? ReaderViewLines { get; set; }
 
     internal IReadOnlyList<ReaderViewLine>? ReaderViewStyledLines { get; set; }
+
+    internal IReadOnlyList<ReaderViewLine>? ReaderViewParentStyledLines { get; set; }
+
+    public string? ReaderViewParentTitle { get; set; }
+
+    public string? ReaderViewParentInstructions { get; set; }
+
+    public int ReaderViewParentScrollOffset { get; set; }
+
+    public int ReaderViewParentSelectedSelectableIndex { get; set; }
+
+    public string? ReaderViewKind { get; set; }
+
+    public string? ReaderViewDataPath { get; set; }
 
     // Set whenever the reader view must be repainted (on enter / scroll). While it is
     // false and the reader view is active, the render loop leaves the screen untouched

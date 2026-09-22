@@ -20,6 +20,12 @@ public static partial class Program
         state.ReaderViewInstructions = null;
         state.ReaderViewLines = null;
         state.ReaderViewStyledLines = null;
+        state.ReaderSelectedSelectableIndex = 0;
+        state.ReaderViewParentStyledLines = null;
+        state.ReaderViewParentTitle = null;
+        state.ReaderViewParentInstructions = null;
+        state.ReaderViewKind = null;
+        state.ReaderViewDataPath = null;
         state.IsReaderViewActive = true;
         state.ReaderScrollOffset = GetMaxReaderScrollOffset(state);
         state.ReaderViewDirty = true;
@@ -46,6 +52,12 @@ public static partial class Program
         state.ReaderViewInstructions = instructions;
         state.ReaderViewLines = lines;
         state.ReaderViewStyledLines = null;
+        state.ReaderSelectedSelectableIndex = 0;
+        state.ReaderViewParentStyledLines = null;
+        state.ReaderViewParentTitle = null;
+        state.ReaderViewParentInstructions = null;
+        state.ReaderViewKind = null;
+        state.ReaderViewDataPath = null;
         state.IsReaderViewActive = true;
         state.ReaderScrollOffset = startAtBottom
             ? GetMaxReaderScrollOffset(state)
@@ -74,6 +86,12 @@ public static partial class Program
         state.ReaderViewInstructions = instructions;
         state.ReaderViewLines = null;
         state.ReaderViewStyledLines = lines;
+        state.ReaderSelectedSelectableIndex = 0;
+        state.ReaderViewParentStyledLines = null;
+        state.ReaderViewParentTitle = null;
+        state.ReaderViewParentInstructions = null;
+        state.ReaderViewKind = null;
+        state.ReaderViewDataPath = null;
         state.IsReaderViewActive = true;
         state.ReaderScrollOffset = startAtBottom
             ? GetMaxReaderScrollOffset(state)
@@ -88,6 +106,12 @@ public static partial class Program
         state.ReaderViewInstructions = null;
         state.ReaderViewLines = null;
         state.ReaderViewStyledLines = null;
+        state.ReaderSelectedSelectableIndex = 0;
+        state.ReaderViewParentStyledLines = null;
+        state.ReaderViewParentTitle = null;
+        state.ReaderViewParentInstructions = null;
+        state.ReaderViewKind = null;
+        state.ReaderViewDataPath = null;
         state.ReaderViewDirty = true;
     }
 
@@ -103,40 +127,154 @@ public static partial class Program
         state.ReaderViewDirty = true;
     }
 
+    private static bool TryReturnToParentReaderView(AppState state)
+    {
+        if (state.ReaderViewParentStyledLines is null)
+        {
+            return false;
+        }
+
+        state.ReaderViewStyledLines = state.ReaderViewParentStyledLines;
+        state.ReaderViewLines = null;
+        state.ReaderViewTitle = state.ReaderViewParentTitle;
+        state.ReaderViewInstructions = state.ReaderViewParentInstructions;
+        state.ReaderScrollOffset = state.ReaderViewParentScrollOffset;
+        state.ReaderSelectedSelectableIndex = state.ReaderViewParentSelectedSelectableIndex;
+        state.ReaderViewParentStyledLines = null;
+        state.ReaderViewParentTitle = null;
+        state.ReaderViewParentInstructions = null;
+        state.ReaderViewDirty = true;
+        return true;
+    }
+
+    private static void MoveReaderSelection(AppState state, int delta)
+    {
+        int selectableCount = GetReaderSelectableCount(state);
+        if (selectableCount == 0)
+        {
+            ScrollReaderView(state, delta);
+            return;
+        }
+
+        state.ReaderSelectedSelectableIndex = Math.Clamp(
+            state.ReaderSelectedSelectableIndex + delta,
+            0,
+            selectableCount - 1);
+        EnsureReaderSelectionVisible(state);
+        state.ReaderViewDirty = true;
+    }
+
+    private static void MoveReaderSelectionTo(AppState state, int target)
+    {
+        int selectableCount = GetReaderSelectableCount(state);
+        if (selectableCount == 0)
+        {
+            SetReaderScroll(state, target);
+            return;
+        }
+
+        state.ReaderSelectedSelectableIndex = Math.Clamp(target, 0, selectableCount - 1);
+        EnsureReaderSelectionVisible(state);
+        state.ReaderViewDirty = true;
+    }
+
+    private static void EnsureReaderSelectionVisible(AppState state)
+    {
+        int selectedLineIndex = GetReaderSelectedLineIndex(state);
+        if (selectedLineIndex < 0)
+        {
+            return;
+        }
+
+        int viewportLineCount = GetReaderViewportLineCount();
+        if (selectedLineIndex < state.ReaderScrollOffset)
+        {
+            SetReaderScroll(state, selectedLineIndex);
+        }
+        else if (selectedLineIndex >= state.ReaderScrollOffset + viewportLineCount)
+        {
+            SetReaderScroll(state, selectedLineIndex - viewportLineCount + 1);
+        }
+    }
+
+    private static ReaderViewLine? GetSelectedReaderLine(AppState state)
+    {
+        int width = Math.Max(20, GetWindowWidth() - 1);
+        List<ReaderViewLine> lines = BuildReaderDisplayLines(state, width);
+        int selectableIndex = 0;
+
+        foreach (ReaderViewLine line in lines)
+        {
+            if (line.SelectionKey is null)
+            {
+                continue;
+            }
+
+            if (selectableIndex == state.ReaderSelectedSelectableIndex)
+            {
+                return line;
+            }
+
+            selectableIndex++;
+        }
+
+        return null;
+    }
+
     private static void HandleReaderViewKey(AppState state, ConsoleKeyInfo key)
     {
-        int step = MouseWheelScrollLineCount;
         int page = Math.Max(1, GetReaderViewportLineCount() - 1);
+
+        if (IsEnterKey(key))
+        {
+            OpenReaderSelectionDetails(state);
+            return;
+        }
+
+        if (IsEscapeKey(key))
+        {
+            if (TryReturnToParentReaderView(state))
+            {
+                return;
+            }
+
+            ExitReaderView(state);
+            return;
+        }
 
         switch (key.Key)
         {
-            case ConsoleKey.Escape:
             case ConsoleKey.F5:
+                if (TryReturnToParentReaderView(state))
+                {
+                    return;
+                }
+
                 ExitReaderView(state);
                 return;
 
             case ConsoleKey.UpArrow:
-                ScrollReaderView(state, -step);
+                MoveReaderSelection(state, -1);
                 return;
 
             case ConsoleKey.DownArrow:
-                ScrollReaderView(state, step);
+                MoveReaderSelection(state, 1);
                 return;
 
             case ConsoleKey.PageUp:
-                ScrollReaderView(state, -page);
+                MoveReaderSelection(state, -page);
                 return;
 
             case ConsoleKey.PageDown:
-                ScrollReaderView(state, page);
+                MoveReaderSelection(state, page);
                 return;
 
             case ConsoleKey.Home:
-                SetReaderScroll(state, 0);
+                MoveReaderSelectionTo(state, 0);
                 return;
 
             case ConsoleKey.End:
-                SetReaderScroll(state, int.MaxValue);
+                MoveReaderSelectionTo(state, int.MaxValue);
                 return;
         }
 
@@ -145,45 +283,49 @@ public static partial class Program
 
     private static void HandleReaderViewSequence(AppState state, string sequence)
     {
-        int step = MouseWheelScrollLineCount;
         int page = Math.Max(1, GetReaderViewportLineCount() - 1);
 
         if (sequence == "15~")
         {
+            if (TryReturnToParentReaderView(state))
+            {
+                return;
+            }
+
             ExitReaderView(state);
             return;
         }
 
         if (sequence.EndsWith('A'))
         {
-            ScrollReaderView(state, -step);
+            MoveReaderSelection(state, -1);
             return;
         }
 
         if (sequence.EndsWith('B'))
         {
-            ScrollReaderView(state, step);
+            MoveReaderSelection(state, 1);
             return;
         }
 
         switch (sequence)
         {
             case "5~":
-                ScrollReaderView(state, -page);
+                MoveReaderSelection(state, -page);
                 return;
 
             case "6~":
-                ScrollReaderView(state, page);
+                MoveReaderSelection(state, page);
                 return;
 
             case "H":
             case "1~":
-                SetReaderScroll(state, 0);
+                MoveReaderSelectionTo(state, 0);
                 return;
 
             case "F":
             case "4~":
-                SetReaderScroll(state, int.MaxValue);
+                MoveReaderSelectionTo(state, int.MaxValue);
                 return;
         }
 
