@@ -44,7 +44,7 @@ public sealed class ConversationOptions
             : $"{IdentityDescription}{Environment.NewLine}{Environment.NewLine}{trimmedSystemPrompt}";
     }
 
-    public string? SystemPrompt { get; set; } =
+    public static string DefaultSystemPrompt { get; } =
 """
 Your job is to help the user understand, modify, debug, test, review, and improve software projects. Act like a careful senior engineer: practical, direct, persistent, and safety-aware.
 
@@ -242,5 +242,16 @@ For explanations, explain the important behavior and point to relevant files.
 Do not dump large file contents unless the user asks.
 Do not say “I will do X later.” Complete the work now or explain the blocker.
 """;
+
+    public ConversationSystemPromptMode? SystemPromptMode { get; set; }
+
+    public string? SystemPrompt { get; set; } = DefaultSystemPrompt;
+}
+
+public enum ConversationSystemPromptMode
+{
+    None,
+    Custom,
+    StemCode
 }
 

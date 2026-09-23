@@ -41,7 +41,7 @@ internal static class ApplicationSettingsFactory
         ArgumentNullException.ThrowIfNull(options);
 
         ConversationOptions conversation = options.Conversation ?? new ConversationOptions();
-        string systemPrompt = ConversationOptions.CreateSystemPrompt(conversation.SystemPrompt);
+        string? systemPrompt = CreateSystemPrompt(conversation);
         TimeSpan requestTimeout = conversation.RequestTimeoutSeconds <= 0
             ? Timeout.InfiniteTimeSpan
             : TimeSpan.FromSeconds(conversation.RequestTimeoutSeconds);
@@ -51,6 +51,22 @@ internal static class ApplicationSettingsFactory
             requestTimeout,
             Math.Max(0, conversation.MaxHistoryTurns),
             Math.Max(0, conversation.MaxToolRoundsPerTurn));
+    }
+
+    private static string? CreateSystemPrompt(ConversationOptions conversation)
+    {
+        return conversation.SystemPromptMode switch
+        {
+            ConversationSystemPromptMode.None => null,
+            ConversationSystemPromptMode.Custom => string.IsNullOrWhiteSpace(conversation.SystemPrompt)
+                ? null
+                : ConversationOptions.CreateSystemPrompt(conversation.SystemPrompt),
+            ConversationSystemPromptMode.StemCode => ConversationOptions.CreateSystemPrompt(
+                ConversationOptions.DefaultSystemPrompt),
+            _ => string.IsNullOrWhiteSpace(conversation.SystemPrompt)
+                ? null
+                : ConversationOptions.CreateSystemPrompt(conversation.SystemPrompt)
+        };
     }
 
     public static ModelSelectionSettings CreateModelSelectionSettings(ApplicationOptions options)

@@ -1,7 +1,11 @@
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System.Reflection;
+using StemCode.Application.Backend;
 using StemCode.Application.Profiles;
 using StemCode.Domain.Models;
+using StemCode.Infrastructure.Configuration;
 using StemCode.Sdk;
 
 namespace StemCode.Tests.Sdk;
@@ -90,6 +94,54 @@ public sealed class StemCodeClientBuilderTests
     }
 
     [Fact]
+    public void Build_Should_DefaultSdkConversationToNoSystemPrompt()
+    {
+        ConversationOptions conversation = ResolveSdkConversationOptions(
+            StemCodeClient.CreateBuilder()
+                .UseOllama());
+
+        conversation.SystemPromptMode.Should().Be(ConversationSystemPromptMode.None);
+        conversation.SystemPrompt.Should().BeNull();
+    }
+
+    [Fact]
+    public void WithSystemPrompt_Should_ConfigureCustomSystemPrompt()
+    {
+        ConversationOptions conversation = ResolveSdkConversationOptions(
+            StemCodeClient.CreateBuilder()
+                .UseOllama()
+                .WithSystemPrompt("  Follow SDK caller rules.  "));
+
+        conversation.SystemPromptMode.Should().Be(ConversationSystemPromptMode.Custom);
+        conversation.SystemPrompt.Should().Be("Follow SDK caller rules.");
+    }
+
+    [Fact]
+    public void UseStemCodeSystemPrompt_Should_ConfigureBuiltInSystemPrompt()
+    {
+        ConversationOptions conversation = ResolveSdkConversationOptions(
+            StemCodeClient.CreateBuilder()
+                .UseOllama()
+                .UseStemCodeSystemPrompt());
+
+        conversation.SystemPromptMode.Should().Be(ConversationSystemPromptMode.StemCode);
+        conversation.SystemPrompt.Should().BeNull();
+    }
+
+    [Fact]
+    public void WithoutSystemPrompt_Should_ClearPreviouslyConfiguredSystemPrompt()
+    {
+        ConversationOptions conversation = ResolveSdkConversationOptions(
+            StemCodeClient.CreateBuilder()
+                .UseOllama()
+                .WithSystemPrompt("Use custom prompt.")
+                .WithoutSystemPrompt());
+
+        conversation.SystemPromptMode.Should().Be(ConversationSystemPromptMode.None);
+        conversation.SystemPrompt.Should().BeNull();
+    }
+
+    [Fact]
     public void BuildToolsAll_Should_MatchBuildProfileToolList()
     {
         StemCodeBuildTools.All.Should().BeEquivalentTo(BuiltInAgentProfiles.Build.EnabledTools);
@@ -102,5 +154,37 @@ public sealed class StemCodeClientBuilderTests
             BindingFlags.Instance | BindingFlags.NonPublic)!;
 
         return (string[])method.Invoke(builder, [])!;
+    }
+
+    private static ConversationOptions ResolveSdkConversationOptions(StemCodeClientBuilder builder)
+    {
+        StemCodeClient client = builder.Build();
+        try
+        {
+            StemCodeBackend backend = GetPrivateField<StemCodeBackend>(client, "_backend");
+            Action<IServiceCollection> configureServices =
+                GetPrivateField<Action<IServiceCollection>>(backend, "_configureServices");
+
+            ServiceCollection services = new();
+            services.AddOptions();
+            configureServices(services);
+
+            using ServiceProvider serviceProvider = services.BuildServiceProvider();
+            return serviceProvider.GetRequiredService<IOptions<ApplicationOptions>>().Value.Conversation;
+        }
+        finally
+        {
+            client.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    private static T GetPrivateField<T>(object instance, string fieldName)
+        where T : class
+    {
+        FieldInfo field = instance.GetType().GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        return (T)field.GetValue(instance)!;
     }
 }
