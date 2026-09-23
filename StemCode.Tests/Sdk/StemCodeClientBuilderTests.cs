@@ -1,7 +1,9 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
 using System.Reflection;
+using StemCode.Application.Abstractions;
 using StemCode.Application.Backend;
 using StemCode.Application.Profiles;
 using StemCode.Domain.Models;
@@ -105,6 +107,27 @@ public sealed class StemCodeClientBuilderTests
     }
 
     [Fact]
+    public void Build_Should_DisableProductTelemetryByDefault()
+    {
+        ApplicationOptions options = ResolveSdkApplicationOptions(
+            StemCodeClient.CreateBuilder()
+                .UseOllama());
+
+        options.Telemetry.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void EnableProductTelemetry_Should_EnableBuiltInProductTelemetry()
+    {
+        ApplicationOptions options = ResolveSdkApplicationOptions(
+            StemCodeClient.CreateBuilder()
+                .UseOllama()
+                .EnableProductTelemetry());
+
+        options.Telemetry.Enabled.Should().BeTrue();
+    }
+
+    [Fact]
     public void WithSystemPrompt_Should_ConfigureCustomSystemPrompt()
     {
         ConversationOptions conversation = ResolveSdkConversationOptions(
@@ -147,6 +170,47 @@ public sealed class StemCodeClientBuilderTests
         StemCodeBuildTools.All.Should().BeEquivalentTo(BuiltInAgentProfiles.Build.EnabledTools);
     }
 
+    [Fact]
+    public void WithOpenTelemetryTracing_Should_EmitProviderRequestActivity()
+    {
+        List<Activity> stoppedActivities = [];
+        using ActivityListener listener = new()
+        {
+            ShouldListenTo = source => source.Name == StemCodeObservability.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = stoppedActivities.Add
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        InspectSdkServices(
+            StemCodeClient.CreateBuilder()
+                .UseOllama()
+                .WithOpenTelemetryTracing(),
+            serviceProvider =>
+            {
+                IProductTelemetry telemetry = serviceProvider.GetRequiredService<IProductTelemetry>();
+
+                telemetry.TrackProviderRequest(
+                    "OpenAi",
+                    success: true,
+                    TimeSpan.FromMilliseconds(12),
+                    streamed: true,
+                    TimeSpan.FromMilliseconds(3),
+                    retryCount: 2);
+            });
+
+        Activity activity = stoppedActivities.Should()
+            .ContainSingle(candidate => candidate.OperationName == "stemcode.provider_request")
+            .Subject;
+        activity.Source.Name.Should().Be(StemCodeObservability.ActivitySourceName);
+        activity.TagObjects.Should().Contain(tag =>
+            tag.Key == "stemcode.provider.name" &&
+            Equals(tag.Value, "OpenAi"));
+        activity.TagObjects.Should().Contain(tag =>
+            tag.Key == "stemcode.retry_count" &&
+            Equals(tag.Value, 2));
+    }
+
     private static string[] InvokeBuildArgs(StemCodeClientBuilder builder)
     {
         MethodInfo method = typeof(StemCodeClientBuilder).GetMethod(
@@ -158,6 +222,25 @@ public sealed class StemCodeClientBuilderTests
 
     private static ConversationOptions ResolveSdkConversationOptions(StemCodeClientBuilder builder)
     {
+        return ResolveSdkApplicationOptions(builder).Conversation;
+    }
+
+    private static ApplicationOptions ResolveSdkApplicationOptions(StemCodeClientBuilder builder)
+    {
+        ApplicationOptions? options = null;
+        InspectSdkServices(
+            builder,
+            serviceProvider => options = serviceProvider
+                .GetRequiredService<IOptions<ApplicationOptions>>()
+                .Value);
+
+        return options!;
+    }
+
+    private static void InspectSdkServices(
+        StemCodeClientBuilder builder,
+        Action<IServiceProvider> inspect)
+    {
         StemCodeClient client = builder.Build();
         try
         {
@@ -166,11 +249,13 @@ public sealed class StemCodeClientBuilderTests
                 GetPrivateField<Action<IServiceCollection>>(backend, "_configureServices");
 
             ServiceCollection services = new();
+            services.AddLogging();
             services.AddOptions();
+            services.AddHttpClient();
             configureServices(services);
 
             using ServiceProvider serviceProvider = services.BuildServiceProvider();
-            return serviceProvider.GetRequiredService<IOptions<ApplicationOptions>>().Value.Conversation;
+            inspect(serviceProvider);
         }
         finally
         {
