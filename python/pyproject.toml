@@ -3,7 +3,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "stemcode-python"
+name = "stemcode-sdk"
 version = "0.1.0"
 description = "Python wrapper for the StemCode .NET SDK using pythonnet."
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "GrowBit Labs" },
+    { name = "Rizwan3d" },
 ]
 keywords = ["stemcode", "ai", "agent", "pythonnet", "dotnet"]
 
