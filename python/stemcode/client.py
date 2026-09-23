@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import os
 import platform
+import shutil
 import sys
+import tempfile
+import urllib.error
+import urllib.request
+import zipfile
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version as package_version
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Callable
+from xml.etree import ElementTree
 
 _loaded = False
 _assembly_resolvers: list[Any] = []
@@ -35,6 +42,10 @@ def load_stemcode(runtime_path: str | os.PathLike[str] | None = None) -> None:
         root = Path(str(files("stemcode").joinpath("_dotnet"))).resolve()
 
     assembly_path = root if root.name.lower() == "stemcode.dll" else root / "StemCode.dll"
+    if not assembly_path.exists() and not path_value:
+        root = _ensure_dotnet_runtime_from_nuget()
+        assembly_path = root / "StemCode.dll"
+
     if not assembly_path.exists():
         raise DotNetLoadError(
             f"StemCode.dll was not found at {assembly_path}. Reinstall the "
@@ -125,6 +136,268 @@ def _runtime_identifier() -> str | None:
         return f"osx-{architecture}"
 
     return None
+
+
+def _ensure_dotnet_runtime_from_nuget() -> Path:
+    package_id = os.getenv("STEMCODE_NUGET_PACKAGE", "StemCode")
+    package_version_value = os.getenv("STEMCODE_NUGET_VERSION") or _python_package_version()
+    source_url = os.getenv("STEMCODE_NUGET_SOURCE", "https://api.nuget.org/v3-flatcontainer")
+    rid = _runtime_identifier() or "any"
+
+    target_dir = _nuget_cache_root() / package_id.lower() / package_version_value / rid
+    assembly_path = target_dir / "StemCode.dll"
+    if assembly_path.exists():
+        _trace_nuget(f"using cached runtime: {target_dir}")
+        return target_dir
+
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _trace_nuget(f"downloading runtime package: {package_id} {package_version_value}")
+        with tempfile.TemporaryDirectory(prefix="stemcode-nuget-") as temp_dir_value:
+            temp_dir = Path(temp_dir_value)
+            package_path = temp_dir / f"{package_id}.{package_version_value}.nupkg"
+            _download_nuget_package(package_id, package_version_value, source_url, package_path)
+
+            extract_dir = temp_dir / "package"
+            _extract_zip_safe(package_path, extract_dir)
+
+            runtime_dir = _select_nuget_runtime_dir(extract_dir, rid)
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+
+            shutil.copytree(runtime_dir, target_dir)
+            _trace_nuget(f"hydrating dependencies into: {target_dir}")
+            _hydrate_nuget_dependencies(
+                extract_dir,
+                target_dir,
+                rid,
+                source_url,
+                visited={(package_id.lower(), package_version_value.lower())},
+            )
+    except Exception as exc:
+        raise DotNetLoadError(
+            "StemCode.dll was not bundled and could not be downloaded from NuGet. "
+            "Set STEMCODE_DOTNET_PATH to a published StemCode SDK folder, or set "
+            "STEMCODE_NUGET_PACKAGE/STEMCODE_NUGET_VERSION/STEMCODE_NUGET_SOURCE "
+            "to a NuGet package that contains StemCode.dll and its dependency DLLs."
+        ) from exc
+
+    if not assembly_path.exists():
+        raise DotNetLoadError(
+            f"The NuGet package {package_id} {package_version_value} did not provide "
+            "StemCode.dll in a supported layout."
+        )
+
+    return target_dir
+
+
+def _python_package_version() -> str:
+    try:
+        return package_version("stemcode-sdk")
+    except PackageNotFoundError:
+        return "0.1.0"
+
+
+def _nuget_cache_root() -> Path:
+    configured = os.getenv("STEMCODE_DOTNET_CACHE")
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    if sys.platform == "win32":
+        root = os.getenv("LOCALAPPDATA")
+        if root:
+            return Path(root) / "StemCode" / "python-dotnet"
+
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "StemCode" / "python-dotnet"
+
+    root = os.getenv("XDG_CACHE_HOME")
+    if root:
+        return Path(root) / "stemcode" / "python-dotnet"
+
+    return Path.home() / ".cache" / "stemcode" / "python-dotnet"
+
+
+def _download_nuget_package(package_id: str, version: str, source_url: str, destination: Path) -> None:
+    normalized_source = source_url.rstrip("/")
+    lower_id = package_id.lower()
+    url = f"{normalized_source}/{lower_id}/{version.lower()}/{lower_id}.{version.lower()}.nupkg"
+    _trace_nuget(f"GET {package_id} {version}")
+
+    request = urllib.request.Request(url, headers={"User-Agent": "stemcode-sdk-python"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            destination.write_bytes(response.read())
+    except urllib.error.HTTPError as exc:
+        raise DotNetLoadError(f"NuGet package download failed with HTTP {exc.code}: {url}") from exc
+
+
+def _hydrate_nuget_dependencies(
+    extract_dir: Path,
+    target_dir: Path,
+    rid: str,
+    source_url: str,
+    visited: set[tuple[str, str]],
+) -> None:
+    for dependency_id, dependency_version in _read_nuget_dependencies(extract_dir):
+        normalized_version = _normalize_nuget_version(dependency_version)
+        key = (dependency_id.lower(), normalized_version.lower())
+        if key in visited:
+            continue
+
+        visited.add(key)
+        _trace_nuget(f"dependency: {dependency_id} {normalized_version}")
+
+        with tempfile.TemporaryDirectory(prefix="stemcode-nuget-dep-") as temp_dir_value:
+            temp_dir = Path(temp_dir_value)
+            package_path = temp_dir / f"{dependency_id}.{normalized_version}.nupkg"
+            _download_nuget_package(dependency_id, normalized_version, source_url, package_path)
+
+            dependency_extract_dir = temp_dir / "package"
+            _extract_zip_safe(package_path, dependency_extract_dir)
+
+            _copy_nuget_managed_assets(dependency_extract_dir, target_dir)
+            _copy_nuget_runtime_assets(dependency_extract_dir, target_dir, rid)
+            if _should_hydrate_dependency_dependencies(dependency_id):
+                _hydrate_nuget_dependencies(dependency_extract_dir, target_dir, rid, source_url, visited)
+
+
+def _read_nuget_dependencies(extract_dir: Path) -> tuple[tuple[str, str], ...]:
+    nuspec_files = sorted(extract_dir.glob("*.nuspec"))
+    if not nuspec_files:
+        return ()
+
+    root = ElementTree.parse(nuspec_files[0]).getroot()
+    namespace = ""
+    if root.tag.startswith("{"):
+        namespace = root.tag.split("}", 1)[0] + "}"
+
+    dependencies = []
+    for dependency in root.findall(f".//{namespace}dependency"):
+        dependency_id = dependency.attrib.get("id")
+        dependency_version = dependency.attrib.get("version")
+        if dependency_id and dependency_version:
+            dependencies.append((dependency_id, dependency_version))
+
+    return tuple(dependencies)
+
+
+def _normalize_nuget_version(version: str) -> str:
+    normalized = version.strip()
+    if "," in normalized:
+        normalized = normalized.strip("[]()").split(",", 1)[0].strip()
+    return normalized.strip("[]()")
+
+
+def _copy_nuget_managed_assets(extract_dir: Path, target_dir: Path) -> None:
+    asset_dir = _select_framework_asset_dir(extract_dir)
+    if asset_dir is None:
+        return
+
+    for asset in asset_dir.iterdir():
+        if asset.is_file() and asset.suffix.lower() in {".dll", ".json"}:
+            shutil.copy2(asset, target_dir / asset.name)
+
+
+def _select_framework_asset_dir(extract_dir: Path) -> Path | None:
+    candidates = (
+        extract_dir / "lib" / "net10.0",
+        extract_dir / "lib" / "net9.0",
+        extract_dir / "lib" / "net8.0",
+        extract_dir / "lib" / "net7.0",
+        extract_dir / "lib" / "net6.0",
+        extract_dir / "lib" / "netstandard2.1",
+        extract_dir / "lib" / "netstandard2.0",
+    )
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    lib_dir = extract_dir / "lib"
+    if not lib_dir.exists():
+        return None
+
+    framework_dirs = sorted(path for path in lib_dir.iterdir() if path.is_dir())
+    return framework_dirs[-1] if framework_dirs else None
+
+
+def _copy_nuget_runtime_assets(extract_dir: Path, target_dir: Path, rid: str) -> None:
+    runtime_candidates = (
+        extract_dir / "runtimes" / rid / "native",
+        extract_dir / "runtimes" / _rid_family(rid) / "native",
+    )
+    for candidate in runtime_candidates:
+        if candidate.exists():
+            native_target = target_dir / "runtimes" / candidate.parent.name / "native"
+            native_target.mkdir(parents=True, exist_ok=True)
+            for asset in candidate.iterdir():
+                if asset.is_file():
+                    shutil.copy2(asset, native_target / asset.name)
+
+    runtime_lib_candidates = (
+        extract_dir / "runtimes" / rid / "lib" / "net10.0",
+        extract_dir / "runtimes" / _rid_family(rid) / "lib" / "net10.0",
+    )
+    for candidate in runtime_lib_candidates:
+        if candidate.exists():
+            for asset in candidate.iterdir():
+                if asset.is_file() and asset.suffix.lower() in {".dll", ".json"}:
+                    shutil.copy2(asset, target_dir / asset.name)
+
+
+def _rid_family(rid: str) -> str:
+    if rid.startswith("win-"):
+        return "win"
+    if rid.startswith("linux-"):
+        return "linux"
+    if rid.startswith("osx-"):
+        return "osx"
+    return rid
+
+
+def _should_hydrate_dependency_dependencies(package_id: str) -> bool:
+    normalized = package_id.lower()
+    return normalized.startswith("microsoft.extensions.") or normalized.startswith("microsoft.ml.onnxruntime")
+
+
+def _trace_nuget(message: str) -> None:
+    if os.getenv("STEMCODE_NUGET_VERBOSE"):
+        print(f"[stemcode-nuget] {message}", file=sys.stderr, flush=True)
+
+
+def _select_nuget_runtime_dir(extract_dir: Path, rid: str) -> Path:
+    candidates = (
+        extract_dir / "tools" / "stemcode" / rid,
+        extract_dir / "tools" / "stemcode" / "any",
+        extract_dir / "tools" / rid,
+        extract_dir / "tools",
+        extract_dir / "lib" / "net10.0",
+    )
+
+    for candidate in candidates:
+        if (candidate / "StemCode.dll").exists():
+            return candidate
+
+    matches = sorted(extract_dir.rglob("StemCode.dll"))
+    if matches:
+        return matches[0].parent
+
+    raise DotNetLoadError("StemCode.dll was not found inside the downloaded NuGet package.")
+
+
+def _extract_zip_safe(package_path: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    destination_root = destination.resolve()
+
+    with zipfile.ZipFile(package_path) as package:
+        for member in package.infolist():
+            target = (destination / member.filename).resolve()
+            if destination_root != target and destination_root not in target.parents:
+                raise DotNetLoadError("NuGet package contains an unsafe archive path.")
+
+        package.extractall(destination)
 
 
 def _register_assembly_resolver(assembly_dir: Path, native_dirs: tuple[Path, ...]) -> None:

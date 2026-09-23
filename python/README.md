@@ -7,7 +7,7 @@ and keeps the .NET SDK as the source of truth.
 ## Requirements
 
 - Python 3.10 or newer
-- .NET SDK/runtime that can run the bundled StemCode target framework
+- .NET runtime that can run the StemCode target framework
 
 ## Setup From This Repository
 
@@ -25,7 +25,9 @@ py -3.12 -m venv .venv
 pip install -e .
 ```
 
-The package build publishes and bundles the StemCode .NET SDK automatically.
+The package loads the StemCode .NET SDK from `STEMCODE_DOTNET_PATH`, a bundled
+payload if one was built, or a NuGet-backed cache. On first use, the wrapper can
+download the NuGet package into that cache when no local payload is present.
 Set your provider credentials:
 
 ```powershell
@@ -66,12 +68,46 @@ Callbacks are kept alive for the lifetime of the Python client.
 
 ## Runtime Path
 
-The package loads its bundled StemCode .NET SDK by default. To override it for
-local development, call `load_stemcode(runtime_path=...)`, pass `runtime_path`
-to `StemCodeClient.builder(...)`, or set `STEMCODE_DOTNET_PATH`. The path can be:
+The package resolves the StemCode .NET SDK in this order:
+
+1. `load_stemcode(runtime_path=...)`, `StemCodeClient.builder(runtime_path=...)`,
+   or `STEMCODE_DOTNET_PATH`
+2. a bundled `stemcode/_dotnet` payload, when the wheel was built with one
+3. a NuGet package downloaded into the StemCode Python cache
+
+The runtime path can be:
 
 - a folder containing `StemCode.dll`
 - the full path to `StemCode.dll`
 
 Publish output is preferred over copying a single assembly because pythonnet
 must resolve StemCode's dependency assemblies too.
+
+NuGet download settings:
+
+- `STEMCODE_NUGET_PACKAGE`: package ID, default `StemCode`
+- `STEMCODE_NUGET_VERSION`: package version, default matching `stemcode-sdk`
+- `STEMCODE_NUGET_SOURCE`: flat-container source, default NuGet.org
+- `STEMCODE_DOTNET_CACHE`: cache folder override
+
+The NuGet package must contain `StemCode.dll` and its dependency DLLs in one of
+these layouts:
+
+- `tools/stemcode/<rid>/`
+- `tools/stemcode/any/`
+- `tools/<rid>/`
+- `tools/`
+- `lib/net10.0/`
+
+To build a wheel with the .NET payload bundled instead of downloaded, set:
+
+```powershell
+$env:STEMCODE_BUNDLE_DOTNET = "1"
+python -m build
+```
+
+To verify the NuGet download path end to end:
+
+```powershell
+python .\scripts\test_nuget_runtime.py --version 1.1.22
+```
