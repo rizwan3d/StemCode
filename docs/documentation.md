@@ -605,7 +605,7 @@ code --install-extension stemcode-<version>.vsix
 
 ### Extension Publishing
 
-The release workflow `.github/workflows/release.yml` packages the extension as `StemCode.VsCode-<version>.vsix` and publishes it to GitHub Releases with the CLI, desktop, and NuGet assets. The signed release variant `.github/workflows/release-signing.yml` does the same when that workflow is used. Both workflows publish `SHA256SUMS`, push the `StemCode` library package to NuGet.org, and generate GitHub artifact attestations for the generated release assets.
+The release workflow `.github/workflows/release.yml` packages the extension as `StemCode.VsCode-<version>.vsix`, publishes it to GitHub Releases with the CLI, desktop, and NuGet assets, and publishes the registry packages to NuGet.org, npm, and PyPI. The signed release variant `.github/workflows/release-signing.yml` publishes `SHA256SUMS`, pushes the `StemCode` library package to NuGet.org, and generates GitHub artifact attestations for the generated release assets when that workflow is used.
 
 The Marketplace CD workflow `.github/workflows/vscode-extension-cd.yml` publishes the extension to the Visual Studio Marketplace. It runs for `v*` tags and manual dispatch. For tag builds, the workflow removes the leading `v` and applies that value to `StemCode.VsCode/package.json` with `npm version --no-git-tag-version` before packaging.
 
@@ -616,7 +616,15 @@ NUGET_USER
 VSCE_PAT
 ```
 
-Create `NUGET_USER` in GitHub repository secrets or variables with the NuGet.org profile name that owns the target packages when it differs from the GitHub repository owner. If it is unset, the release workflows default to `github.repository_owner`. In NuGet.org, create a Trusted Publishing policy for this repository and workflow file name (`release.yml` and `release-signing.yml`; include `production-release` as the environment if you want the policy restricted to that GitHub Actions environment). The release workflow requests `id-token: write`, uses `NuGet/login@v1` to exchange the GitHub Actions OIDC token for a short-lived NuGet API key, and then publishes with `dotnet nuget push`. Create `VSCE_PAT` in Azure DevOps with Marketplace Manage scope and access to the `rizwan3d` Visual Studio Marketplace publisher. The Marketplace workflow publishes through `@vscode/vsce`, uploads the generated `.vsix` artifact, and uses the `vscode-marketplace` GitHub environment for deployment approval or environment-level protection rules if configured.
+Create `NUGET_USER` in GitHub repository secrets or variables with the NuGet.org profile name that owns the target packages when it differs from the GitHub repository owner. If it is unset, the release workflows default to `github.repository_owner`. In NuGet.org, create a Trusted Publishing policy for this repository and workflow file name (`release.yml` and `release-signing.yml`; include `production-release` as the environment if you want the policy restricted to that GitHub Actions environment). The release workflow requests `id-token: write`, uses `NuGet/login@v1` to exchange the GitHub Actions OIDC token for a short-lived NuGet API key, and then publishes with `dotnet nuget push`.
+
+Create a PyPI trusted publisher for the Python package:
+
+| Project | Publisher | Details |
+| --- | --- | --- |
+| `stemcode-sdk` | GitHub | **Repository:** [rizwan3d/StemCode](https://github.com/rizwan3d/StemCode)<br>**Workflow:** `release.yml`<br>**Environment name:** `production-release` |
+
+Create `VSCE_PAT` in Azure DevOps with Marketplace Manage scope and access to the `rizwan3d` Visual Studio Marketplace publisher. The Marketplace workflow publishes through `@vscode/vsce`, uploads the generated `.vsix` artifact, and uses the `vscode-marketplace` GitHub environment for deployment approval or environment-level protection rules if configured.
 
 ## Visual Studio Extension
 

@@ -613,11 +613,19 @@ jobs:
           fi
 
   publish-npm:
-    name: Publish npm package
+    name: Publish npm package (${{ matrix.package_name }})
     needs:
       - validate
       - publish-release
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package_name: stemcode
+            package_dir: packaging/npm
+          - package_name: "@stemcode/sdk"
+            package_dir: js
     environment:
       name: production-release
     permissions:
@@ -637,6 +645,11 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
           
       - name: Setup npm
         run: npm install --global npm@latest
@@ -646,11 +659,84 @@ jobs:
           node --version
           npm --version
           
+      - name: Install package dependencies
+        working-directory: ${{ matrix.package_dir }}
+        run: npm ci
+
       - name: Set package version
-        working-directory: packaging/npm
+        working-directory: ${{ matrix.package_dir }}
         run: npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Publish to npm
-        working-directory: packaging/npm
+      - name: Publish ${{ matrix.package_name }} to npm
+        working-directory: ${{ matrix.package_dir }}
         run: |          
           npm publish --access public
+
+  publish-python:
+    name: Publish Python package (stemcode-sdk)
+    needs:
+      - validate
+      - publish-release
+    runs-on: ubuntu-24.04
+    environment:
+      name: production-release
+      url: https://pypi.org/p/stemcode-sdk
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            StemCode/packages.lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: python/pyproject.toml
+
+      - name: Install package tools
+        run: python -m pip install --upgrade build twine
+
+      - name: Set Python package version
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          path = Path("python/pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          replacement = f'version = "{os.environ["RELEASE_VERSION"]}"'
+          text, count = re.subn(r'(?m)^version = "[^"]+"$', replacement, text, count=1)
+          if count != 1:
+              raise SystemExit("Expected exactly one project version in python/pyproject.toml.")
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Build wheel and source distribution
+        working-directory: python
+        run: python -m build
+
+      - name: Check distributions
+        working-directory: python
+        run: python -m twine check dist/*
+
+      - name: Publish stemcode-sdk to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist
