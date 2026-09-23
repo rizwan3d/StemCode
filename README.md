@@ -193,7 +193,7 @@ See [`python/README.md`](python/README.md) for the full setup and usage example.
 
 ### JavaScript / TypeScript SDK Wrapper
 
-The `js/` folder contains a Node.js package, `@stemcode/sdk`, powered by
+The `js/` folder contains a Node.js package, `stemcode-sdk`, powered by
 [`edge-js`](https://github.com/agracio/edge-js). It calls the same .NET
 `StemCode.Sdk` API in-process and exposes a typed event-driven client for both
 JavaScript and TypeScript.
@@ -212,7 +212,7 @@ node .\examples\basic-chat.js "Summarize this repository."
 ```
 
 ```ts
-import { StemCodeClient } from "@stemcode/sdk";
+import { StemCodeClient } from "stemcode-sdk";
 
 const client = new StemCodeClient({
   provider: "openai",

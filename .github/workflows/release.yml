@@ -624,7 +624,7 @@ jobs:
         include:
           - package_name: stemcode
             package_dir: packaging/npm
-          - package_name: "@stemcode/sdk"
+          - package_name: "stemcode-sdk"
             package_dir: js
     environment:
       name: production-release
