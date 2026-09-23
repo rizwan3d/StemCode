@@ -1,4 +1,4 @@
-name: PostHog GitHub release, npm, NuGet and VS Code Marketplace install trend
+name: PostHog GitHub release, npm, NuGet, PyPI and VS Code Marketplace install trend
 
 on:
   workflow_dispatch:
@@ -9,6 +9,10 @@ on:
         type: string
       nuget_package_ids:
         description: 'Comma/newline-separated NuGet package IDs to track. Leave blank to use vars.NUGET_PACKAGE_IDS.'
+        required: false
+        type: string
+      pypi_package_ids:
+        description: 'Comma/newline-separated PyPI package names to track. Leave blank to use vars.PYPI_PACKAGE_IDS.'
         required: false
         type: string
       vscode_extension_ids:
@@ -29,8 +33,9 @@ jobs:
       POSTHOG_HOST: ${{ vars.POSTHOG_HOST || 'https://us.i.posthog.com' }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       REPOSITORY: ${{ github.repository }}
-      NPM_PACKAGE_IDS: ${{ github.event.inputs.npm_package_ids || vars.NPM_PACKAGE_IDS || 'stemcode' }}
+      NPM_PACKAGE_IDS: ${{ github.event.inputs.npm_package_ids || vars.NPM_PACKAGE_IDS || 'stemcode,stemcode-sdk' }}
       NUGET_PACKAGE_IDS: ${{ github.event.inputs.nuget_package_ids || vars.NUGET_PACKAGE_IDS || 'StemCode' }}
+      PYPI_PACKAGE_IDS: ${{ github.event.inputs.pypi_package_ids || vars.PYPI_PACKAGE_IDS || '' }}
       VSCODE_EXTENSION_IDS: ${{ github.event.inputs.vscode_extension_ids || vars.VSCODE_EXTENSION_IDS || 'growbitlab.stemcode,growbitlab.stemcode-vs' }}
     steps:
       - name: Send GitHub release download snapshots to PostHog
@@ -528,6 +533,199 @@ jobs:
           }, `npm-packages:${REPOSITORY}`)
 
           console.log(`Sent npm snapshots for ${trackedPackages} packages, ${totalDownloads} total downloads, ${totalLastWeekDownloads} last-week downloads to PostHog.`)
+          NODE
+
+      - name: Send PyPI package install/download snapshots to PostHog
+        if: ${{ env.PYPI_PACKAGE_IDS != '' }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { POSTHOG_PROJECT_API_KEY, POSTHOG_HOST, REPOSITORY, PYPI_PACKAGE_IDS } = process.env
+
+          if (!POSTHOG_PROJECT_API_KEY) {
+            throw new Error('Missing required secret: POSTHOG_PROJECT_API_KEY')
+          }
+
+          // Same identity shape as the GitHub release, npm, NuGet, and VS Code
+          // steps so every event this workflow emits stays uniform.
+          const commonProperties = {
+            '$lib': 'stemcode-release-trend',
+            source: 'github-actions',
+            app_surface: 'github_actions',
+            execution_environment: 'ci',
+            is_ci: true,
+            ci_provider: 'github_actions',
+          }
+
+          const packageIds = (PYPI_PACKAGE_IDS || '')
+            .split(/[\n,]/)
+            .map((value) => value.trim())
+            .filter(Boolean)
+
+          if (packageIds.length === 0) {
+            console.log('No PyPI package IDs configured; skipping PyPI trend capture.')
+            process.exit(0)
+          }
+
+          async function json(url, options = {}) {
+            const res = await fetch(url, options)
+            if (!res.ok) {
+              throw new Error(`Request failed ${res.status} for ${url}: ${await res.text()}`)
+            }
+            return res.json()
+          }
+
+          async function posthogCapture(event, properties, distinctId) {
+            const endpoint = `${POSTHOG_HOST.replace(/\/$/, '')}/i/v0/e/`
+            const res = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                api_key: POSTHOG_PROJECT_API_KEY,
+                event,
+                distinct_id: distinctId,
+                properties: {
+                  ...commonProperties,
+                  ...properties,
+                  '$process_person_profile': false,
+                },
+              }),
+            })
+            if (!res.ok) {
+              throw new Error(`PostHog capture failed ${res.status}: ${await res.text()}`)
+            }
+          }
+
+          async function pypiPackage(packageId) {
+            return json(`https://pypi.org/pypi/${encodeURIComponent(packageId)}/json`, {
+              headers: {
+                Accept: 'application/json',
+                'User-Agent': 'posthog-release-and-nuget-trend',
+              },
+            })
+          }
+
+          async function pypiRecentDownloads(packageId) {
+            const res = await fetch(`https://pypistats.org/api/packages/${encodeURIComponent(packageId)}/recent`, {
+              headers: {
+                Accept: 'application/json',
+                'User-Agent': 'posthog-release-and-nuget-trend',
+              },
+            })
+
+            if (res.status === 404) {
+              console.warn(`PyPI download statistics are not available yet for ${packageId}`)
+              return null
+            }
+
+            if (!res.ok) {
+              throw new Error(`Request failed ${res.status} for PyPI stats ${packageId}: ${await res.text()}`)
+            }
+
+            return res.json()
+          }
+
+          const collectedAt = new Date().toISOString()
+
+          let trackedPackages = 0
+          let totalLastDayDownloads = 0
+          let totalLastWeekDownloads = 0
+          let totalLastMonthDownloads = 0
+
+          for (const configuredPackageId of packageIds) {
+            let metadata
+            try {
+              metadata = await pypiPackage(configuredPackageId)
+            } catch (error) {
+              await posthogCapture('stemcode pypi package lookup failed', {
+                repository: REPOSITORY,
+                package_id: configuredPackageId,
+                collected_at: collectedAt,
+                snapshot_type: 'lookup_failed',
+                lookup_error: error.message,
+              }, `pypi-package:${configuredPackageId.toLowerCase()}`)
+              console.warn(`PyPI package was not found: ${configuredPackageId}`)
+              continue
+            }
+
+            const info = metadata.info || {}
+            const packageId = info.name || configuredPackageId
+            const latestVersion = info.version || null
+            const releases = metadata.releases && typeof metadata.releases === 'object'
+              ? Object.keys(metadata.releases)
+              : []
+            const latestReleaseFiles =
+              latestVersion && metadata.releases && Array.isArray(metadata.releases[latestVersion])
+                ? metadata.releases[latestVersion]
+                : []
+            const latestUploadTime = latestReleaseFiles.length
+              ? latestReleaseFiles
+                .map((file) => file.upload_time_iso_8601 || file.upload_time)
+                .filter(Boolean)
+                .sort()
+                .at(-1)
+              : null
+
+            const recentDownloadsResult = await pypiRecentDownloads(packageId)
+
+            if (!recentDownloadsResult || !recentDownloadsResult.data) {
+              await posthogCapture('stemcode pypi download stats unavailable', {
+                repository: REPOSITORY,
+                package_id: packageId,
+                latest_version: latestVersion,
+                collected_at: collectedAt,
+                snapshot_type: 'downloads_unavailable',
+              }, `pypi-package:${packageId.toLowerCase()}`)
+              continue
+            }
+
+            const recentDownloads = recentDownloadsResult.data
+            const packageLastDayDownloads = Number(recentDownloads.last_day || 0)
+            const packageLastWeekDownloads = Number(recentDownloads.last_week || 0)
+            const packageLastMonthDownloads = Number(recentDownloads.last_month || 0)
+
+            trackedPackages += 1
+            totalLastDayDownloads += packageLastDayDownloads
+            totalLastWeekDownloads += packageLastWeekDownloads
+            totalLastMonthDownloads += packageLastMonthDownloads
+
+            await posthogCapture('stemcode pypi package install snapshot', {
+              repository: REPOSITORY,
+              package_id: packageId,
+              package_summary: info.summary || null,
+              package_homepage: info.home_page || null,
+              package_project_url: info.project_url || null,
+              package_project_urls: info.project_urls || {},
+              package_license: info.license_expression || info.license || null,
+              package_keywords: info.keywords || null,
+              package_author: info.author || null,
+              package_author_email: info.author_email || null,
+              package_maintainer: info.maintainer || null,
+              package_maintainer_email: info.maintainer_email || null,
+              package_requires_python: info.requires_python || null,
+              latest_version: latestVersion,
+              published_at: latestUploadTime,
+              package_version_count: releases.length,
+              downloads_last_day: packageLastDayDownloads,
+              downloads_last_week: packageLastWeekDownloads,
+              downloads_last_month: packageLastMonthDownloads,
+              collected_at: collectedAt,
+              snapshot_type: 'package_total',
+            }, `pypi-package:${packageId.toLowerCase()}`)
+          }
+
+          await posthogCapture('stemcode pypi tracked packages install snapshot', {
+            repository: REPOSITORY,
+            package_ids: packageIds,
+            tracked_package_count: trackedPackages,
+            downloads_last_day: totalLastDayDownloads,
+            downloads_last_week: totalLastWeekDownloads,
+            downloads_last_month: totalLastMonthDownloads,
+            collected_at: collectedAt,
+            snapshot_type: 'tracked_packages_total',
+          }, `pypi-packages:${REPOSITORY}`)
+
+          console.log(`Sent PyPI snapshots for ${trackedPackages} packages, ${totalLastWeekDownloads} last-week downloads to PostHog.`)
           NODE
 
       - name: Send VS Code Marketplace extension install snapshots to PostHog
