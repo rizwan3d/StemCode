@@ -47,6 +47,22 @@ The agent can answer normally, but it cannot call repository editing, file,
 shell, browser, planning, memory, code intelligence, or subagent tools unless
 you add tools yourself.
 
+SDK clients start with no configured base system prompt. Add one explicitly
+with `WithSystemPrompt(...)`, or opt into StemCode's built-in coding-agent
+prompt with `UseStemCodeSystemPrompt()`:
+
+```csharp
+await using StemCodeClient client = StemCodeClient.CreateBuilder()
+    .UseAnthropic(apiKey, "claude-opus-4-8")
+    .WithSystemPrompt("Follow this product team's engineering conventions.")
+    .Build();
+
+await using StemCodeClient stemCodePromptClient = StemCodeClient.CreateBuilder()
+    .UseAnthropic(apiKey, "claude-opus-4-8")
+    .UseStemCodeSystemPrompt()
+    .Build();
+```
+
 ```csharp
 using StemCode.Sdk;
 

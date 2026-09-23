@@ -9,6 +9,15 @@ namespace StemCode.Tests.Infrastructure.Configuration;
 public sealed class ApplicationSettingsFactoryTests
 {
     [Fact]
+    public void CreateConversationSettings_Should_DefaultToStemCodeSystemPrompt()
+    {
+        ConversationSettings settings = ApplicationSettingsFactory.CreateConversationSettings(new ApplicationOptions());
+
+        settings.SystemPrompt.Should().StartWith(ConversationOptions.IdentityDescription);
+        settings.SystemPrompt.Should().Contain("Deliver working software, not just advice.");
+    }
+
+    [Fact]
     public void CreateConversationSettings_Should_PrefixConfiguredSystemPromptWithIdentity()
     {
         ConversationSettings settings = ApplicationSettingsFactory.CreateConversationSettings(new ApplicationOptions
@@ -21,6 +30,36 @@ public sealed class ApplicationSettingsFactoryTests
 
         settings.SystemPrompt.Should().StartWith(ConversationOptions.IdentityDescription);
         settings.SystemPrompt.Should().EndWith("Custom behavior.");
+    }
+
+    [Fact]
+    public void CreateConversationSettings_Should_UseStemCodeSystemPrompt_When_Configured()
+    {
+        ConversationSettings settings = ApplicationSettingsFactory.CreateConversationSettings(new ApplicationOptions
+        {
+            Conversation = new ConversationOptions
+            {
+                SystemPromptMode = ConversationSystemPromptMode.StemCode
+            }
+        });
+
+        settings.SystemPrompt.Should().StartWith(ConversationOptions.IdentityDescription);
+        settings.SystemPrompt.Should().Contain("Deliver working software, not just advice.");
+    }
+
+    [Fact]
+    public void CreateConversationSettings_Should_UseNoSystemPrompt_When_ExplicitlyConfigured()
+    {
+        ConversationSettings settings = ApplicationSettingsFactory.CreateConversationSettings(new ApplicationOptions
+        {
+            Conversation = new ConversationOptions
+            {
+                SystemPromptMode = ConversationSystemPromptMode.None,
+                SystemPrompt = "Ignored prompt."
+            }
+        });
+
+        settings.SystemPrompt.Should().BeNull();
     }
 
     [Fact]

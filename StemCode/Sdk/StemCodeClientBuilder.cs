@@ -3,6 +3,7 @@ using StemCode.Application.Abstractions;
 using StemCode.Application.Backend;
 using StemCode.Application.Models;
 using StemCode.Domain.Models;
+using StemCode.Infrastructure.Configuration;
 using StemCode.Sdk.Internal;
 
 namespace StemCode.Sdk;
@@ -29,6 +30,8 @@ public sealed class StemCodeClientBuilder
     private string? _profileName;
     private string? _thinkingMode;
     private string? _sectionId;
+    private ConversationSystemPromptMode? _systemPromptMode;
+    private string? _systemPrompt;
     private bool _autoApproveTools;
     private IAgentInteractionHandler? _interactionHandler;
 
@@ -162,6 +165,31 @@ public sealed class StemCodeClientBuilder
         return this;
     }
 
+    /// <summary>Uses a custom base system prompt for this SDK client.</summary>
+    public StemCodeClientBuilder WithSystemPrompt(string systemPrompt)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(systemPrompt);
+        _systemPromptMode = ConversationSystemPromptMode.Custom;
+        _systemPrompt = systemPrompt.Trim();
+        return this;
+    }
+
+    /// <summary>Uses StemCode's built-in coding-agent base system prompt.</summary>
+    public StemCodeClientBuilder UseStemCodeSystemPrompt()
+    {
+        _systemPromptMode = ConversationSystemPromptMode.StemCode;
+        _systemPrompt = null;
+        return this;
+    }
+
+    /// <summary>Uses no configured base system prompt. This is the SDK default.</summary>
+    public StemCodeClientBuilder WithoutSystemPrompt()
+    {
+        _systemPromptMode = ConversationSystemPromptMode.None;
+        _systemPrompt = null;
+        return this;
+    }
+
     /// <summary>
     /// Auto-approves every tool execution. Use only for trusted, sandboxed, or
     /// fully automated scenarios — it bypasses interactive permission prompts.
@@ -252,6 +280,12 @@ public sealed class StemCodeClientBuilder
         {
             services.AddSingleton<IAgentConfigurationStore>(new InMemoryAgentConfigurationStore(configuration));
             services.AddSingleton<IApiKeySecretStore>(new InMemoryApiKeySecretStore(apiKey));
+            services.PostConfigure<ApplicationOptions>(options =>
+            {
+                options.Conversation ??= new ConversationOptions();
+                options.Conversation.SystemPromptMode = _systemPromptMode ?? ConversationSystemPromptMode.None;
+                options.Conversation.SystemPrompt = _systemPrompt;
+            });
 
             if (_workspace is not null)
             {
