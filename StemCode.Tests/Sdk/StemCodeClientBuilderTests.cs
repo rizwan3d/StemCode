@@ -1,4 +1,6 @@
 using FluentAssertions;
+using System.Reflection;
+using StemCode.Application.Profiles;
 using StemCode.Domain.Models;
 using StemCode.Sdk;
 
@@ -73,5 +75,32 @@ public sealed class StemCodeClientBuilderTests
             .Build();
 
         client.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void UseBuildTool_Should_SelectBuildProfile()
+    {
+        StemCodeClientBuilder builder = StemCodeClient.CreateBuilder()
+            .UseOllama()
+            .UseBuildTool();
+
+        string[] args = InvokeBuildArgs(builder);
+
+        args.Should().ContainInOrder("--profile", StemCodeBuildTools.ProfileName);
+    }
+
+    [Fact]
+    public void BuildToolsAll_Should_MatchBuildProfileToolList()
+    {
+        StemCodeBuildTools.All.Should().BeEquivalentTo(BuiltInAgentProfiles.Build.EnabledTools);
+    }
+
+    private static string[] InvokeBuildArgs(StemCodeClientBuilder builder)
+    {
+        MethodInfo method = typeof(StemCodeClientBuilder).GetMethod(
+            "BuildArgs",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        return (string[])method.Invoke(builder, [])!;
     }
 }

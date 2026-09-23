@@ -27,6 +27,7 @@ using StemCode.Sdk;
 
 await using StemCodeClient client = StemCodeClient.CreateBuilder()
     .UseAnthropic(apiKey, "claude-opus-4-8")   // or UseOpenAi / UseOllama / UseOpenAiCompatible / ...
+    .UseBuildTool()                            // full coding-agent tool bundle
     .WithWorkspace("/path/to/repo")
     .AutoApproveTools()                          // for trusted / sandboxed automation
     .Build();
@@ -46,6 +47,7 @@ Extend it with your own tools and services:
 ```csharp
 StemCodeClient client = StemCodeClient.CreateBuilder()
     .UseAnthropic(apiKey)
+    .UseBuildTool()                            // alternative to Semantic Kernel-style tool orchestration
     .AddTool(new MyDeployTool())                 // custom ITool the agent can call
     .AddMcpServer(new BackendMcpServerConfiguration("docs") { Url = "https://..." })
     .ConfigureServices(services => { /* override or add any DI service */ })
