@@ -90,6 +90,17 @@ The [`stemcode`](packaging/npm) package is a thin installer. On `postinstall` (o
 
 The release workflows also pack the `StemCode` library and publish it to NuGet.org for every `v*` tag release. The CLI itself is distributed through the installers above, not as a NuGet package.
 
+#### SDK packages
+
+StemCode also publishes SDK wrappers for automation and embedded agent workflows:
+
+| Package | Registry | Install |
+| --- | --- | --- |
+| [`stemcode-sdk`](https://www.npmjs.com/package/stemcode-sdk) | npm | `npm install stemcode-sdk` |
+| [`stemcode-sdk`](https://pypi.org/project/stemcode-sdk/) | PyPI | `pip install stemcode-sdk` |
+
+The JavaScript/TypeScript package is a Node.js facade over `StemCode.Sdk` through `edge-js`. The Python package is a `pythonnet` facade over the same .NET SDK. Both packages load a published `StemCode.dll` payload or can be pointed at a local runtime path for development.
+
 #### Checksum verification
 
 Every installer verifies the downloaded archive against `SHA256SUMS` (the install scripts also fall back to the SHA256 digest from GitHub release metadata) before extraction. Checksum verification is mandatory — installation fails if the checksum cannot be validated.

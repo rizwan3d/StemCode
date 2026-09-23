@@ -43,6 +43,12 @@
   <a href="https://www.npmjs.com/package/stemcode">
     <img src="https://img.shields.io/badge/Install-npm-0969da?style=for-the-badge" alt="Install StemCode from npm">
   </a>
+  <a href="https://www.npmjs.com/package/stemcode-sdk">
+    <img src="https://img.shields.io/badge/SDK-npm-0969da?style=for-the-badge" alt="Install StemCode JavaScript SDK from npm">
+  </a>
+  <a href="https://pypi.org/project/stemcode-sdk/">
+    <img src="https://img.shields.io/badge/SDK-PyPI-0969da?style=for-the-badge" alt="Install StemCode Python SDK from PyPI">
+  </a>
   <a href="https://www.nuget.org/packages/StemCode/">
     <img src="https://img.shields.io/badge/Install-NuGet-0969da?style=for-the-badge" alt="Install StemCode NuGet">
   </a>
@@ -174,6 +180,14 @@ The `python/` folder contains a thin [`pythonnet`](https://pythonnet.github.io/)
 wrapper around the .NET `StemCode.Sdk` API. It loads a published `StemCode.dll`
 and exposes a Pythonic builder/client facade for automation scripts.
 
+Install the published package from [PyPI](https://pypi.org/project/stemcode-sdk/):
+
+```bash
+pip install stemcode-sdk
+```
+
+For local development from this repository:
+
 ```powershell
 cd python
 dotnet publish ..\StemCode\StemCode.csproj -c Release -f net10.0 -o .\artifacts\stemcode-sdk
@@ -197,6 +211,14 @@ The `js/` folder contains a Node.js package, `stemcode-sdk`, powered by
 [`edge-js`](https://github.com/agracio/edge-js). It calls the same .NET
 `StemCode.Sdk` API in-process and exposes a typed event-driven client for both
 JavaScript and TypeScript.
+
+Install the published package from [npm](https://www.npmjs.com/package/stemcode-sdk):
+
+```bash
+npm install stemcode-sdk
+```
+
+For local development from this repository:
 
 ```powershell
 cd js

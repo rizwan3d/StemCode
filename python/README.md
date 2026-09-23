@@ -11,6 +11,12 @@ and keeps the .NET SDK as the source of truth.
 
 ## Setup From This Repository
 
+Published package: <https://pypi.org/project/stemcode-sdk/>
+
+```powershell
+pip install stemcode-sdk
+```
+
 From the repository root, enter the Python wrapper folder:
 
 ```powershell

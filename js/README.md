@@ -14,6 +14,8 @@ uses [`edge-js`](https://github.com/agracio/edge-js) to call the bundled
 
 ## Install
 
+Package page: <https://www.npmjs.com/package/stemcode-sdk>
+
 ```bash
 npm install stemcode-sdk
 ```
