@@ -377,3 +377,7 @@ StemCode.JetBrains/.gradle/
 StemCode.JetBrains/.intellijPlatform/
 StemCode.JetBrains/.kotlin/
 .idea/
+
+# Python package build output
+python/dist/
+python/stemcode/_dotnet/

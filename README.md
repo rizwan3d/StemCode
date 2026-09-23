@@ -168,6 +168,29 @@ stemcode
 
 The release workflow also publishes the `StemCode` library to [NuGet.org](https://www.nuget.org/packages/StemCode/).
 
+### Python SDK Wrapper
+
+The `python/` folder contains a thin [`pythonnet`](https://pythonnet.github.io/)
+wrapper around the .NET `StemCode.Sdk` API. It loads a published `StemCode.dll`
+and exposes a Pythonic builder/client facade for automation scripts.
+
+```powershell
+cd python
+dotnet publish ..\StemCode\StemCode.csproj -c Release -f net10.0 -o .\artifacts\stemcode-sdk
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+
+$env:STEMCODE_DOTNET_PATH = "$PWD\artifacts\stemcode-sdk"
+$env:STEMCODE_PROVIDER = "openai"
+$env:STEMCODE_API_KEY = "PASTE_NEW_ROTATED_KEY_HERE"
+$env:STEMCODE_MODEL = "gpt-5"
+
+python .\examples\basic_chat.py "Explain this repository in one paragraph."
+```
+
+See [`python/README.md`](python/README.md) for the full setup and usage example.
+
 ## Quick Start
 
 On first launch, StemCode walks you through provider setup. Choose a subscription account, an API-key provider, an OpenAI-compatible endpoint, or a local provider, then let StemCode discover the models that are available to that setup.
