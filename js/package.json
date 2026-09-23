@@ -1,5 +1,5 @@
 {
-  "name": "@stemcode/sdk",
+  "name": "stemcode-sdk",
   "version": "1.1.8",
   "description": "JavaScript and TypeScript SDK for StemCode via edge-js/.NET interop.",
   "keywords": [

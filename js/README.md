@@ -1,6 +1,6 @@
 # StemCode JavaScript / TypeScript SDK
 
-`@stemcode/sdk` is a thin Node.js facade over the .NET `StemCode.Sdk` API. It
+`stemcode-sdk` is a thin Node.js facade over the .NET `StemCode.Sdk` API. It
 uses [`edge-js`](https://github.com/agracio/edge-js) to call the published
 `StemCode.dll` in-process and keeps the .NET SDK as the source of truth.
 
@@ -36,7 +36,7 @@ node .\examples\basic-chat.js "Explain this repository in one paragraph."
 ## JavaScript
 
 ```js
-const { StemCodeClient } = require("@stemcode/sdk");
+const { StemCodeClient } = require("stemcode-sdk");
 
 async function main() {
   const client = new StemCodeClient({
@@ -68,7 +68,7 @@ main().catch((error) => {
 ## TypeScript
 
 ```ts
-import { StemCodeClient, type StemCodeTurnResult } from "@stemcode/sdk";
+import { StemCodeClient, type StemCodeTurnResult } from "stemcode-sdk";
 
 const client = new StemCodeClient({
   provider: "openai",
