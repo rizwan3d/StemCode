@@ -1,9 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using StemCode.Application.Abstractions;
 using StemCode.Application.Backend;
 using StemCode.Application.Models;
 using StemCode.Domain.Models;
 using StemCode.Infrastructure.Configuration;
+using StemCode.Infrastructure.Telemetry;
 using StemCode.Sdk.Internal;
 
 namespace StemCode.Sdk;
@@ -20,6 +22,7 @@ public sealed class StemCodeClientBuilder
     private readonly List<IDynamicToolProvider> _toolProviders = [];
     private readonly List<BackendMcpServerConfiguration> _mcpServers = [];
     private readonly List<Action<IServiceCollection>> _serviceConfigurations = [];
+    private readonly List<Action<ILoggingBuilder>> _loggingConfigurations = [];
 
     private AgentProviderProfile? _explicitProfile;
     private ProviderKind? _providerKind;
@@ -33,6 +36,8 @@ public sealed class StemCodeClientBuilder
     private ConversationSystemPromptMode? _systemPromptMode;
     private string? _systemPrompt;
     private bool _autoApproveTools;
+    private bool _productTelemetryEnabled;
+    private bool _openTelemetryTracingEnabled;
     private IAgentInteractionHandler? _interactionHandler;
 
     // --- Providers -------------------------------------------------------
@@ -254,6 +259,41 @@ public sealed class StemCodeClientBuilder
         return this;
     }
 
+    // --- Observability ---------------------------------------------------
+
+    /// <summary>
+    /// Configures logging for the SDK host. Logging is opt-in for embedders; use
+    /// this to add console, file, OpenTelemetry, or any other
+    /// <see cref="ILoggerProvider"/> supported by Microsoft.Extensions.Logging.
+    /// </summary>
+    public StemCodeClientBuilder WithLogging(Action<ILoggingBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        _loggingConfigurations.Add(configure);
+        return this;
+    }
+
+    /// <summary>
+    /// Emits SDK observability spans through <see cref="StemCodeObservability.ActivitySourceName"/>.
+    /// Consumers can export these activities with OpenTelemetry by adding that
+    /// source name to their tracer provider.
+    /// </summary>
+    public StemCodeClientBuilder WithOpenTelemetryTracing()
+    {
+        _openTelemetryTracingEnabled = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Enables StemCode's built-in anonymous product telemetry for this SDK
+    /// client. Product telemetry is disabled by default for SDK embedders.
+    /// </summary>
+    public StemCodeClientBuilder EnableProductTelemetry()
+    {
+        _productTelemetryEnabled = true;
+        return this;
+    }
+
     // --- Build -----------------------------------------------------------
 
     /// <summary>Validates the configuration and creates a ready-to-initialize client.</summary>
@@ -285,7 +325,30 @@ public sealed class StemCodeClientBuilder
                 options.Conversation ??= new ConversationOptions();
                 options.Conversation.SystemPromptMode = _systemPromptMode ?? ConversationSystemPromptMode.None;
                 options.Conversation.SystemPrompt = _systemPrompt;
+                options.Telemetry ??= new TelemetryOptions();
+                options.Telemetry.Enabled = _productTelemetryEnabled;
             });
+
+            foreach (Action<ILoggingBuilder> configureLogging in _loggingConfigurations)
+            {
+                services.AddLogging(configureLogging);
+            }
+
+            if (_openTelemetryTracingEnabled)
+            {
+                services.AddSingleton<SdkObservabilityProductTelemetry>();
+                services.AddSingleton<IProductTelemetry>(serviceProvider =>
+                {
+                    SdkObservabilityProductTelemetry observabilityTelemetry =
+                        serviceProvider.GetRequiredService<SdkObservabilityProductTelemetry>();
+
+                    return _productTelemetryEnabled
+                        ? new CompositeProductTelemetry(
+                            serviceProvider.GetRequiredService<PostHogTelemetryService>(),
+                            observabilityTelemetry)
+                        : observabilityTelemetry;
+                });
+            }
 
             if (_workspace is not null)
             {

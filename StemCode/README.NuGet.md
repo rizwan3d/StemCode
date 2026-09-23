@@ -63,6 +63,27 @@ await using StemCodeClient stemCodePromptClient = StemCodeClient.CreateBuilder()
     .Build();
 ```
 
+SDK observability is opt-in. Configure logging with the standard
+`Microsoft.Extensions.Logging` builder, enable tracing with
+`WithOpenTelemetryTracing()`, and export spans by subscribing to
+`StemCodeObservability.ActivitySourceName` from your OpenTelemetry setup.
+Built-in anonymous product telemetry is disabled for SDK clients unless you
+call `EnableProductTelemetry()`.
+
+```csharp
+using Microsoft.Extensions.Logging;
+using StemCode.Sdk;
+
+await using StemCodeClient client = StemCodeClient.CreateBuilder()
+    .UseAnthropic(apiKey, "claude-opus-4-8")
+    .WithLogging(logging => logging.AddConsole())
+    .WithOpenTelemetryTracing()
+    .Build();
+
+// In your OpenTelemetry tracer provider:
+// builder.AddSource(StemCodeObservability.ActivitySourceName);
+```
+
 ```csharp
 using StemCode.Sdk;
 
