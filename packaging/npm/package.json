@@ -21,7 +21,7 @@
     "directory": "packaging/npm"
   },
   "license": "Apache-2.0",
-  "author": "StemCode",
+  "author": "Rizwan3d",
   "type": "commonjs",
   "bin": {
     "stemcode": "bin/stemcode.js"
