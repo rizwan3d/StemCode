@@ -1,7 +1,9 @@
-# StemCode JavaScript / TypeScript SDK
+# stemcode-sdk
+
+JavaScript and TypeScript SDK for running StemCode from Node.js.
 
 `stemcode-sdk` is a thin Node.js facade over the .NET `StemCode.Sdk` API. It
-uses [`edge-js`](https://github.com/agracio/edge-js) to call the published
+uses [`edge-js`](https://github.com/agracio/edge-js) to call the bundled
 `StemCode.dll` in-process and keeps the .NET SDK as the source of truth.
 
 ## Requirements
@@ -10,16 +12,21 @@ uses [`edge-js`](https://github.com/agracio/edge-js) to call the published
 - A .NET runtime that can run the bundled StemCode target framework
 - Native build tools if `edge-js` needs to compile for your Node/platform pair
 
-## Setup From This Repository
+## Install
 
-```powershell
-cd js
-npm install
-npm run build
-npm run build:dotnet
+```bash
+npm install stemcode-sdk
 ```
 
 Set provider credentials:
+
+```bash
+export STEMCODE_PROVIDER=openai
+export STEMCODE_API_KEY=PASTE_NEW_ROTATED_KEY_HERE
+export STEMCODE_MODEL=gpt-5
+```
+
+On Windows PowerShell:
 
 ```powershell
 $env:STEMCODE_PROVIDER = "openai"
@@ -27,13 +34,7 @@ $env:STEMCODE_API_KEY = "PASTE_NEW_ROTATED_KEY_HERE"
 $env:STEMCODE_MODEL = "gpt-5"
 ```
 
-Run the JavaScript example:
-
-```powershell
-node .\examples\basic-chat.js "Explain this repository in one paragraph."
-```
-
-## JavaScript
+## Quick Start
 
 ```js
 const { StemCodeClient } = require("stemcode-sdk");
@@ -65,7 +66,7 @@ main().catch((error) => {
 });
 ```
 
-## TypeScript
+## TypeScript Usage
 
 ```ts
 import { StemCodeClient, type StemCodeTurnResult } from "stemcode-sdk";
@@ -84,6 +85,21 @@ await client.initialize();
 const result: StemCodeTurnResult = await client.runTurn("Explain dependency injection in C#.");
 console.log(result.responseText);
 await client.dispose();
+```
+
+## Working From This Repository
+
+```powershell
+cd js
+npm install
+npm run build
+npm run build:dotnet
+```
+
+Run the JavaScript example:
+
+```powershell
+node .\examples\basic-chat.js "Explain this repository in one paragraph."
 ```
 
 ## Runtime Path

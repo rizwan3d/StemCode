@@ -1,6 +1,6 @@
 {
   "name": "stemcode-sdk",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "description": "JavaScript and TypeScript SDK for StemCode via edge-js/.NET interop.",
   "keywords": [
     "stemcode",
@@ -19,6 +19,9 @@
     "type": "git",
     "url": "git+https://github.com/rizwan3d/StemCode.git",
     "directory": "js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "Apache-2.0",
   "author": "Rizwan3d",
