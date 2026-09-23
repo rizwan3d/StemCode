@@ -136,6 +136,17 @@ public sealed class StemCodeClientBuilder
         return this;
     }
 
+    /// <summary>
+    /// Uses StemCode's full build-tool agent preset: repository editing,
+    /// filesystem/search, shell execution, browser/web search, planning, memory,
+    /// code intelligence, and subagent orchestration tools.
+    /// </summary>
+    public StemCodeClientBuilder UseBuildTool()
+    {
+        _profileName = StemCodeBuildTools.ProfileName;
+        return this;
+    }
+
     /// <summary>Sets the thinking/reasoning mode (for example "on" or "off").</summary>
     public StemCodeClientBuilder WithThinkingMode(string thinkingMode)
     {
