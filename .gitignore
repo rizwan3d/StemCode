@@ -381,3 +381,7 @@ StemCode.JetBrains/.kotlin/
 # Python package build output
 python/dist/
 python/stemcode/_dotnet/
+
+# JavaScript/TypeScript SDK build output
+js/dist/
+js/dotnet/

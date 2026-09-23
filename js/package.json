@@ -1,0 +1,58 @@
+{
+  "name": "@stemcode/sdk",
+  "version": "1.1.8",
+  "description": "JavaScript and TypeScript SDK for StemCode via edge-js/.NET interop.",
+  "keywords": [
+    "stemcode",
+    "sdk",
+    "ai",
+    "agent",
+    "edge-js",
+    "dotnet",
+    "typescript"
+  ],
+  "homepage": "https://github.com/rizwan3d/StemCode#readme",
+  "bugs": {
+    "url": "https://github.com/rizwan3d/StemCode/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rizwan3d/StemCode.git",
+    "directory": "js"
+  },
+  "license": "Apache-2.0",
+  "author": "Rizwan3d",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "dotnet/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:dotnet": "node scripts/build-dotnet.js",
+    "prepack": "npm run build && npm run build:dotnet",
+    "test": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "win32",
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "dependencies": {
+    "edge-js": "^26.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
+  }
+}
