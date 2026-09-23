@@ -1,0 +1,9 @@
+{
+  "name": "stemcode-monorepo",
+  "private": true,
+  "workspaces": [
+    "StemCode.VsCode",
+    "js",
+    "packaging/npm"
+  ]
+}
