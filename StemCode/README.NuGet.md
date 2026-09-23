@@ -42,6 +42,60 @@ ConversationTurnResult result = await client.RunTurnAsync("Build a TODO app");
 Console.WriteLine(result.ResponseText);
 ```
 
+Create a client without any built-in StemCode tools by omitting `UseBuildTool()`.
+The agent can answer normally, but it cannot call repository editing, file,
+shell, browser, planning, memory, code intelligence, or subagent tools unless
+you add tools yourself.
+
+```csharp
+using StemCode.Sdk;
+
+await using StemCodeClient client = StemCodeClient.CreateBuilder()
+    .UseAnthropic(apiKey, "claude-opus-4-8")
+    .Build();
+
+client.AssistantMessageChunkReceived += (_, e) => Console.Write(e.Text);
+
+await client.InitializeAsync();
+ConversationTurnResult result = await client.RunTurnAsync("Explain dependency injection in C#.");
+Console.WriteLine(result.ResponseText);
+```
+
+Build a simple conversation loop by initializing once, then calling
+`RunTurnAsync` for each user message. Reusing the same client keeps the session
+history alive between turns.
+
+```csharp
+using StemCode.Sdk;
+
+await using StemCodeClient client = StemCodeClient.CreateBuilder()
+    .UseAnthropic(apiKey, "claude-opus-4-8")
+    .UseBuildTool()
+    .WithWorkspace("/path/to/repo")
+    .Build();
+
+client.AssistantMessageChunkReceived += (_, e) => Console.Write(e.Text);
+client.ToolCallsStarted += (_, e) => Console.WriteLine($"Running {e.ToolCalls.Count} tool(s)...");
+
+await client.InitializeAsync();
+
+while (true)
+{
+    Console.Write("> ");
+    string? prompt = Console.ReadLine();
+
+    if (string.IsNullOrWhiteSpace(prompt) ||
+        prompt.Equals("exit", StringComparison.OrdinalIgnoreCase))
+    {
+        break;
+    }
+
+    Console.WriteLine();
+    await client.RunTurnAsync(prompt);
+    Console.WriteLine();
+}
+```
+
 Extend it with your own tools and services:
 
 ```csharp
