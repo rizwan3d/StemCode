@@ -68,7 +68,7 @@ jobs:
               exit 1
             fi
 
-            api_url="https://huggingface.co/api/models/${model_id}"
+            api_url="https://huggingface.co/api/models/${model_id}?expand%5B%5D=downloads&expand%5B%5D=downloadsAllTime&expand%5B%5D=likes&expand%5B%5D=lastModified"
             model_url="https://huggingface.co/${model_id}"
 
             metadata="$({
@@ -83,14 +83,16 @@ jobs:
                 "$api_url"
             })"
 
-            downloads="$(jq -er '.downloads // 0 | tonumber' <<<"$metadata")"
+            downloads_30d="$(jq -er '.downloads // 0 | tonumber' <<<"$metadata")"
+            downloads_all_time="$(jq -er '.downloadsAllTime // 0 | tonumber' <<<"$metadata")"
             likes="$(jq -er '.likes // 0 | tonumber' <<<"$metadata")"
             last_modified="$(jq -r '.lastModified // empty' <<<"$metadata")"
 
             psql "$POSTGRES_URL" \
               -v ON_ERROR_STOP=1 \
               -v model_id="$model_id" \
-              -v downloads="$downloads" \
+              -v downloads_30d="$downloads_30d" \
+              -v downloads_all_time="$downloads_all_time" \
               -v likes="$likes" \
               -v last_modified="$last_modified" \
               -v model_url="$model_url" <<'SQL'
@@ -98,7 +100,8 @@ jobs:
               model_id,
               snapshot_date,
               collected_at,
-              downloads,
+              downloads_30d,
+              downloads_all_time,
               likes,
               last_modified,
               model_url
@@ -107,7 +110,8 @@ jobs:
               :'model_id',
               CURRENT_DATE,
               NOW(),
-              :'downloads'::BIGINT,
+              :'downloads_30d'::BIGINT,
+              :'downloads_all_time'::BIGINT,
               :'likes'::BIGINT,
               NULLIF(:'last_modified', '')::TIMESTAMPTZ,
               :'model_url'
@@ -115,14 +119,15 @@ jobs:
           ON CONFLICT (model_id, snapshot_date)
           DO UPDATE SET
               collected_at = EXCLUDED.collected_at,
-              downloads = EXCLUDED.downloads,
+              downloads_30d = EXCLUDED.downloads_30d,
+              downloads_all_time = EXCLUDED.downloads_all_time,
               likes = EXCLUDED.likes,
               last_modified = EXCLUDED.last_modified,
               model_url = EXCLUDED.model_url;
           SQL
 
             stored=$((stored + 1))
-            echo "Stored Hugging Face snapshot for ${model_id}: downloads=${downloads}, likes=${likes}"
+            echo "Stored Hugging Face snapshot for ${model_id}: 30d=${downloads_30d}, all_time=${downloads_all_time}, likes=${likes}"
           done < <(printf '%s\n' "$HF_MODEL_IDS" | tr ',' '\n')
 
           if [[ "$stored" -eq 0 ]]; then
