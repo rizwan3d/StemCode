@@ -1,0 +1,133 @@
+name: Hugging Face download snapshots to Postgres
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_ids:
+        description: 'Comma/newline-separated Hugging Face model IDs to track.'
+        required: false
+        default: 'GrowBitLabs/tinye5'
+        type: string
+  schedule:
+    - cron: '35 0 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  capture-huggingface-downloads:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_URL: ${{ secrets.POSTGRES_URL }}
+      HF_MODEL_IDS: ${{ github.event.inputs.model_ids || vars.HUGGINGFACE_MODEL_IDS || 'GrowBitLabs/tinye5' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate Postgres configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${POSTGRES_URL:-}" ]]; then
+            echo 'Missing required repository secret: POSTGRES_URL' >&2
+            exit 1
+          fi
+
+      - name: Ensure Postgres client is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Initialize download snapshot schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$POSTGRES_URL" \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/sql/huggingface-download-snapshots.sql
+
+      - name: Fetch Hugging Face counts and store daily snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          stored=0
+
+          while IFS= read -r raw_model_id; do
+            model_id="$(printf '%s' "$raw_model_id" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            [[ -z "$model_id" ]] && continue
+
+            if [[ ! "$model_id" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+              echo "Invalid Hugging Face model ID: $model_id" >&2
+              exit 1
+            fi
+
+            api_url="https://huggingface.co/api/models/${model_id}"
+            model_url="https://huggingface.co/${model_id}"
+
+            metadata="$({
+              curl \
+                --fail \
+                --retry 3 \
+                --retry-delay 2 \
+                --silent \
+                --show-error \
+                --header 'Accept: application/json' \
+                --header 'User-Agent: stemcode-download-tracker' \
+                "$api_url"
+            })"
+
+            downloads="$(jq -er '.downloads // 0 | tonumber' <<<"$metadata")"
+            likes="$(jq -er '.likes // 0 | tonumber' <<<"$metadata")"
+            last_modified="$(jq -r '.lastModified // empty' <<<"$metadata")"
+
+            psql "$POSTGRES_URL" \
+              -v ON_ERROR_STOP=1 \
+              -v model_id="$model_id" \
+              -v downloads="$downloads" \
+              -v likes="$likes" \
+              -v last_modified="$last_modified" \
+              -v model_url="$model_url" <<'SQL'
+          INSERT INTO huggingface_download_snapshots (
+              model_id,
+              snapshot_date,
+              collected_at,
+              downloads,
+              likes,
+              last_modified,
+              model_url
+          )
+          VALUES (
+              :'model_id',
+              CURRENT_DATE,
+              NOW(),
+              :'downloads'::BIGINT,
+              :'likes'::BIGINT,
+              NULLIF(:'last_modified', '')::TIMESTAMPTZ,
+              :'model_url'
+          )
+          ON CONFLICT (model_id, snapshot_date)
+          DO UPDATE SET
+              collected_at = EXCLUDED.collected_at,
+              downloads = EXCLUDED.downloads,
+              likes = EXCLUDED.likes,
+              last_modified = EXCLUDED.last_modified,
+              model_url = EXCLUDED.model_url;
+          SQL
+
+            stored=$((stored + 1))
+            echo "Stored Hugging Face snapshot for ${model_id}: downloads=${downloads}, likes=${likes}"
+          done < <(printf '%s\n' "$HF_MODEL_IDS" | tr ',' '\n')
+
+          if [[ "$stored" -eq 0 ]]; then
+            echo 'No Hugging Face model IDs were configured.' >&2
+            exit 1
+          fi
+
+          echo "Stored ${stored} Hugging Face model snapshot(s) in Postgres."
