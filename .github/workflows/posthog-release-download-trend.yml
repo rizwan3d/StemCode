@@ -875,3 +875,99 @@ jobs:
 
           console.log(`Sent VS Code Marketplace snapshots for ${trackedExtensions} extensions, ${totalInstalls} total installs to PostHog.`)
           NODE
+
+      - name: Send Hugging Face model download snapshots to PostHog
+        shell: bash
+        run: |
+          node <<'NODE'
+          const { POSTHOG_PROJECT_API_KEY, POSTHOG_HOST, REPOSITORY } = process.env
+
+          if (!POSTHOG_PROJECT_API_KEY) {
+            throw new Error('Missing required secret: POSTHOG_PROJECT_API_KEY')
+          }
+
+          const commonProperties = {
+            '$lib': 'stemcode-release-trend',
+            source: 'github-actions',
+            app_surface: 'github_actions',
+            execution_environment: 'ci',
+            is_ci: true,
+            ci_provider: 'github_actions',
+          }
+
+          const modelId = 'GrowBitLabs/tinye5'
+          const modelPath = modelId.split('/').map(encodeURIComponent).join('/')
+          const expand = [
+            'downloads',
+            'downloadsAllTime',
+            'likes',
+            'createdAt',
+            'lastModified',
+            'sha',
+            'pipeline_tag',
+            'library_name',
+            'private',
+            'gated',
+          ]
+          const params = new URLSearchParams()
+          for (const field of expand) params.append('expand', field)
+
+          const response = await fetch(
+            `https://huggingface.co/api/models/${modelPath}?${params.toString()}`,
+            {
+              headers: {
+                Accept: 'application/json',
+                'User-Agent': 'stemcode-release-trend',
+              },
+            },
+          )
+
+          if (!response.ok) {
+            throw new Error(
+              `Hugging Face API failed ${response.status} for ${modelId}: ${await response.text()}`,
+            )
+          }
+
+          const metadata = await response.json()
+          const collectedAt = new Date().toISOString()
+          const downloadsLast30Days = Number(metadata.downloads || 0)
+          const downloadsAllTime = Number(metadata.downloadsAllTime || 0)
+
+          const endpoint = `${POSTHOG_HOST.replace(/\/$/, '')}/i/v0/e/`
+          const posthogResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              api_key: POSTHOG_PROJECT_API_KEY,
+              event: 'stemcode huggingface model download snapshot',
+              distinct_id: `huggingface-model:${modelId.toLowerCase()}`,
+              properties: {
+                ...commonProperties,
+                repository: REPOSITORY,
+                model_id: metadata.id || modelId,
+                model_url: `https://huggingface.co/${modelId}`,
+                model_sha: metadata.sha || null,
+                model_created_at: metadata.createdAt || null,
+                model_last_modified: metadata.lastModified || null,
+                model_pipeline_tag: metadata.pipeline_tag || null,
+                model_library_name: metadata.library_name || null,
+                model_private: Boolean(metadata.private),
+                model_gated: metadata.gated || false,
+                model_likes: Number(metadata.likes || 0),
+                downloads_last_30_days: downloadsLast30Days,
+                downloads_all_time: downloadsAllTime,
+                collected_at: collectedAt,
+                snapshot_type: 'model_total',
+                '$process_person_profile': false,
+              },
+            }),
+          })
+
+          if (!posthogResponse.ok) {
+            throw new Error(`PostHog capture failed ${posthogResponse.status}: ${await posthogResponse.text()}`)
+          }
+
+          console.log(
+            `Sent Hugging Face snapshot for ${modelId}: ${downloadsLast30Days} last-30-day downloads, ${downloadsAllTime} all-time downloads to PostHog.`,
+          )
+          NODE
