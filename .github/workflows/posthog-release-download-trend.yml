@@ -35,7 +35,7 @@ jobs:
       REPOSITORY: ${{ github.repository }}
       NPM_PACKAGE_IDS: ${{ github.event.inputs.npm_package_ids || vars.NPM_PACKAGE_IDS || 'stemcode,stemcode-sdk' }}
       NUGET_PACKAGE_IDS: ${{ github.event.inputs.nuget_package_ids || vars.NUGET_PACKAGE_IDS || 'StemCode' }}
-      PYPI_PACKAGE_IDS: ${{ github.event.inputs.pypi_package_ids || vars.PYPI_PACKAGE_IDS || '' }}
+      PYPI_PACKAGE_IDS: ${{ github.event.inputs.pypi_package_ids || vars.PYPI_PACKAGE_IDS || 'stemcode-sdk' }}
       VSCODE_EXTENSION_IDS: ${{ github.event.inputs.vscode_extension_ids || vars.VSCODE_EXTENSION_IDS || 'growbitlab.stemcode,growbitlab.stemcode-vs' }}
     steps:
       - name: Send GitHub release download snapshots to PostHog
