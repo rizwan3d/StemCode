@@ -35,6 +35,12 @@ public static partial class Program
 
         if (isSlashCommand)
         {
+            if ((state.IsBusy || state.IsStreaming) && CanSubmitCommandWhileWorking(text))
+            {
+                QueuePendingSubmission(state, new PendingSubmission(PendingSubmissionKind.Command, text));
+                return;
+            }
+
             HandleCommand(state, text);
             return;
         }
@@ -260,6 +266,12 @@ public static partial class Program
 
         if (state.IsBusy || state.IsStreaming)
         {
+            if (CanSubmitCommandWhileWorking(command))
+            {
+                QueuePendingSubmission(state, new PendingSubmission(PendingSubmissionKind.Command, command));
+                return;
+            }
+
             state.AddSystemMessage("That command is unavailable while StemCode is working.");
             return;
         }
@@ -289,6 +301,32 @@ public static partial class Program
         }
 
         StartCommand(state, command);
+    }
+
+    private static bool CanSubmitCommandWhileWorking(string command)
+    {
+        ReadOnlySpan<char> trimmed = command.AsSpan().TrimStart();
+        if (trimmed.IsEmpty || trimmed[0] != '/')
+        {
+            return false;
+        }
+
+        ReadOnlySpan<char> withoutSlash = trimmed[1..];
+        int separatorIndex = -1;
+        for (int index = 0; index < withoutSlash.Length; index++)
+        {
+            if (char.IsWhiteSpace(withoutSlash[index]))
+            {
+                separatorIndex = index;
+                break;
+            }
+        }
+
+        ReadOnlySpan<char> commandName = separatorIndex < 0
+            ? withoutSlash
+            : withoutSlash[..separatorIndex];
+
+        return commandName.Equals("tigretry", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void RequestModelSelection(AppState state)

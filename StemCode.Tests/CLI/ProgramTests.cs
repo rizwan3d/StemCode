@@ -215,6 +215,33 @@ public sealed class ProgramTests
     }
 
     [Fact]
+    public void SubmitInput_Should_QueueTigRetryCommand_When_Busy()
+    {
+        AppState state = new(new UiBridge(), CreateConversationBackend().Object)
+        {
+            IsReady = true,
+            IsBusy = true,
+            InputCursorIndex = "/tigretry failed-check".Length
+        };
+        state.Input.Append("/tigretry failed-check");
+
+        MethodInfo submitInput = typeof(Program).GetMethod(
+            "SubmitInput",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        submitInput.Invoke(null, [state]);
+
+        state.PendingSubmissions.Should().ContainSingle();
+        state.PendingSubmissions.Peek().Kind.Should().Be(PendingSubmissionKind.Command);
+        state.PendingSubmissions.Peek().Text.Should().Be("/tigretry failed-check");
+        state.Messages.Should().ContainSingle(message =>
+            message.Role == Role.System &&
+            message.Text.Contains("Queued command: /tigretry failed-check"));
+        state.Input.ToString().Should().BeEmpty();
+        state.InputCursorIndex.Should().Be(0);
+    }
+
+    [Fact]
     public void SubmitInput_Should_PreserveInput_When_BackendIsNotReady()
     {
         AppState state = new(new UiBridge(), CreateConversationBackend().Object)
@@ -526,6 +553,28 @@ public sealed class ProgramTests
         state.Messages.Should().ContainSingle(message =>
             message.Role == Role.System &&
             message.Text == "That command is unavailable while StemCode is working.");
+    }
+
+    [Fact]
+    public void HandleCommand_Should_QueueTigRetryCommandWhileBusy()
+    {
+        AppState state = new(new UiBridge(), CreateConversationBackend().Object)
+        {
+            IsBusy = true
+        };
+
+        MethodInfo handleCommand = typeof(Program).GetMethod(
+            "HandleCommand",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        handleCommand.Invoke(null, [state, "/TIGRETRY failed-check"]);
+
+        state.PendingSubmissions.Should().ContainSingle();
+        state.PendingSubmissions.Peek().Kind.Should().Be(PendingSubmissionKind.Command);
+        state.PendingSubmissions.Peek().Text.Should().Be("/TIGRETRY failed-check");
+        state.Messages.Should().ContainSingle(message =>
+            message.Role == Role.System &&
+            message.Text.Contains("Queued command: /TIGRETRY failed-check"));
     }
 
     [Fact]
