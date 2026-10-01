@@ -284,6 +284,34 @@ public sealed class JsonAgentConfigurationStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task SaveAsync_Should_IgnoreMalformedSavedProviderEntries_When_SavingNewProvider()
+    {
+        StubUserDataPathProvider pathProvider = new(_tempRoot);
+        await File.WriteAllTextAsync(
+            pathProvider.GetConfigurationFilePath(),
+            """
+            {
+              "activeProviderName": "Broken",
+              "providers": {
+                "Broken": null
+              }
+            }
+            """,
+            CancellationToken.None);
+        JsonAgentConfigurationStore sut = new(pathProvider);
+        AgentConfiguration configuration = new(
+            new AgentProviderProfile(ProviderKind.OpenAi, null),
+            PreferredModelId: null,
+            ReasoningEffort: null,
+            ActiveProviderName: "OpenAI");
+
+        await sut.SaveAsync(configuration, CancellationToken.None);
+
+        AgentConfiguration? loadedConfiguration = await sut.LoadAsync(CancellationToken.None);
+        loadedConfiguration.Should().Be(configuration);
+    }
+
+    [Fact]
     public async Task LoadAsync_Should_PreferEnvironmentConfiguration_When_ProviderIsSet()
     {
         using EnvironmentVariableScope provider = new("STEMCODE_PROVIDER", "openrouter");

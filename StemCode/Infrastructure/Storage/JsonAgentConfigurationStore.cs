@@ -340,6 +340,7 @@ internal sealed class JsonAgentConfigurationStore : IAgentConfigurationStore
         {
             string? candidateName = NormalizeProviderName(item.Key);
             if (candidateName is not null &&
+                item.Value is not null &&
                 string.Equals(candidateName, normalizedProviderName, StringComparison.OrdinalIgnoreCase))
             {
                 return (candidateName, item.Value);
@@ -370,6 +371,7 @@ internal sealed class JsonAgentConfigurationStore : IAgentConfigurationStore
         {
             string? name = NormalizeProviderName(item.Key);
             if (name is not null &&
+                item.Value is not null &&
                 Equals(NormalizeProfile(item.Value.ProviderProfile), configuration.ProviderProfile))
             {
                 return name;
