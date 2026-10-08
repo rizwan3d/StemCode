@@ -106,6 +106,7 @@ Use it when you want one agent experience across:
 - Switch between implementation, planning, review, exploration, and delegated work profiles.
 - Save repeatable prompts as slash commands in `.stemcode/commands`.
 - Keep long-lived project knowledge in `.stemcode/memory` instead of hidden agent state.
+- Design note: [why AI coding agents should store memory in repository files](https://rizwan3d.xyz/posts/ai-coding-agents-should-not-hide-memory-why-stemcode-stores-it-in-repo-files).
 
 ## Choose Your Surface
 
