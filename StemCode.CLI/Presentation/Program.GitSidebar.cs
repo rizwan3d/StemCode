@@ -36,6 +36,8 @@ public static partial class Program
     private const string GitSidebarBackgroundMarkupStyle = "white on #1c1c1c";
     private const int GitSidebarHorizontalPadding = 1;
     private const int GitSidebarVerticalPadding = 1;
+    private const int GitSidebarCommitMessageSuggestionMaxLength = 225;
+    private const string GitSidebarCommitCoAuthorTrailer = "Co-authored-by: StemCodeAi <317135024+stemcodeai[bot]@users.noreply.github.com>";
 
     private static bool TryGetGitSidebarWidth(AppState state, int windowWidth, out int width)
     {
@@ -2513,13 +2515,12 @@ public static partial class Program
                     return;
                 }
 
+                string[] arguments = BuildGitSidebarCommitArguments(trimmed);
                 bool success = TryRunGitCommand(
                     state,
                     $"Committed staged changes: {trimmed}",
                     "Failed to create commit",
-                    "commit",
-                    "-m",
-                    trimmed);
+                    arguments);
 
                 if (success)
                 {
@@ -2534,7 +2535,7 @@ public static partial class Program
         return
             "Write a git commit message for the staged changes below." + Environment.NewLine +
             "Return exactly one line: no bullets, no quotes, no code fences, and no explanation." + Environment.NewLine +
-            "Use imperative mood and keep it concise. Prefer a conventional-commit prefix when it clearly fits." + Environment.NewLine +
+            $"Use imperative mood and keep it within {GitSidebarCommitMessageSuggestionMaxLength} characters. Prefer a conventional-commit prefix when it clearly fits." + Environment.NewLine +
             Environment.NewLine +
             "Staged files:" + Environment.NewLine +
             stagedFiles.Trim() + Environment.NewLine +
@@ -2613,9 +2614,21 @@ public static partial class Program
             return string.Empty;
         }
 
-        return suggestion.Length <= 72
+        return suggestion.Length <= GitSidebarCommitMessageSuggestionMaxLength
             ? suggestion
-            : suggestion[..72].TrimEnd();
+            : suggestion[..GitSidebarCommitMessageSuggestionMaxLength].TrimEnd();
+    }
+
+    private static string[] BuildGitSidebarCommitArguments(string message)
+    {
+        return
+        [
+            "commit",
+            "-m",
+            message,
+            "-m",
+            GitSidebarCommitCoAuthorTrailer
+        ];
     }
 
     private sealed class SilentUiBridge : IUiBridge

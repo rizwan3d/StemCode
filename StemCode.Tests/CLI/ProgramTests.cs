@@ -1245,6 +1245,38 @@ public sealed class ProgramTests
     }
 
     [Fact]
+    public void SanitizeCommitMessageSuggestion_Should_AllowLongerCommitSubjects()
+    {
+        MethodInfo sanitizeCommitMessageSuggestion = typeof(Program).GetMethod(
+            "SanitizeCommitMessageSuggestion",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        string suggestion = "feat: " + new string('a', 300);
+
+        string result = (string)sanitizeCommitMessageSuggestion.Invoke(null, [suggestion])!;
+
+        result.Should().HaveLength(225);
+        result.Should().Be(suggestion[..225]);
+    }
+
+    [Fact]
+    public void BuildGitSidebarCommitArguments_Should_AddStemCodeCoAuthorTrailer()
+    {
+        MethodInfo buildGitSidebarCommitArguments = typeof(Program).GetMethod(
+            "BuildGitSidebarCommitArguments",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        string[] result = (string[])buildGitSidebarCommitArguments.Invoke(null, ["feat: add sidebar commit"])!;
+
+        result.Should().Equal(
+            "commit",
+            "-m",
+            "feat: add sidebar commit",
+            "-m",
+            "Co-authored-by: StemCodeAi <317135024+stemcodeai[bot]@users.noreply.github.com>");
+    }
+
+    [Fact]
     public void ShowCommitMessagePrompt_Should_PrefillExistingCommitModalWithSuggestion()
     {
         AppState state = new(
