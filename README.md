@@ -58,6 +58,9 @@
 </p>
 
 ---
+
+**Introducing StemCode:** [Read the public launch announcement](docs/launch-announcement.md) — a local-first AI coding agent for your repository, terminal, desktop, editors, and CI.
+
 StemCode is built for practical engineering work. It runs against a real local repository, uses real shells and tools, keeps workspace memory in versionable files, and asks for approval when an action should stay under human control.
 
 Use it when you want one agent experience across:
