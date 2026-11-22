@@ -1245,72 +1245,381 @@ details > pre {
 }
 
 /* ---- Settings ---------------------------------------------------------------------------- */
+/* Roo Code-style layout: fixed header, vertical tab rail on the left, scrolling content on   */
+/* the right. The rail collapses to icons (and rows compact) based on the panel's own width.  */
 
 .settings-page {
+    display: flex;
     flex: 1;
+    flex-direction: column;
     min-height: 0;
-    overflow-y: auto;
-    padding: 12px var(--gutter) 24px;
+    container-type: inline-size;
+    container-name: settings;
 }
 
-.settings-shell {
-    max-width: 680px;
-    margin: 0 auto;
+.settings-page.hidden {
+    display: none;
 }
 
 .settings-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 8px;
-    margin-bottom: 16px;
+    flex: none;
+    min-height: 44px;
+    padding: 6px 8px 6px 6px;
+    border-bottom: 1px solid var(--border-subtle);
 }
 
-.settings-header .icon-button .icon {
+.settings-back .icon {
     transform: rotate(180deg);
 }
 
-.settings-header h1 {
+.settings-heading {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-heading h1 {
     margin: 0;
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 600;
+    line-height: 1.3;
 }
 
 .settings-summary {
+    overflow: hidden;
     color: var(--muted);
-    font-size: 12px;
-    overflow-wrap: anywhere;
-}
-
-.settings-group {
-    margin-bottom: 18px;
-}
-
-.settings-group-header h2 {
-    margin: 0;
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.settings-group-header p {
-    margin: 2px 0 6px;
+.settings-done {
+    flex: none;
+}
+
+.settings-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Tab rail */
+
+.settings-tabs {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 1px;
+    width: 168px;
+    padding: 8px 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-right: 1px solid var(--border-subtle);
+}
+
+.settings-tab {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 34px;
+    padding: 6px 14px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: var(--font-size);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.settings-tab::before {
+    content: "";
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: 0;
+    width: 2px;
+    border-radius: 0 2px 2px 0;
+    background: transparent;
+}
+
+.settings-tab:hover {
+    background: var(--list-hover);
+    color: var(--fg);
+}
+
+.settings-tab.active {
+    background: var(--hover);
+    color: var(--fg);
+    font-weight: 600;
+}
+
+.settings-tab.active::before {
+    background: var(--focus);
+}
+
+.settings-tab:focus-visible {
+    outline: 1px solid var(--focus);
+    outline-offset: -1px;
+}
+
+.settings-tab-icon {
+    display: inline-flex;
+    flex: none;
+}
+
+.settings-tab-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Content */
+
+.settings-content {
+    flex: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 14px 18px 28px;
+}
+
+.settings-panel {
+    max-width: 720px;
+}
+
+.settings-panel[hidden] {
+    display: none;
+}
+
+.settings-panel-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-panel-icon {
+    display: inline-flex;
+    flex: none;
+    margin-top: 2px;
+    color: var(--link);
+}
+
+.settings-panel-icon .icon {
+    width: 18px;
+    height: 18px;
+}
+
+.settings-panel-heading {
+    min-width: 0;
+}
+
+.settings-panel-heading h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.settings-panel-heading p {
+    margin: 2px 0 0;
     color: var(--muted);
     font-size: 12px;
 }
 
 .settings-list {
-    overflow: hidden;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .settings-action {
     display: flex;
     align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--vscode-editorWidget-background, var(--code-bg));
+    color: var(--fg);
+    text-align: left;
+    transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+
+.settings-action:hover:not(:disabled) {
+    border-color: var(--border);
+    background: var(--list-hover);
+}
+
+.settings-action:focus-visible {
+    outline: 1px solid var(--focus);
+    outline-offset: -1px;
+}
+
+.settings-action:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.settings-action-icon {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius);
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.settings-action-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.settings-action-title {
+    font-weight: 600;
+}
+
+.settings-action-description {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.settings-action-value {
+    flex: none;
+    max-width: 40%;
+    padding: 1px 8px;
+    overflow: hidden;
+    border-radius: 10px;
+    background: var(--button2-bg);
+    color: var(--button2-fg);
+    font-size: 11px;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-action-chevron {
+    display: inline-flex;
+    flex: none;
+    color: var(--muted);
+    opacity: 0.7;
+}
+
+/* Sub-menu page (drill-down from a settings row) */
+
+.settings-detail {
+    max-width: 720px;
+}
+
+.settings-detail[hidden] {
+    display: none;
+}
+
+.settings-detail-header {
+    align-items: center;
+}
+
+.settings-detail-header .settings-back {
+    flex: none;
+    margin-left: -4px;
+}
+
+.settings-detail-header .settings-panel-icon {
+    margin-top: 0;
+}
+
+.settings-detail-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.settings-detail-status[hidden] {
+    display: none;
+}
+
+.settings-detail-status.error {
+    border-color: var(--vscode-inputValidation-errorBorder, var(--error));
+    color: var(--error);
+}
+
+.settings-detail-status.success {
+    color: var(--success);
+}
+
+.settings-detail-body:empty {
+    display: none;
+}
+
+.settings-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.settings-prompt-title {
+    font-weight: 600;
+}
+
+.settings-prompt-description {
+    color: var(--muted);
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.settings-prompt-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.settings-prompt-input {
+    width: 100%;
+}
+
+.settings-prompt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.settings-option-list {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+}
+
+.settings-option {
+    display: flex;
+    align-items: center;
     gap: 10px;
     width: 100%;
-    padding: 8px 10px;
+    min-width: 0;
+    min-height: 36px;
+    padding: 7px 12px;
     border: 0;
     border-bottom: 1px solid var(--border-subtle);
     background: transparent;
@@ -1318,37 +1627,51 @@ details > pre {
     text-align: left;
 }
 
-.settings-action:last-child {
+.settings-option:last-child {
     border-bottom: 0;
 }
 
-.settings-action:hover:not(:disabled) {
+.settings-option:hover:not(:disabled) {
     background: var(--list-hover);
 }
 
-.settings-action-icon {
-    display: inline-flex;
-    color: var(--muted);
+.settings-option:focus-visible {
+    outline: 1px solid var(--focus);
+    outline-offset: -1px;
 }
 
-.settings-action-main {
+.settings-option.selected {
+    background: var(--hover);
+}
+
+.settings-option.selected .settings-option-title {
+    font-weight: 600;
+}
+
+.settings-option:disabled {
+    cursor: default;
+    opacity: 0.55;
+}
+
+.settings-option.pending {
+    opacity: 1;
+    background: var(--list-hover);
+}
+
+.settings-option-main {
     display: flex;
     flex: 1;
     flex-direction: column;
     min-width: 0;
 }
 
-.settings-action-title {
-    font-weight: 500;
+.settings-option-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.settings-action-description {
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.settings-action-value {
-    max-width: 40%;
+.settings-option-description {
     overflow: hidden;
     color: var(--muted);
     font-size: 12px;
@@ -1356,10 +1679,162 @@ details > pre {
     white-space: nowrap;
 }
 
-.settings-action-chevron {
+.settings-option-mark {
     display: inline-flex;
+    flex: none;
     color: var(--muted);
-    opacity: 0.7;
+}
+
+.settings-option.selected .settings-option-mark {
+    color: var(--link);
+}
+
+.settings-detail-output {
+    padding: 10px 12px;
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--vscode-editorWidget-background, var(--code-bg));
+    font-size: 12px;
+}
+
+.settings-detail-output[hidden] {
+    display: none;
+}
+
+.settings-detail-output .markdown-rendered > :first-child {
+    margin-top: 0;
+}
+
+.settings-detail-output .markdown-rendered > :last-child {
+    margin-bottom: 0;
+}
+
+@container settings (max-width: 340px) {
+    .settings-option {
+        padding: 6px 8px;
+    }
+
+    .settings-option-title,
+    .settings-option-description {
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+
+    .settings-detail-output {
+        padding: 8px;
+    }
+
+    .settings-prompt-actions > button {
+        flex: 1;
+    }
+}
+
+/* Medium: icon-only tab rail */
+@container settings (max-width: 520px) {
+    .settings-tabs {
+        width: 44px;
+    }
+
+    .settings-tab {
+        justify-content: center;
+        padding: 8px 0;
+    }
+
+    .settings-tab-label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .settings-content {
+        padding: 12px 12px 24px;
+    }
+}
+
+/* Narrow: value moves under the title, decorative chrome drops */
+@container settings (max-width: 340px) {
+    .settings-tabs {
+        width: 36px;
+    }
+
+    .settings-content {
+        padding: 10px 8px 20px;
+    }
+
+    .settings-panel-header {
+        margin-bottom: 8px;
+    }
+
+    .settings-panel-icon,
+    .settings-action-chevron {
+        display: none;
+    }
+
+    .settings-action {
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        padding: 8px 10px;
+    }
+
+    .settings-action-icon {
+        width: 22px;
+        height: 22px;
+    }
+
+    .settings-action-main {
+        flex-basis: calc(100% - 32px);
+    }
+
+    .settings-action-value {
+        max-width: 100%;
+        margin-left: 32px;
+    }
+}
+
+/* Very narrow: tabs become a horizontal strip above the content */
+@container settings (max-width: 240px) {
+    .settings-body {
+        flex-direction: column;
+    }
+
+    .settings-tabs {
+        flex-direction: row;
+        width: auto;
+        padding: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .settings-tab {
+        flex: 1;
+        min-height: 32px;
+    }
+
+    .settings-tab::before {
+        top: auto;
+        right: 6px;
+        bottom: 0;
+        left: 6px;
+        width: auto;
+        height: 2px;
+        border-radius: 2px 2px 0 0;
+    }
+
+    .settings-action-description,
+    .settings-summary,
+    .settings-panel-heading p {
+        display: none;
+    }
+
+    .settings-action-value {
+        margin-left: 0;
+    }
 }
 
 /* ---- Jump to latest ---------------------------------------------------------------------- */
@@ -2328,7 +2803,9 @@ body.vscode-high-contrast .diff-view {
 
 body.vscode-high-contrast .inline-call-summary:hover,
 body.vscode-high-contrast .starter:hover,
-body.vscode-high-contrast .settings-action:hover {
+body.vscode-high-contrast .settings-action:hover,
+body.vscode-high-contrast .settings-tab:hover,
+body.vscode-high-contrast .settings-option:hover {
     outline: 1px dashed var(--vscode-contrastActiveBorder, var(--focus));
 }
 

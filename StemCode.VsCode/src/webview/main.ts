@@ -34,6 +34,16 @@ let commandSuggestions = CHAT_COMMANDS;
         const settingsPage = document.getElementById('settings-page');
         const settingsSummary = document.getElementById('settings-summary');
         const settingsCloseButton = document.getElementById('settings-close-button');
+        const settingsDoneButton = document.getElementById('settings-done-button');
+        const settingsTabs: HTMLElement[] = Array.from(settingsPage.querySelectorAll('.settings-tab'));
+        const settingsDetailSection = document.getElementById('settings-detail');
+        const settingsDetailBack = document.getElementById('settings-detail-back');
+        const settingsDetailIcon = document.getElementById('settings-detail-icon');
+        const settingsDetailTitle = document.getElementById('settings-detail-title');
+        const settingsDetailDescription = document.getElementById('settings-detail-description');
+        const settingsDetailStatus = document.getElementById('settings-detail-status');
+        const settingsDetailBody = document.getElementById('settings-detail-body');
+        const settingsDetailOutput = document.getElementById('settings-detail-output');
         const settingsModelValue = document.getElementById('settings-model-value');
         const settingsProfileValue = document.getElementById('settings-profile-value');
         const settingsThinkingValue = document.getElementById('settings-thinking-value');
@@ -119,6 +129,10 @@ let commandSuggestions = CHAT_COMMANDS;
         let workingSetExpanded = false;
         let activeEditor = null;
         let includeEditorContext = persistedState.includeEditorContext !== false;
+        let activeSettingsTab = typeof persistedState.settingsTab === 'string' ? persistedState.settingsTab : '';
+        let settingsDetail = null;
+        let settingsRunActive = false;
+        const settingsRequestQueue = [];
         const promptHistory: string[] = Array.isArray(persistedState.promptHistory) ? persistedState.promptHistory.slice(-50) : [];
         let historyIndex = -1;
         let historyDraft = '';
@@ -160,7 +174,7 @@ let commandSuggestions = CHAT_COMMANDS;
 
         function persistState() {
             try {
-                api.setState({ promptHistory: promptHistory.slice(-50), includeEditorContext });
+                api.setState({ promptHistory: promptHistory.slice(-50), includeEditorContext, settingsTab: activeSettingsTab });
             } catch {
                 // Best effort only.
             }
@@ -1122,6 +1136,31 @@ let commandSuggestions = CHAT_COMMANDS;
         settingsButton.addEventListener('click', toggleSettingsPage);
         sessionsButton.addEventListener('click', () => post({ command: 'listSessions' }));
         settingsCloseButton.addEventListener('click', showChatPage);
+        settingsDoneButton.addEventListener('click', showChatPage);
+        settingsDetailBack.addEventListener('click', closeSettingsDetail);
+        settingsTabs.forEach((tab, index) => {
+            tab.addEventListener('click', () => {
+                closeSettingsDetail();
+                selectSettingsTab(tab.dataset.tab || '', false);
+            });
+            tab.addEventListener('keydown', event => {
+                let next = -1;
+                if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+                    next = (index + 1) % settingsTabs.length;
+                } else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+                    next = (index - 1 + settingsTabs.length) % settingsTabs.length;
+                } else if (event.key === 'Home') {
+                    next = 0;
+                } else if (event.key === 'End') {
+                    next = settingsTabs.length - 1;
+                }
+                if (next >= 0) {
+                    event.preventDefault();
+                    selectSettingsTab(settingsTabs[next].dataset.tab || '', true);
+                }
+            });
+        });
+        selectSettingsTab(activeSettingsTab, false);
         statusRetryButton.addEventListener('click', () => post({ command: 'restartProcess' }));
         statusLogsButton.addEventListener('click', () => post({ command: 'openLogs' }));
         editorContextChip.addEventListener('click', () => {
@@ -1272,6 +1311,11 @@ let commandSuggestions = CHAT_COMMANDS;
                     }
                     return;
                 }
+                if (isSettingsDetailOpen()) {
+                    event.preventDefault();
+                    closeSettingsDetail();
+                    return;
+                }
                 if (activeView === 'settings') {
                     event.preventDefault();
                     showChatPage();
@@ -1344,6 +1388,9 @@ let commandSuggestions = CHAT_COMMANDS;
                 sessionInfo = message.sessionInfo;
                 workingDirectory = message.workingDirectory || '';
                 renderContext();
+                if (settingsDetail && !settingsRunActive) {
+                    renderSettingsDetailChoices();
+                }
                 updateSuggestions();
             } else if (message.command === 'setProcessStatus') {
                 processStatus = message.status;
@@ -1358,7 +1405,9 @@ let commandSuggestions = CHAT_COMMANDS;
                 }
                 if (!promptState.isRunning && wasRunning) {
                     finalizeStreamingMessages();
-                    if (promptState.lastStopReason === 'cancelled') {
+                    if (settingsRunActive) {
+                        // Settings-page commands report their own outcome on that page.
+                    } else if (promptState.lastStopReason === 'cancelled') {
                         appendMessage('Cancelled.', 'system');
                     } else if (promptState.error) {
                         appendMessage('Error: ' + promptState.error, 'system');
@@ -1384,10 +1433,25 @@ let commandSuggestions = CHAT_COMMANDS;
             } else if (message.command === 'setFileEditsSummary') {
                 renderFileEditsSummary(message.summary);
             } else if (message.command === 'showClientRequest') {
-                flushPendingRendersNow();
-                showClientRequest(message.request);
+                if (message.target === 'settings' && message.request && message.request.id) {
+                    showSettingsRequest(message.request);
+                } else {
+                    flushPendingRendersNow();
+                    showClientRequest(message.request);
+                }
             } else if (message.command === 'resolveClientRequest') {
-                clearClientRequest(message.requestId);
+                if (!clearSettingsRequest(message.requestId)) {
+                    clearClientRequest(message.requestId);
+                }
+            } else if (message.command === 'settingsCommandStarted') {
+                settingsRunActive = true;
+                if (settingsDetail && !settingsDetail.request) {
+                    setSettingsDetailStatus('Working…', 'working');
+                }
+            } else if (message.command === 'settingsOutput') {
+                appendSettingsOutput(String(message.text || ''));
+            } else if (message.command === 'settingsCommandFinished') {
+                finishSettingsCommand(message);
             } else if (message.command === 'prefillComposer') {
                 showChatPage();
                 setComposerText(message.text || '');
@@ -1437,6 +1501,404 @@ let commandSuggestions = CHAT_COMMANDS;
             showSettingsPage();
         }
 
+        function selectSettingsTab(tabId, focusTab) {
+            const target = settingsTabs.find(tab => tab.dataset.tab === tabId) || settingsTabs[0];
+            if (!target) {
+                return;
+            }
+            const selectedId = target.dataset.tab || '';
+            settingsTabs.forEach(tab => {
+                const selected = tab === target;
+                tab.classList.toggle('active', selected);
+                tab.setAttribute('aria-selected', String(selected));
+                tab.tabIndex = selected ? 0 : -1;
+            });
+            settingsPage.querySelectorAll('.settings-panel').forEach((panel: HTMLElement) => {
+                panel.hidden = settingsDetail !== null || panel.dataset.panel !== selectedId;
+            });
+            const content = settingsPage.querySelector('.settings-content');
+            if (content) {
+                content.scrollTop = 0;
+            }
+            if (focusTab) {
+                target.focus();
+            }
+            if (selectedId !== activeSettingsTab) {
+                activeSettingsTab = selectedId;
+                persistState();
+            }
+        }
+
+        // ---- Settings sub-menus ----------------------------------------------------------------
+        // Settings rows open a drill-down page inside the settings view. Commands started here run
+        // in "settings mode": the host routes their output and selection/text prompts to this page
+        // instead of the chat transcript.
+
+        function openSettingsDetail(kind, title, description, icon) {
+            if (settingsDetail && settingsDetail.request) {
+                cancelSettingsRequest();
+            }
+            settingsDetail = { kind, request: null, output: '' };
+            settingsRequestQueue.length = 0;
+            settingsDetailTitle.textContent = title || 'Settings';
+            settingsDetailDescription.textContent = description || '';
+            settingsDetailDescription.hidden = !description;
+            settingsDetailIcon.textContent = '';
+            if (icon && ICONS[icon]) {
+                settingsDetailIcon.appendChild(iconElement(icon));
+            }
+            settingsDetailBody.textContent = '';
+            settingsDetailOutput.textContent = '';
+            settingsDetailOutput.hidden = true;
+            setSettingsDetailStatus('', '');
+            settingsPage.querySelectorAll('.settings-panel').forEach((panel: HTMLElement) => {
+                panel.hidden = true;
+            });
+            settingsDetailSection.hidden = false;
+            const content = settingsPage.querySelector('.settings-content');
+            if (content) {
+                content.scrollTop = 0;
+            }
+        }
+
+        function openSettingsDetailForRow(button, kind) {
+            const title = button.querySelector('.settings-action-title');
+            const description = button.querySelector('.settings-action-description');
+            const icon = button.querySelector('.settings-action-icon');
+            openSettingsDetail(
+                kind,
+                title ? title.textContent : '',
+                description ? description.textContent : '',
+                icon ? icon.getAttribute('data-ico') : '');
+        }
+
+        function closeSettingsDetail() {
+            if (!settingsDetail) {
+                return;
+            }
+            if (settingsDetail.request) {
+                cancelSettingsRequest();
+            }
+            settingsRequestQueue.length = 0;
+            settingsDetail = null;
+            settingsDetailSection.hidden = true;
+            settingsDetailBody.textContent = '';
+            selectSettingsTab(activeSettingsTab, false);
+        }
+
+        function isSettingsDetailOpen() {
+            return activeView === 'settings' && settingsDetail !== null;
+        }
+
+        function setSettingsDetailStatus(text, tone) {
+            settingsDetailStatus.textContent = '';
+            settingsDetailStatus.className = 'settings-detail-status' + (tone ? ' ' + tone : '');
+            if (!text) {
+                settingsDetailStatus.hidden = true;
+                return;
+            }
+            const iconName = tone === 'working' ? 'spinner' : tone === 'error' ? 'error' : tone === 'success' ? 'circleCheck' : 'info';
+            settingsDetailStatus.appendChild(iconElement(iconName));
+            const label = document.createElement('span');
+            label.textContent = text;
+            settingsDetailStatus.appendChild(label);
+            settingsDetailStatus.hidden = false;
+        }
+
+        function runSettingsDetailCommand(commandText) {
+            setSettingsDetailStatus('Working…', 'working');
+            post({ command: 'runSettingsCommand', text: commandText });
+        }
+
+        function createSettingsOption(label, detail, selected, onSelect) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'settings-option' + (selected ? ' selected' : '');
+            button.setAttribute('role', 'menuitemradio');
+            button.setAttribute('aria-checked', String(selected === true));
+            const main = document.createElement('span');
+            main.className = 'settings-option-main';
+            const name = document.createElement('span');
+            name.className = 'settings-option-title';
+            name.textContent = label;
+            main.appendChild(name);
+            if (detail) {
+                const description = document.createElement('span');
+                description.className = 'settings-option-description';
+                description.textContent = detail;
+                main.appendChild(description);
+            }
+            button.appendChild(main);
+            button.appendChild(iconElement(selected ? 'check' : 'chevronRight', 'settings-option-mark'));
+            button.addEventListener('click', () => {
+                if (!button.disabled) {
+                    onSelect(button);
+                }
+            });
+            return button;
+        }
+
+        function createSettingsOptionList(label) {
+            const list = document.createElement('div');
+            list.className = 'settings-option-list';
+            list.setAttribute('role', 'menu');
+            list.setAttribute('aria-label', label);
+            return list;
+        }
+
+        function lockSettingsOptions(list, chosen) {
+            list.querySelectorAll('.settings-option').forEach((option: HTMLButtonElement) => {
+                option.disabled = true;
+                option.classList.toggle('pending', option === chosen);
+            });
+        }
+
+        function renderSettingsModelChoices() {
+            const models = getAvailableModelIds();
+            settingsDetailBody.textContent = '';
+            if (models.length === 0) {
+                runSettingsDetailCommand('/models');
+                return;
+            }
+            const activeModelId = sessionInfo && sessionInfo.modelId ? sessionInfo.modelId : '';
+            const list = createSettingsOptionList('Models');
+            models.forEach(modelId => {
+                list.appendChild(createSettingsOption(modelId, modelId === activeModelId ? 'Current model' : '', modelId === activeModelId, button => {
+                    if (modelId === activeModelId) {
+                        return;
+                    }
+                    lockSettingsOptions(list, button);
+                    setSettingsDetailStatus('Switching to ' + modelId + '…', 'working');
+                    post({ command: 'changeModel', modelId, fromSettings: true });
+                }));
+            });
+            settingsDetailBody.appendChild(list);
+        }
+
+        function renderSettingsProfileChoices() {
+            const profiles = sessionInfo && Array.isArray(sessionInfo.availableAgentProfiles)
+                ? sessionInfo.availableAgentProfiles
+                : [];
+            settingsDetailBody.textContent = '';
+            if (profiles.length === 0) {
+                runSettingsDetailCommand('/setting profile');
+                return;
+            }
+            const activeProfile = sessionInfo && sessionInfo.agentProfileName ? String(sessionInfo.agentProfileName).toLowerCase() : '';
+            const list = createSettingsOptionList('Profiles');
+            profiles.forEach(profile => {
+                const isActive = String(profile.name).toLowerCase() === activeProfile;
+                list.appendChild(createSettingsOption(profile.name, profile.description || profile.mode || '', isActive, button => {
+                    if (isActive) {
+                        return;
+                    }
+                    lockSettingsOptions(list, button);
+                    setSettingsDetailStatus('Switching to ' + profile.name + '…', 'working');
+                    post({ command: 'changeProfile', profileName: profile.name, fromSettings: true });
+                }));
+            });
+            settingsDetailBody.appendChild(list);
+        }
+
+        function renderSettingsDetailChoices() {
+            if (!settingsDetail || settingsDetail.request) {
+                return;
+            }
+            if (settingsDetail.kind === 'model') {
+                renderSettingsModelChoices();
+            } else if (settingsDetail.kind === 'profile') {
+                renderSettingsProfileChoices();
+            }
+        }
+
+        function showSettingsRequest(request) {
+            if (activeView !== 'settings') {
+                showSettingsPage();
+            }
+            if (!settingsDetail) {
+                openSettingsDetail('command', request.title || request.label || 'Settings', '', 'gear');
+            }
+            if (settingsDetail.request) {
+                if (settingsDetail.request.id !== request.id && !settingsRequestQueue.some(queued => queued.id === request.id)) {
+                    settingsRequestQueue.push(request);
+                }
+                return;
+            }
+
+            settingsDetail.request = request;
+            settingsDetailBody.textContent = '';
+            setSettingsDetailStatus('', '');
+
+            const prompt = document.createElement('div');
+            prompt.className = 'settings-prompt';
+            const heading = document.createElement('div');
+            heading.className = 'settings-prompt-title';
+            heading.textContent = request.kind === 'text' ? (request.label || 'Enter a value') : (request.title || 'Choose an option');
+            prompt.appendChild(heading);
+            if (request.description) {
+                const description = document.createElement('div');
+                description.className = 'settings-prompt-description';
+                renderLinkifiedText(description, request.description);
+                prompt.appendChild(description);
+            }
+
+            if (request.kind === 'text') {
+                renderSettingsTextRequest(prompt, request);
+            } else {
+                renderSettingsChoiceRequest(prompt, request);
+            }
+            settingsDetailBody.appendChild(prompt);
+        }
+
+        function renderSettingsChoiceRequest(prompt, request) {
+            const options = Array.isArray(request.options) ? request.options : [];
+            const defaultOptionId = getDefaultOptionId(request, options);
+            const list = createSettingsOptionList(request.title || 'Options');
+            options.forEach(option => {
+                list.appendChild(createSettingsOption(
+                    option.name || option.optionId,
+                    formatOptionKind(option.kind),
+                    option.optionId === defaultOptionId,
+                    button => {
+                        lockSettingsOptions(list, button);
+                        resolveSettingsRequest({ outcome: 'selected', optionId: option.optionId });
+                    }));
+            });
+            prompt.appendChild(list);
+            if (request.allowCancellation !== false) {
+                const actions = document.createElement('div');
+                actions.className = 'settings-prompt-actions';
+                const cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.className = 'ghost-button';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', () => cancelSettingsRequest());
+                actions.appendChild(cancel);
+                prompt.appendChild(actions);
+            }
+            const first = list.querySelector('.settings-option.selected') || list.querySelector('.settings-option');
+            if (first) {
+                setTimeout(() => (first as HTMLElement).focus(), 0);
+            }
+        }
+
+        function renderSettingsTextRequest(prompt, request) {
+            const form = document.createElement('div');
+            form.className = 'settings-prompt-form';
+            const input = document.createElement('input');
+            input.className = 'modal-input settings-prompt-input';
+            input.type = request.isSecret ? 'password' : 'text';
+            input.value = request.defaultValue || '';
+            input.autocomplete = 'off';
+            input.setAttribute('aria-label', request.label || 'Value');
+            form.appendChild(input);
+
+            const actions = document.createElement('div');
+            actions.className = 'settings-prompt-actions';
+            if (request.allowCancellation) {
+                const cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.className = 'ghost-button';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', () => cancelSettingsRequest());
+                actions.appendChild(cancel);
+            }
+            const submit = document.createElement('button');
+            submit.type = 'button';
+            submit.className = 'primary-button';
+            submit.textContent = 'Save';
+            submit.addEventListener('click', () => {
+                const value = input.value;
+                if (request.isSecret) {
+                    input.value = '';
+                }
+                input.disabled = true;
+                submit.disabled = true;
+                resolveSettingsRequest({ outcome: 'submitted', value });
+            });
+            actions.appendChild(submit);
+            form.appendChild(actions);
+            input.addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    submit.click();
+                } else if (event.key === 'Escape' && request.allowCancellation) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    cancelSettingsRequest();
+                }
+            });
+            prompt.appendChild(form);
+            setTimeout(() => input.focus(), 0);
+        }
+
+        function resolveSettingsRequest(resolution) {
+            if (!settingsDetail || !settingsDetail.request) {
+                return;
+            }
+            const requestId = settingsDetail.request.id;
+            post({ command: 'resolveClientRequest', requestId, resolution });
+            clearSettingsRequest(requestId);
+        }
+
+        function cancelSettingsRequest() {
+            if (!settingsDetail || !settingsDetail.request) {
+                return;
+            }
+            if (settingsDetail.request.allowCancellation === false) {
+                return;
+            }
+            resolveSettingsRequest({ outcome: 'cancelled' });
+        }
+
+        /** Returns true when the request belonged to the settings page. */
+        function clearSettingsRequest(requestId) {
+            const queuedIndex = settingsRequestQueue.findIndex(request => request.id === requestId);
+            if (queuedIndex >= 0) {
+                settingsRequestQueue.splice(queuedIndex, 1);
+                return true;
+            }
+            if (!settingsDetail || !settingsDetail.request || settingsDetail.request.id !== requestId) {
+                return false;
+            }
+            settingsDetail.request = null;
+            settingsDetailBody.querySelectorAll('input').forEach((input: HTMLInputElement) => {
+                input.value = '';
+            });
+            settingsDetailBody.textContent = '';
+            const next = settingsRequestQueue.shift();
+            if (next) {
+                showSettingsRequest(next);
+            } else if (settingsRunActive) {
+                setSettingsDetailStatus('Working…', 'working');
+            }
+            return true;
+        }
+
+        function appendSettingsOutput(text) {
+            if (!settingsDetail || !text) {
+                return;
+            }
+            settingsDetail.output += text;
+            renderMarkdownText(settingsDetailOutput, settingsDetail.output.trim());
+            settingsDetailOutput.hidden = settingsDetail.output.trim().length === 0;
+        }
+
+        function finishSettingsCommand(message) {
+            settingsRunActive = false;
+            if (!settingsDetail) {
+                return;
+            }
+            if (message.error) {
+                setSettingsDetailStatus(message.error, message.error === 'Cancelled.' ? '' : 'error');
+            } else if (!settingsDetail.request) {
+                const hasOutput = settingsDetail.output.trim().length > 0;
+                setSettingsDetailStatus(hasOutput ? '' : 'Done.', hasOutput ? '' : 'success');
+            }
+            renderSettingsDetailChoices();
+            renderSettingsSummary();
+        }
+
         function showSettingsPage() {
             activeView = 'settings';
             closeAgentMenu();
@@ -1454,6 +1916,7 @@ let commandSuggestions = CHAT_COMMANDS;
 
         function showChatPage() {
             const wasSettings = activeView === 'settings';
+            closeSettingsDetail();
             activeView = 'chat';
             settingsPage.classList.add('hidden');
             messagesDiv.classList.remove('hidden');
@@ -1492,7 +1955,14 @@ let commandSuggestions = CHAT_COMMANDS;
             }
 
             if (action === 'model') {
-                showModelPicker();
+                openSettingsDetailForRow(button, 'model');
+                renderSettingsModelChoices();
+                return;
+            }
+
+            if (action === 'profile') {
+                openSettingsDetailForRow(button, 'profile');
+                renderSettingsProfileChoices();
                 return;
             }
 
@@ -1508,8 +1978,8 @@ let commandSuggestions = CHAT_COMMANDS;
 
             const commandText = button.dataset.command || '';
             if (commandText) {
-                showChatPage();
-                post({ command: 'runSessionCommand', text: commandText });
+                openSettingsDetailForRow(button, 'command');
+                runSettingsDetailCommand(commandText);
             }
         }
 

@@ -4,6 +4,7 @@ import type { ClientRequestResolution } from '../services/sessionTypes';
 export type ChatMessage =
     | SendMessage
     | RunSessionCommandMessage
+    | RunSettingsCommandMessage
     | SelectModelMessage
     | ChangeModelMessage
     | ChangeProfileMessage
@@ -71,6 +72,11 @@ type RunSessionCommandMessage = {
     text: string;
 };
 
+type RunSettingsCommandMessage = {
+    command: 'runSettingsCommand';
+    text: string;
+};
+
 type SelectModelMessage = {
     command: 'selectModel';
 };
@@ -78,11 +84,13 @@ type SelectModelMessage = {
 type ChangeModelMessage = {
     command: 'changeModel';
     modelId: string;
+    fromSettings?: boolean;
 };
 
 type ChangeProfileMessage = {
     command: 'changeProfile';
     profileName: string;
+    fromSettings?: boolean;
 };
 
 type OpenVsCodeSettingsMessage = {

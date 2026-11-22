@@ -41,6 +41,9 @@ export class ChatWebviewController {
     private lastAssistantText = '';
     /** Active captures of agent output, used to read slash-command results such as export paths. */
     private readonly outputCaptures = new Set<{ text: string }>();
+    /** Set while a command started from the settings page runs; its output and prompts go to that page. */
+    private settingsRun: { text: string } | null = null;
+    private readonly settingsRequestIds = new Set<string>();
 
     constructor(
         private readonly webview: vscode.Webview,
@@ -82,12 +85,14 @@ export class ChatWebviewController {
                     }
                 } else if (message.command === 'runSessionCommand') {
                     await this.runSettingsCommand(message.text);
+                } else if (message.command === 'runSettingsCommand') {
+                    await this.runSettingsPageCommand(message.text);
                 } else if (message.command === 'selectModel') {
                     await this.handleModelSelection();
                 } else if (message.command === 'changeModel') {
-                    await this.handleModelChange(message.modelId);
+                    await this.handleModelChange(message.modelId, message.fromSettings === true);
                 } else if (message.command === 'changeProfile') {
-                    await this.handleProfileChange(message.profileName);
+                    await this.handleProfileChange(message.profileName, message.fromSettings === true);
                 } else if (message.command === 'openVsCodeSettings') {
                     await vscode.commands.executeCommand('workbench.action.openSettings', 'stemcode');
                 } else if (message.command === 'resolveClientRequest') {
@@ -297,6 +302,14 @@ export class ChatWebviewController {
             this.postSessionInfo(sessionInfo);
         };
         const messageChunkListener = (chunk: SessionMessageChunk) => {
+            if (this.settingsRun) {
+                if (chunk.role === 'assistant') {
+                    this.settingsRun.text += chunk.text;
+                    this.webview.postMessage({ command: 'settingsOutput', text: chunk.text });
+                }
+                return;
+            }
+
             if (chunk.role === 'assistant') {
                 for (const capture of this.outputCaptures) {
                     capture.text += chunk.text;
@@ -318,9 +331,13 @@ export class ChatWebviewController {
             this.webview.postMessage({ command: 'setFileEditsSummary', summary });
         };
         const clientRequestListener = (request: ClientRequest) => {
+            if (this.settingsRun) {
+                this.settingsRequestIds.add(request.id);
+            }
             this.postClientRequest(request);
         };
         const clientRequestResolvedListener = (requestId: string) => {
+            this.settingsRequestIds.delete(requestId);
             this.webview.postMessage({ command: 'resolveClientRequest', requestId });
         };
         const availableCommandsListener = (commands: AvailableCommand[]) => {
@@ -648,6 +665,42 @@ export class ChatWebviewController {
         await this.runSessionCommand(trimmedText, 'Settings command failed');
     }
 
+    /**
+     * Runs a command for the settings page. Unlike chat commands, its output and any
+     * selection or text prompts it raises are sent to the settings page, never the transcript.
+     */
+    private async runSettingsPageCommand(text: string) {
+        const trimmedText = text.trim();
+        if (!trimmedText.startsWith('/')) {
+            return;
+        }
+
+        if (this.settingsRun) {
+            this.webview.postMessage({ command: 'settingsCommandFinished', text: trimmedText, error: 'Another settings command is still running.' });
+            return;
+        }
+
+        const run = { text: '' };
+        this.settingsRun = run;
+        this.webview.postMessage({ command: 'settingsCommandStarted', text: trimmedText });
+        let error = '';
+        try {
+            const result = await this.sessionManager.sendPrompt(trimmedText);
+            if (result?.stopReason === 'cancelled') {
+                error = 'Cancelled.';
+            }
+        } catch (caught) {
+            error = caught instanceof Error ? caught.message : 'Unknown error';
+            LogService.getInstance().error('Settings command failed', caught);
+        } finally {
+            if (this.settingsRun === run) {
+                this.settingsRun = null;
+            }
+        }
+
+        this.webview.postMessage({ command: 'settingsCommandFinished', text: trimmedText, output: run.text, error });
+    }
+
     private async ensureSessionReady() {
         try {
             await this.sessionManager.ensureSessionReady();
@@ -660,11 +713,16 @@ export class ChatWebviewController {
         }
     }
 
-    private async handleModelChange(modelId: string) {
+    private async handleModelChange(modelId: string, fromSettings = false) {
         const trimmedModelId = modelId.trim();
         const sessionInfo = this.currentSessionInfo ?? this.sessionManager.getSessionInfo();
         const models = sessionInfo?.availableModelIds ?? [];
         if (!trimmedModelId || !models.includes(trimmedModelId) || trimmedModelId === sessionInfo?.modelId) {
+            return;
+        }
+
+        if (fromSettings) {
+            await this.runSettingsPageCommand(`/use ${trimmedModelId}`);
             return;
         }
 
@@ -677,7 +735,7 @@ export class ChatWebviewController {
         }
     }
 
-    private async handleProfileChange(profileName: string) {
+    private async handleProfileChange(profileName: string, fromSettings = false) {
         const trimmedProfileName = profileName.trim();
         const sessionInfo = this.currentSessionInfo ?? this.sessionManager.getSessionInfo();
         if (!trimmedProfileName ||
@@ -689,6 +747,11 @@ export class ChatWebviewController {
         const profiles = sessionInfo?.availableAgentProfiles ?? [];
         if (profiles.length > 0 &&
             !profiles.some(profile => profile.name.toLowerCase() === trimmedProfileName.toLowerCase())) {
+            return;
+        }
+
+        if (fromSettings) {
+            await this.runSettingsPageCommand(`/profile ${trimmedProfileName}`);
             return;
         }
 
@@ -1090,7 +1153,8 @@ export class ChatWebviewController {
     }
 
     private postClientRequest(request: ClientRequest) {
-        void this.postToWebview({ command: 'showClientRequest', request }, 'client request');
+        const target = this.settingsRequestIds.has(request.id) ? 'settings' : 'chat';
+        void this.postToWebview({ command: 'showClientRequest', request, target }, 'client request');
     }
 
     private async postProcessStatus(status: StemCodeProcessStatus) {

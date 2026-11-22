@@ -11,6 +11,8 @@ type SettingsRow = {
 };
 
 type SettingsGroup = {
+    id: string;
+    icon: string;
     title: string;
     hint: string;
     rows: SettingsRow[];
@@ -18,17 +20,21 @@ type SettingsGroup = {
 
 const SETTINGS_GROUPS: SettingsGroup[] = [
     {
+        id: 'session',
+        icon: 'sparkle',
         title: 'Session',
         hint: 'Model, profile, reasoning, and saved chats.',
         rows: [
             { icon: 'sparkle', title: 'Model', description: 'Choose the active model for this session.', valueId: 'settings-model-value', action: 'model' },
-            { icon: 'agent', title: 'Profile', description: 'Switch build, plan, review, or subagent profile.', valueId: 'settings-profile-value', command: '/setting profile' },
+            { icon: 'agent', title: 'Profile', description: 'Switch build, plan, review, or subagent profile.', valueId: 'settings-profile-value', action: 'profile', command: '/setting profile' },
             { icon: 'brain', title: 'Thinking', description: 'Set provider reasoning effort for later prompts.', valueId: 'settings-thinking-value', command: '/setting thinking' },
             { icon: 'info', title: 'Summary', description: 'Provider, model, profile, thinking, and session details.', value: 'Open', command: '/setting summary' },
             { icon: 'history', title: 'Sessions', description: 'Browse, resume, fork, or export saved sessions.', value: 'Browse', action: 'sessions' }
         ]
     },
     {
+        id: 'provider',
+        icon: 'globe',
         title: 'Provider',
         hint: 'Switch providers or repair credentials.',
         rows: [
@@ -37,6 +43,8 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
         ]
     },
     {
+        id: 'workspace',
+        icon: 'folder',
         title: 'Workspace',
         hint: 'Project files, permissions, budget, tools, terminals, and skills.',
         rows: [
@@ -50,6 +58,8 @@ const SETTINGS_GROUPS: SettingsGroup[] = [
         ]
     },
     {
+        id: 'extension',
+        icon: 'gear',
         title: 'Extension',
         hint: 'Native VS Code settings and diagnostics.',
         rows: [
@@ -69,34 +79,55 @@ function escapeHtml(value: string): string {
         .replace(/'/g, '&#39;');
 }
 
-function renderSettingsGroups(): string {
-    return SETTINGS_GROUPS.map(group => `
-                    <section class="settings-group">
-                        <header class="settings-group-header">
-                            <h2>${escapeHtml(group.title)}</h2>
-                            <p>${escapeHtml(group.hint)}</p>
-                        </header>
-                        <div class="settings-list">${group.rows.map(row => {
-        const dataAttrs = [
-            row.action ? `data-action="${escapeHtml(row.action)}"` : '',
-            row.command ? `data-command="${escapeHtml(row.command)}"` : ''
-        ].filter(Boolean).join(' ');
-        const value = row.valueId
-            ? `<span id="${escapeHtml(row.valueId)}" class="settings-action-value">-</span>`
-            : `<span class="settings-action-value">${escapeHtml(row.value ?? '')}</span>`;
+function renderSettingsRow(row: SettingsRow): string {
+    const dataAttrs = [
+        row.action ? `data-action="${escapeHtml(row.action)}"` : '',
+        row.command ? `data-command="${escapeHtml(row.command)}"` : ''
+    ].filter(Boolean).join(' ');
+    const value = row.valueId
+        ? `<span id="${escapeHtml(row.valueId)}" class="settings-action-value">-</span>`
+        : `<span class="settings-action-value">${escapeHtml(row.value ?? '')}</span>`;
+    return `
+                                <button type="button" class="settings-action" ${dataAttrs}>
+                                    <span class="settings-action-icon" data-ico="${escapeHtml(row.icon)}"></span>
+                                    <span class="settings-action-main">
+                                        <span class="settings-action-title">${escapeHtml(row.title)}</span>
+                                        <span class="settings-action-description">${escapeHtml(row.description)}</span>
+                                    </span>
+                                    ${value}
+                                    <span class="settings-action-chevron" data-ico="chevronRight"></span>
+                                </button>`;
+}
+
+function renderSettingsTabs(): string {
+    return SETTINGS_GROUPS.map((group, index) => {
+        const id = escapeHtml(group.id);
+        const selected = index === 0;
         return `
-                            <button type="button" class="settings-action" ${dataAttrs}>
-                                <span class="settings-action-icon" data-ico="${escapeHtml(row.icon)}"></span>
-                                <span class="settings-action-main">
-                                    <span class="settings-action-title">${escapeHtml(row.title)}</span>
-                                    <span class="settings-action-description">${escapeHtml(row.description)}</span>
-                                </span>
-                                ${value}
-                                <span class="settings-action-chevron" data-ico="chevronRight"></span>
-                            </button>`;
-    }).join('')}
+                    <button type="button" role="tab" class="settings-tab${selected ? ' active' : ''}" id="settings-tab-${id}" data-tab="${id}"
+                            aria-controls="settings-panel-${id}" aria-selected="${selected}" tabindex="${selected ? 0 : -1}" title="${escapeHtml(group.title)}">
+                        <span class="settings-tab-icon" data-ico="${escapeHtml(group.icon)}"></span>
+                        <span class="settings-tab-label">${escapeHtml(group.title)}</span>
+                    </button>`;
+    }).join('');
+}
+
+function renderSettingsPanels(): string {
+    return SETTINGS_GROUPS.map((group, index) => {
+        const id = escapeHtml(group.id);
+        return `
+                    <section role="tabpanel" class="settings-panel" id="settings-panel-${id}" data-panel="${id}" aria-labelledby="settings-tab-${id}"${index === 0 ? '' : ' hidden'}>
+                        <header class="settings-panel-header">
+                            <span class="settings-panel-icon" data-ico="${escapeHtml(group.icon)}"></span>
+                            <div class="settings-panel-heading">
+                                <h2>${escapeHtml(group.title)}</h2>
+                                <p>${escapeHtml(group.hint)}</p>
+                            </div>
+                        </header>
+                        <div class="settings-list">${group.rows.map(renderSettingsRow).join('')}
                         </div>
-                    </section>`).join('');
+                    </section>`;
+    }).join('');
 }
 
 export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string) {
@@ -160,15 +191,32 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
         </main>
 
         <section id="settings-page" class="settings-page hidden" aria-label="StemCode settings">
-            <div class="settings-shell">
-                <header class="settings-header">
-                    <button type="button" id="settings-close-button" class="icon-button" title="Back to chat" aria-label="Back to chat" data-ico="chevronRight"></button>
-                    <div>
-                        <h1>Settings</h1>
-                        <div id="settings-summary" class="settings-summary">No active session.</div>
-                    </div>
-                </header>
-                ${renderSettingsGroups()}
+            <header class="settings-header">
+                <button type="button" id="settings-close-button" class="icon-button settings-back" title="Back to chat" aria-label="Back to chat" data-ico="chevronRight"></button>
+                <div class="settings-heading">
+                    <h1>Settings</h1>
+                    <div id="settings-summary" class="settings-summary">No active session.</div>
+                </div>
+                <button type="button" id="settings-done-button" class="primary-button settings-done">Done</button>
+            </header>
+            <div class="settings-body">
+                <nav class="settings-tabs" role="tablist" aria-orientation="vertical" aria-label="Settings sections">${renderSettingsTabs()}
+                </nav>
+                <div class="settings-content">${renderSettingsPanels()}
+                    <section id="settings-detail" class="settings-detail" aria-labelledby="settings-detail-title" hidden>
+                        <header class="settings-panel-header settings-detail-header">
+                            <button type="button" id="settings-detail-back" class="icon-button settings-back" title="Back" aria-label="Back" data-ico="chevronRight"></button>
+                            <span id="settings-detail-icon" class="settings-panel-icon"></span>
+                            <div class="settings-panel-heading">
+                                <h2 id="settings-detail-title"></h2>
+                                <p id="settings-detail-description"></p>
+                            </div>
+                        </header>
+                        <div id="settings-detail-status" class="settings-detail-status" role="status" aria-live="polite" hidden></div>
+                        <div id="settings-detail-body" class="settings-detail-body"></div>
+                        <div id="settings-detail-output" class="settings-detail-output" hidden></div>
+                    </section>
+                </div>
             </div>
         </section>
 

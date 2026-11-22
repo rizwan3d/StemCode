@@ -439,6 +439,94 @@ describe('chat webview', function () {
         assert.ok(h.$('#settings-page').classList.contains('hidden'));
     });
 
+    it('switches settings tabs and remembers the selection', () => {
+        h.$('#settings-button').click();
+        assert.strictEqual(h.$('.settings-tab.active').dataset.tab, 'session');
+        assert.ok(h.$('#settings-panel-workspace').hidden);
+
+        h.$('#settings-tab-workspace').click();
+        assert.strictEqual(h.$('#settings-tab-workspace').getAttribute('aria-selected'), 'true');
+        assert.ok(!h.$('#settings-panel-workspace').hidden);
+        assert.ok(h.$('#settings-panel-session').hidden);
+
+        h.key(h.$('#settings-tab-workspace'), 'ArrowDown');
+        assert.ok(!h.$('#settings-panel-extension').hidden);
+
+        h.$('#settings-done-button').click();
+        assert.ok(h.$('#settings-page').classList.contains('hidden'));
+    });
+
+    it('runs settings commands in a sub-menu instead of the chat transcript', () => {
+        h.$('#settings-button').click();
+        h.$('#settings-tab-provider').click();
+        h.$('.settings-action[data-command="/setting provider"]').click();
+
+        assert.deepStrictEqual(h.lastPosted('runSettingsCommand'), { command: 'runSettingsCommand', text: '/setting provider' });
+        assert.ok(!h.$('#settings-page').classList.contains('hidden'), 'stays on settings');
+        assert.ok(!h.$('#settings-detail').hidden);
+        assert.ok(h.$('#settings-panel-provider').hidden);
+        assert.strictEqual(h.$('#settings-detail-title').textContent, 'Provider');
+
+        h.send({ command: 'settingsCommandStarted', text: '/setting provider' });
+        h.send({
+            command: 'showClientRequest',
+            target: 'settings',
+            request: {
+                id: 'req-1', kind: 'permission', title: 'Choose provider', allowCancellation: true,
+                options: [{ optionId: 'anthropic', name: 'Anthropic', kind: 'select' }, { optionId: 'openai', name: 'OpenAI', kind: 'select' }]
+            }
+        });
+        assert.ok(h.$('#modal-backdrop').classList.contains('hidden'), 'no modal');
+        assert.strictEqual(h.$$('#messages .permission').length, 0, 'nothing in the transcript');
+        const options = h.$$('#settings-detail-body .settings-option');
+        assert.strictEqual(options.length, 2);
+        options[1].click();
+        assert.deepStrictEqual(h.lastPosted('resolveClientRequest'), {
+            command: 'resolveClientRequest', requestId: 'req-1', resolution: { outcome: 'selected', optionId: 'openai' }
+        });
+
+        h.send({
+            command: 'showClientRequest',
+            target: 'settings',
+            request: { id: 'req-2', kind: 'text', label: 'API key', isSecret: true, allowCancellation: true }
+        });
+        const input = h.$('#settings-detail-body input') as HTMLInputElement;
+        assert.strictEqual(input.type, 'password');
+        input.value = 'sk-test';
+        h.key(input, 'Enter');
+        assert.deepStrictEqual(h.lastPosted('resolveClientRequest'), {
+            command: 'resolveClientRequest', requestId: 'req-2', resolution: { outcome: 'submitted', value: 'sk-test' }
+        });
+
+        h.send({ command: 'settingsOutput', text: 'Provider set to **openai**.' });
+        h.send({ command: 'settingsCommandFinished', text: '/setting provider', output: 'Provider set to **openai**.', error: '' });
+        assert.ok(h.$('#settings-detail-output').textContent?.includes('Provider set to openai.'));
+        assert.ok(!h.$('#messages').textContent?.includes('Provider set to'));
+
+        h.$('#settings-detail-back').click();
+        assert.ok(h.$('#settings-detail').hidden);
+        assert.ok(!h.$('#settings-panel-provider').hidden);
+    });
+
+    it('picks model and profile from settings sub-menus', () => {
+        h.send({ command: 'setSessionInfo', sessionInfo, workingDirectory: '/repo' });
+        h.$('#settings-button').click();
+        h.$('.settings-action[data-action="model"]').click();
+        const models = h.$$('#settings-detail-body .settings-option');
+        assert.deepStrictEqual(models.map(m => m.querySelector('.settings-option-title')?.textContent), ['claude-sonnet', 'claude-opus']);
+        assert.ok(models[0].classList.contains('selected'));
+        models[1].click();
+        assert.deepStrictEqual(h.lastPosted('changeModel'), { command: 'changeModel', modelId: 'claude-opus', fromSettings: true });
+
+        h.key(h.document.body, 'Escape');
+        assert.ok(h.$('#settings-detail').hidden, 'Escape leaves the sub-menu first');
+        assert.ok(!h.$('#settings-page').classList.contains('hidden'));
+
+        h.$('.settings-action[data-action="profile"]').click();
+        h.$$('#settings-detail-body .settings-option')[1].click();
+        assert.deepStrictEqual(h.lastPosted('changeProfile'), { command: 'changeProfile', profileName: 'plan', fromSettings: true });
+    });
+
     it('opens the model menu and switches models', () => {
         h.send({ command: 'setSessionInfo', sessionInfo, workingDirectory: '/repo' });
         h.$('#model-button').click();
