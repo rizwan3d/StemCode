@@ -120,6 +120,7 @@ internal static class ApplicationSettingsFactory
             MemoryWrite = ConvertMemoryWriteMode(configured.MemoryWrite, autoApproveAllToolsOverride),
             Network = ConvertAskToAllowWhenAutoApproving(configured.Network, autoApproveAllToolsOverride),
             SandboxMode = configured.SandboxMode,
+            SandboxNetwork = configured.SandboxNetwork ?? new SandboxNetworkSettings(),
             Shell = configured.Shell ?? new ShellPermissionSettings(),
             ShellDefault = ConvertAskToAllowWhenAutoApproving(configured.ShellDefault, autoApproveAllToolsOverride),
             ShellSafe = ConvertAskToAllowWhenAutoApproving(configured.ShellSafe, autoApproveAllToolsOverride),

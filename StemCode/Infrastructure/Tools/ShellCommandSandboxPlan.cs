@@ -33,6 +33,9 @@ internal sealed record ShellCommandSandboxPlan(
     public IReadOnlyList<string> ResolvedRestrictedReadPaths => RestrictedReadPaths ?? [];
 }
 
+/// <summary>Network restriction for a sandboxed command and the filtering proxy's port, if any.</summary>
+internal sealed record ShellCommandSandboxNetwork(SandboxNetworkMode Mode, int? ProxyPort);
+
 internal static class ShellCommandSandboxPlanner
 {
     public const string NoEnforcement = "none";
@@ -47,7 +50,8 @@ internal static class ShellCommandSandboxPlanner
         string workspaceRoot,
         string workingDirectory,
         WorkspaceRestrictedPathPolicy? restrictedPathPolicy = null,
-        ShellCommandSandboxPlatform? platform = null)
+        ShellCommandSandboxPlatform? platform = null,
+        ShellCommandSandboxNetwork? network = null)
     {
         ArgumentNullException.ThrowIfNull(shellRequest);
         ArgumentException.ThrowIfNullOrWhiteSpace(workspaceRoot);
@@ -82,7 +86,8 @@ internal static class ShellCommandSandboxPlanner
                 effectiveSandboxMode,
                 normalizedWorkspaceRoot,
                 normalizedWorkingDirectory,
-                policy);
+                policy,
+                network);
         }
 
         if (targetPlatform == ShellCommandSandboxPlatform.MacOs)
@@ -92,7 +97,8 @@ internal static class ShellCommandSandboxPlanner
                 effectiveSandboxMode,
                 normalizedWorkspaceRoot,
                 normalizedWorkingDirectory,
-                policy);
+                policy,
+                network);
         }
 
         if (targetPlatform == ShellCommandSandboxPlatform.Windows)
@@ -140,14 +146,22 @@ internal static class ShellCommandSandboxPlanner
         ToolSandboxMode effectiveSandboxMode,
         string workspaceRoot,
         string workingDirectory,
-        WorkspaceRestrictedPathPolicy restrictedPathPolicy)
+        WorkspaceRestrictedPathPolicy restrictedPathPolicy,
+        ShellCommandSandboxNetwork? network = null)
     {
         List<string> arguments =
         [
             "--die-with-parent",
-            "--unshare-all",
-            "--share-net"
+            "--unshare-all"
         ];
+
+        // --unshare-all includes the network namespace; re-share it unless network
+        // access is blocked outright. (An allowlist cannot reach a host-side proxy
+        // from a private namespace, so it is enforced by the proxy instead.)
+        if (network?.Mode != SandboxNetworkMode.Blocked)
+        {
+            arguments.Add("--share-net");
+        }
 
         foreach (string systemRoot in SandboxHostPaths.LinuxSystemReadRoots)
         {
@@ -274,12 +288,14 @@ internal static class ShellCommandSandboxPlanner
         ToolSandboxMode effectiveSandboxMode,
         string workspaceRoot,
         string workingDirectory,
-        WorkspaceRestrictedPathPolicy restrictedPathPolicy)
+        WorkspaceRestrictedPathPolicy restrictedPathPolicy,
+        ShellCommandSandboxNetwork? network = null)
     {
         string profile = BuildMacOsSandboxProfile(
             effectiveSandboxMode,
             workspaceRoot,
-            restrictedPathPolicy);
+            restrictedPathPolicy,
+            network);
         List<string> arguments = ["-p", profile, shellRequest.FileName];
         arguments.AddRange(shellRequest.Arguments);
 
@@ -298,12 +314,27 @@ internal static class ShellCommandSandboxPlanner
     private static string BuildMacOsSandboxProfile(
         ToolSandboxMode effectiveSandboxMode,
         string workspaceRoot,
-        WorkspaceRestrictedPathPolicy restrictedPathPolicy)
+        WorkspaceRestrictedPathPolicy restrictedPathPolicy,
+        ShellCommandSandboxNetwork? network = null)
     {
         StringBuilder builder = new();
         builder.AppendLine("(version 1)");
         builder.AppendLine("(allow default)");
         builder.AppendLine("(deny file-write*)");
+
+        if (network is not null && network.Mode != SandboxNetworkMode.Unrestricted)
+        {
+            // Outbound traffic may only go to Unix sockets and, for an allowlist, the
+            // StemCode filtering proxy; everything else is denied by the kernel.
+            builder.AppendLine("(deny network-outbound)");
+            builder.AppendLine("(allow network-outbound (remote unix-socket))");
+            if (network.Mode == SandboxNetworkMode.Allowlist && network.ProxyPort is int proxyPort)
+            {
+                builder.Append("(allow network-outbound (remote ip \"localhost:");
+                builder.Append(proxyPort.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                builder.AppendLine("\"))");
+            }
+        }
 
         if (effectiveSandboxMode == ToolSandboxMode.WorkspaceWrite)
         {

@@ -31,6 +31,10 @@ public sealed class PermissionSettings
     [ConfigurationKeyName("network")]
     public PermissionMode? Network { get; set; }
 
+    /// <summary>Network policy for sandboxed shell commands: unrestricted, allowlist, or blocked.</summary>
+    [ConfigurationKeyName("sandbox_network")]
+    public SandboxNetworkSettings SandboxNetwork { get; set; } = new();
+
     [ConfigurationKeyName("memory_write")]
     public PermissionMode? MemoryWrite { get; set; }
 

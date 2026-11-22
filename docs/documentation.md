@@ -1038,6 +1038,41 @@ StemCode evaluates every sensitive action through permission policy.
 
 Shell sandboxing depends on the operating system. Linux uses `bubblewrap` when available. macOS uses `sandbox-exec`. Platforms without a supported OS sandbox runner fail closed for restricted shell modes unless the user approves escalation or configures full access.
 
+### Sandbox Network Access
+
+By default, sandboxed shell commands have normal network access. Set `sandbox_network` to limit them to an allowlist of domains, or to block the network entirely:
+
+```json
+{
+  "Application": {
+    "Permissions": {
+      "sandbox_network": {
+        "mode": "Allowlist",
+        "allowed_domains": ["github.com", "*.githubusercontent.com", "registry.npmjs.org", "*.nuget.org", "pypi.org:443"]
+      }
+    }
+  }
+}
+```
+
+| Mode | Meaning |
+| --- | --- |
+| `Unrestricted` | Default. No network restriction. |
+| `Allowlist` | Sandboxed commands may reach only `allowed_domains`. |
+| `Blocked` | Sandboxed commands get no network access. |
+
+`example.com` matches only that host. `*.example.com` matches the bare domain and every subdomain. `host:port` restricts an entry to one port, and `*` allows everything.
+
+When the network is restricted, StemCode runs a filtering proxy on `127.0.0.1` and points `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` (and their lowercase and npm equivalents) at it. Loopback addresses stay direct through `NO_PROXY`. The proxy tunnels HTTPS and forwards HTTP only to allowed hosts and answers everything else with `403`. When a command is blocked, the shell tool result tells the agent which hosts were refused, so it can ask you to allow them. `/permissions` shows the active policy. Commands escalated to full access (`sandbox_permissions: require_escalated`) are never network-restricted.
+
+How strongly this is enforced depends on the operating system:
+
+| Platform | `Allowlist` | `Blocked` |
+| --- | --- | --- |
+| macOS (`sandbox-exec`) | Enforced by the kernel. Outbound connections are denied except to the proxy and Unix sockets. | Enforced by the kernel. |
+| Linux (`bubblewrap`) | Enforced by the proxy for proxy-aware tools. A program that ignores proxy variables can still connect directly. | Enforced. The command runs without a network namespace. |
+| Windows | Enforced by the proxy for proxy-aware tools only. | Enforced by the proxy for proxy-aware tools only. |
+
 ### Session Overrides
 
 Use overrides for temporary decisions:

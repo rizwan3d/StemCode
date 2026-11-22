@@ -20,6 +20,7 @@ internal static class PermissionCommandSupport
             $"Default mode: {ToDisplayText(settings.DefaultMode)}\n" +
             $"Auto approve all tools: {(settings.AutoApproveAllTools ? "On" : "Off")}\n" +
             $"Sandbox mode: {ToDisplayText(settings.SandboxMode)}\n" +
+            $"Sandbox network: {DescribeSandboxNetwork(settings.SandboxNetwork)}\n" +
             $"Built-in/configured rules: {configuredRuleCount}\n" +
             $"Session overrides: {sessionRuleCount}\n" +
             "\n" +
@@ -31,6 +32,18 @@ internal static class PermissionCommandSupport
             "/allow file_write src/App.js\n" +
             "/deny bash <command-pattern>\n" +
             "/deny apply_patch docs/**";
+    }
+
+    private static string DescribeSandboxNetwork(SandboxNetworkSettings? network)
+    {
+        return network?.Mode switch
+        {
+            SandboxNetworkMode.Blocked => "blocked",
+            SandboxNetworkMode.Allowlist => network.AllowedDomains.Length == 0
+                ? "allowlist (no domains allowed)"
+                : $"allowlist ({string.Join(", ", network.AllowedDomains)})",
+            _ => "unrestricted"
+        };
     }
 
     public static string BuildRulesListing(

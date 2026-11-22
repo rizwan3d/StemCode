@@ -77,6 +77,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ILessonFailureClassifier, LessonFailureClassifier>();
         services.AddSingleton<ILessonMemoryService, WorkspaceLessonMemoryService>();
         services.AddSingleton<IToolAuditLogService, WorkspaceToolAuditLogService>();
+        services.AddSingleton<SandboxNetworkProxy>();
         services.AddSingleton<IShellCommandService, ShellCommandService>();
         services.AddSingleton<IAutoCommitService, GitAutoCommitService>();
         services.AddSingleton<IGitWorktreeService, GitWorktreeService>();

@@ -63,6 +63,7 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly IWindowsSandboxProcessRunner? _windowsSandboxProcessRunner;
     private readonly IWorkspaceRootProvider _workspaceRootProvider;
+    private readonly SandboxNetworkProxy? _sandboxNetworkProxy;
     private int _backgroundTerminalSequence;
     private bool _disposed;
 
@@ -72,8 +73,10 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
         PermissionSettings? permissionSettings = null,
         ToolExecutionSettings? toolExecutionSettings = null,
         TimeProvider? timeProvider = null,
-        IWindowsSandboxProcessRunner? windowsSandboxProcessRunner = null)
+        IWindowsSandboxProcessRunner? windowsSandboxProcessRunner = null,
+        SandboxNetworkProxy? sandboxNetworkProxy = null)
     {
+        _sandboxNetworkProxy = sandboxNetworkProxy;
         _processRunner = processRunner;
         _workspaceRootProvider = workspaceRootProvider;
         _permissionSettings = permissionSettings ?? new PermissionSettings();
@@ -122,6 +125,7 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
         }
 
         PreparedShellCommand prepared = PrepareShellCommand(normalizedRequest);
+        long blockedSequence = _sandboxNetworkProxy?.CurrentSequence ?? 0;
 
         ProcessExecutionResult result;
         if (IsWindowsSandboxEnforcement(prepared.SandboxPlan.Enforcement))
@@ -213,7 +217,7 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
             ToWorkspaceRelativePath(prepared.WorkingDirectory),
             result.ExitCode,
             TrimOutput(result.StandardOutput),
-            TrimOutput(result.StandardError),
+            TrimOutput(AppendBlockedNetworkNotice(result.StandardError, prepared, blockedSequence)),
             ShellCommandSandboxArguments.ToWireValue(normalizedRequest.SandboxPermissions),
             string.IsNullOrWhiteSpace(normalizedRequest.Justification)
                 ? null
@@ -508,17 +512,20 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
                 MaxOutputCharacters: MaxOutputCharacters,
                 UsePseudoTerminal: request.PseudoTerminal);
 
+        ShellCommandSandboxNetwork? network = CreateSandboxNetwork(effectiveSandboxMode);
         ShellCommandSandboxPlan sandboxPlan = ShellCommandSandboxPlanner.Create(
             shellRequest,
             effectiveSandboxMode,
             workspaceRoot,
             workingDirectory,
-            WorkspaceRestrictedPathPolicy.LoadForSandbox(workspaceRoot));
+            WorkspaceRestrictedPathPolicy.LoadForSandbox(workspaceRoot),
+            network: network);
         IReadOnlyDictionary<string, string> sandboxEnvironment = BuildSandboxEnvironment(
             request,
             workspaceRoot,
             effectiveSandboxMode,
-            sandboxPlan.Enforcement);
+            sandboxPlan.Enforcement,
+            network);
         ProcessExecutionRequest processRequest = sandboxPlan.Request with
         {
             EnvironmentVariables = sandboxEnvironment
@@ -528,7 +535,48 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
             workingDirectory,
             effectiveSandboxMode,
             sandboxPlan,
-            processRequest);
+            processRequest,
+            network);
+    }
+
+    // Commands escalated to full access are never network-restricted, matching
+    // how escalation lifts the file system sandbox.
+    private ShellCommandSandboxNetwork? CreateSandboxNetwork(ToolSandboxMode effectiveSandboxMode)
+    {
+        SandboxNetworkSettings settings = _permissionSettings.SandboxNetwork ?? new SandboxNetworkSettings();
+        if (!settings.IsRestricted || effectiveSandboxMode == ToolSandboxMode.DangerFullAccess)
+        {
+            return null;
+        }
+
+        int? proxyPort = _sandboxNetworkProxy?.EnsureStarted();
+        return new ShellCommandSandboxNetwork(settings.Mode, proxyPort);
+    }
+
+    private string AppendBlockedNetworkNotice(
+        string standardError,
+        PreparedShellCommand prepared,
+        long blockedSequence)
+    {
+        if (prepared.Network is null || _sandboxNetworkProxy is null)
+        {
+            return standardError;
+        }
+
+        IReadOnlyList<string> blockedHosts = _sandboxNetworkProxy.GetBlockedHostsSince(blockedSequence);
+        if (blockedHosts.Count == 0)
+        {
+            return standardError;
+        }
+
+        string notice =
+            $"[StemCode sandbox] Network access was blocked for: {string.Join(", ", blockedHosts)}. " +
+            (prepared.Network.Mode == SandboxNetworkMode.Blocked
+                ? "Sandboxed commands have no network access (Application:Permissions:sandbox_network)."
+                : "Add the host to Application:Permissions:sandbox_network:allowed_domains, or rerun with sandbox escalation.");
+        return string.IsNullOrWhiteSpace(standardError)
+            ? notice
+            : standardError.TrimEnd() + Environment.NewLine + notice;
     }
 
     private static ProcessExecutionRequest CreateWindowsShellRequest(
@@ -879,7 +927,8 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
         ShellCommandExecutionRequest request,
         string workspaceRoot,
         ToolSandboxMode effectiveSandboxMode,
-        string sandboxEnforcement)
+        string sandboxEnforcement,
+        ShellCommandSandboxNetwork? network = null)
     {
         Dictionary<string, string> environment = new(StringComparer.Ordinal)
         {
@@ -905,7 +954,36 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
             environment["STEMCODE_SHELL_PTY"] = "1";
         }
 
+        AddSandboxNetworkEnvironment(environment, network);
+
         return environment;
+    }
+
+    // Points standard proxy variables (honored by curl, git, npm, pip, dotnet, ...)
+    // at the filtering proxy. Loopback stays direct so local dev servers work.
+    private static void AddSandboxNetworkEnvironment(
+        Dictionary<string, string> environment,
+        ShellCommandSandboxNetwork? network)
+    {
+        if (network is null)
+        {
+            return;
+        }
+
+        environment["STEMCODE_SANDBOX_NETWORK"] = network.Mode == SandboxNetworkMode.Blocked ? "blocked" : "allowlist";
+        if (network.ProxyPort is not int port)
+        {
+            return;
+        }
+
+        string proxyUrl = $"http://127.0.0.1:{port.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+        foreach (string name in new[] { "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy", "npm_config_proxy", "npm_config_https_proxy" })
+        {
+            environment[name] = proxyUrl;
+        }
+
+        environment["NO_PROXY"] = "localhost,127.0.0.1,::1";
+        environment["no_proxy"] = "localhost,127.0.0.1,::1";
     }
 
     private static string ToWireValue(ToolSandboxMode sandboxMode)
@@ -1072,7 +1150,8 @@ internal sealed class ShellCommandService : IShellCommandService, IDisposable
         string WorkingDirectory,
         ToolSandboxMode EffectiveSandboxMode,
         ShellCommandSandboxPlan SandboxPlan,
-        ProcessExecutionRequest ProcessRequest);
+        ProcessExecutionRequest ProcessRequest,
+        ShellCommandSandboxNetwork? Network = null);
 
     private sealed class BackgroundTerminal : IDisposable
     {
