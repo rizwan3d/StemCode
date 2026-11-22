@@ -2,10 +2,10 @@ using Microsoft.Extensions.Logging;
 using StemCode.Application.Abstractions;
 using StemCode.Application.Models;
 using StemCode.Domain.Models;
-using StemCode.Infrastructure.Anthropic;
 using StemCode.Infrastructure.GitHub;
 using StemCode.Infrastructure.StemCodeEnterprise;
 using StemCode.Infrastructure.OpenAi;
+using StemCode.Infrastructure.Secrets;
 
 namespace StemCode.Infrastructure.Conversation;
 
@@ -24,12 +24,12 @@ internal sealed class OpenAiCompatibleConversationProviderClient : IConversation
         Func<TimeSpan, CancellationToken, Task>? delayAsync = null,
         Func<double>? nextJitter = null,
         IOpenAiChatGptAccountCredentialService? openAiChatGptAccountCredentialService = null,
-        IAnthropicClaudeAccountCredentialService? anthropicClaudeAccountCredentialService = null,
         IGitHubCopilotCredentialService? gitHubCopilotCredentialService = null,
         IStemCodeEnterpriseCredentialService? stemCodeEnterpriseCredentialService = null,
         TimeProvider? timeProvider = null,
         IProductTelemetry? telemetry = null,
-        ProviderRequestProjectHeaderProvider? providerRequestProjectHeaderProvider = null)
+        ProviderRequestProjectHeaderProvider? providerRequestProjectHeaderProvider = null,
+        IProcessRunner? processRunner = null)
     {
         ConversationProviderRequestPayloadFactory payloadFactory = new();
         ConversationProviderResponseNormalizer responseNormalizer = new();
@@ -41,10 +41,7 @@ internal sealed class OpenAiCompatibleConversationProviderClient : IConversation
             responseNormalizer,
             openAiChatGptAccountCredentialService);
         _anthropicClaudeAccountAdapter = new AnthropicClaudeAccountConversationProviderAdapter(
-            httpExecutor,
-            payloadFactory,
-            responseNormalizer,
-            anthropicClaudeAccountCredentialService);
+            processRunner);
         _gitHubCopilotAdapter = new GitHubCopilotConversationProviderAdapter(
             httpExecutor,
             payloadFactory,

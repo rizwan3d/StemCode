@@ -6,11 +6,11 @@ using StemCode.Application.Exceptions;
 using StemCode.Application.Models;
 using StemCode.Domain.Models;
 using StemCode.Infrastructure;
-using StemCode.Infrastructure.Anthropic;
 using StemCode.Infrastructure.Conversation;
 using StemCode.Infrastructure.GitHub;
 using StemCode.Infrastructure.StemCodeEnterprise;
 using StemCode.Infrastructure.OpenAi;
+using StemCode.Infrastructure.Secrets;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -877,39 +877,31 @@ public sealed class OpenAiCompatibleConversationProviderClientTests
     }
 
     [Fact]
-    public async Task SendAsync_Should_PostMessagesRequestWithOAuthHeaders_When_AnthropicClaudeAccountProviderIsSelected()
+    public async Task SendAsync_Should_RunClaudeCodeCli_When_AnthropicClaudeAccountProviderIsSelected()
     {
-        RecordingHandler handler = new("""
+        ProcessExecutionRequest? capturedRequest = null;
+        Mock<IProcessRunner> processRunner = new(MockBehavior.Strict);
+        processRunner
+            .Setup(runner => runner.RunAsync(
+                It.IsAny<ProcessExecutionRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<ProcessExecutionRequest, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new ProcessExecutionResult(0, """
             {
-              "id": "msg_account",
-              "type": "message",
-              "role": "assistant",
-              "content": [
-                { "type": "text", "text": "I can help." },
-                {
-                  "type": "tool_use",
-                  "id": "toolu_1",
-                  "name": "file_read",
-                  "input": {"path":"README.md"}
-                }
-              ],
-              "stop_reason": "tool_use",
+              "session_id": "session-account",
+              "is_error": false,
+              "result": "{\"message\":\"I can help.\",\"tool_calls\":[{\"name\":\"file_read\",\"arguments_json\":\"{\\\"path\\\":\\\"README.md\\\"}\"}],\"reasoning_summary\":null}",
               "usage": {
                 "input_tokens": 12,
                 "output_tokens": 7,
                 "cache_read_input_tokens": 3
               }
             }
-            """, responseIdHeaderName: "request-id");
-        HttpClient httpClient = new(handler);
-        Mock<IAnthropicClaudeAccountCredentialService> credentialService = new(MockBehavior.Strict);
-        credentialService
-            .Setup(service => service.ResolveAsync(
-                "stored-credentials",
-                false,
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AnthropicClaudeAccountResolvedCredential("access-token"));
-        OpenAiCompatibleConversationProviderClient sut = CreateSut(httpClient, credentialService.Object);
+            """, string.Empty));
+        OpenAiCompatibleConversationProviderClient sut = new(
+            new HttpClient(new RecordingHandler("{}")),
+            NullLogger<OpenAiCompatibleConversationProviderClient>.Instance,
+            processRunner: processRunner.Object);
 
         ConversationProviderPayload payload = await sut.SendAsync(
             new ConversationProviderRequest(
@@ -925,29 +917,23 @@ public sealed class OpenAiCompatibleConversationProviderClientTests
                 ThinkingMode: "on"),
             CancellationToken.None);
 
-        handler.RequestUri.Should().Be(new Uri("https://api.anthropic.com/v1/messages"));
-        handler.RequestMethod.Should().Be(HttpMethod.Post);
-        handler.AuthorizationHeader.Should().Be("Bearer access-token");
-        handler.AnthropicVersionHeader.Should().Be("2023-06-01");
-        handler.AnthropicBetaHeader.Should().Contain("oauth-2025-04-20");
-        handler.AnthropicAppHeader.Should().Be("cli");
-        handler.RequestBody.Should().Contain("\"model\":\"claude-sonnet-4-6\"");
-        handler.RequestBody.Should().Contain("\"type\":\"adaptive\"");
-        handler.RequestBody.Should().Contain("\"display\":\"summarized\"");
-        handler.RequestBody.Should().Contain("\"effort\":\"medium\"");
-        handler.RequestBody.Should().Contain("\"name\":\"file_read\"");
+        capturedRequest.Should().NotBeNull();
+        capturedRequest!.FileName.Should().Be("claude");
+        capturedRequest.Arguments.Should().ContainInOrder("--model", "claude-sonnet-4-6");
+        capturedRequest.StandardInput.Should().Contain("\"name\":\"file_read\"");
         payload.ProviderKind.Should().Be(ProviderKind.AnthropicClaudeAccount);
 
         OpenAiConversationResponseMapper mapper = new();
         ConversationResponse response = mapper.Map(payload);
         response.AssistantMessage.Should().Be("I can help.");
-        response.ResponseId.Should().Be("msg_account");
+        response.ResponseId.Should().Be("session-account");
         response.PromptTokens.Should().Be(15);
         response.CompletionTokens.Should().Be(7);
         response.CachedPromptTokens.Should().Be(3);
-        response.ToolCalls.Should().ContainSingle()
-            .Which.Should().Be(new ConversationToolCall("toolu_1", "file_read", """{"path":"README.md"}"""));
-        credentialService.VerifyAll();
+        response.ToolCalls.Should().ContainSingle();
+        response.ToolCalls[0].Name.Should().Be("file_read");
+        response.ToolCalls[0].ArgumentsJson.Should().Be("""{"path":"README.md"}""");
+        processRunner.VerifyAll();
     }
 
     [Fact]
@@ -1598,18 +1584,6 @@ public sealed class OpenAiCompatibleConversationProviderClientTests
             delayAsync: null,
             nextJitter: null,
             openAiChatGptAccountCredentialService: credentialService);
-    }
-
-    private static OpenAiCompatibleConversationProviderClient CreateSut(
-        HttpClient httpClient,
-        IAnthropicClaudeAccountCredentialService credentialService)
-    {
-        return new OpenAiCompatibleConversationProviderClient(
-            httpClient,
-            NullLogger<OpenAiCompatibleConversationProviderClient>.Instance,
-            delayAsync: null,
-            nextJitter: null,
-            anthropicClaudeAccountCredentialService: credentialService);
     }
 
     private static OpenAiCompatibleConversationProviderClient CreateSut(

@@ -4,10 +4,10 @@ using Moq;
 using StemCode.Application.Models;
 using StemCode.Application.Abstractions;
 using StemCode.Domain.Models;
-using StemCode.Infrastructure.Anthropic;
 using StemCode.Infrastructure.Conversation;
 using StemCode.Infrastructure.GitHub;
 using StemCode.Infrastructure.OpenAi;
+using StemCode.Infrastructure.Secrets;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -109,35 +109,50 @@ public sealed class ConversationProviderAdapterTests
     }
 
     [Fact]
-    public async Task AnthropicClaudeAccountAdapter_Should_NormalizeMessagesResponse()
+    public async Task AnthropicClaudeAccountAdapter_Should_RunClaudeCodeAndNormalizeStructuredResult()
     {
-        RecordingHandler handler = new("""
+        ProcessExecutionRequest? capturedRequest = null;
+        Mock<IProcessRunner> processRunner = new(MockBehavior.Strict);
+        processRunner
+            .Setup(runner => runner.RunAsync(
+                It.IsAny<ProcessExecutionRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<ProcessExecutionRequest, CancellationToken>((request, _) => capturedRequest = request)
+            .ReturnsAsync(new ProcessExecutionResult(0, """
             {
-              "id": "msg_1",
-              "content": [
-                { "type": "text", "text": "Claude reply." }
-              ],
-              "stop_reason": "end_turn",
-              "usage": { "input_tokens": 10, "output_tokens": 5 }
+              "session_id": "session-1",
+              "is_error": false,
+              "result": "{\"message\":\"Claude reply.\",\"tool_calls\":[],\"reasoning_summary\":null}",
+              "usage": {
+                "input_tokens": 10,
+                "cache_read_input_tokens": 3,
+                "cache_creation_input_tokens": 2,
+                "output_tokens": 5
+              }
             }
-            """);
-        Mock<IAnthropicClaudeAccountCredentialService> credentialService = new(MockBehavior.Strict);
-        credentialService
-            .Setup(service => service.ResolveAsync("stored", false, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AnthropicClaudeAccountResolvedCredential("claude-token"));
-        AnthropicClaudeAccountConversationProviderAdapter sut = new(
-            CreateExecutor(handler),
-            new ConversationProviderRequestPayloadFactory(),
-            new ConversationProviderResponseNormalizer(),
-            credentialService.Object);
+            """, string.Empty));
+        AnthropicClaudeAccountConversationProviderAdapter sut = new(processRunner.Object);
 
         ConversationProviderPayload payload = await sut.SendAsync(
-            CreateRequest(ProviderKind.AnthropicClaudeAccount, modelId: "claude-sonnet-4-5"),
+            CreateRequest(ProviderKind.AnthropicClaudeAccount, modelId: "sonnet"),
             CancellationToken.None);
 
-        handler.RequestUri.Should().Be(new Uri("https://api.anthropic.com/v1/messages"));
+        capturedRequest.Should().NotBeNull();
+        capturedRequest!.FileName.Should().Be("claude");
+        capturedRequest.Arguments.Should().ContainInOrder("--print", "--output-format", "json");
+        capturedRequest.Arguments.Should().ContainInOrder("--model", "sonnet");
+        capturedRequest.StandardInput.Should().Contain("\"system_prompt\":\"You are helpful.\"");
+        capturedRequest.StandardInput.Should().Contain("\"content\":\"Say hello.\"");
         payload.RawContent.Should().Contain("\"Claude reply.\"");
         payload.RawContent.Should().Contain("\"finish_reason\":\"stop\"");
+
+        OpenAiConversationResponseMapper mapper = new();
+        ConversationResponse response = mapper.Map(payload);
+        response.AssistantMessage.Should().Be("Claude reply.");
+        response.PromptTokens.Should().Be(15);
+        response.CompletionTokens.Should().Be(5);
+        response.CachedPromptTokens.Should().Be(3);
+        processRunner.VerifyAll();
     }
 
     [Fact]

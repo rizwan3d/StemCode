@@ -574,7 +574,7 @@ public sealed class OpenAiCompatibleModelProviderClientTests
     }
 
     [Fact]
-    public async Task GetAvailableModelsAsync_Should_RequestAnthropicClaudeAccountModelsEndpointWithOAuthHeaders_When_AccountProviderIsConfigured()
+    public async Task GetAvailableModelsAsync_Should_ReturnClaudeCodeAliasesWithoutCallingSubscriptionApi()
     {
         Mock<IAnthropicClaudeAccountCredentialService> credentialService = new(MockBehavior.Strict);
         credentialService
@@ -582,7 +582,7 @@ public sealed class OpenAiCompatibleModelProviderClientTests
                 "stored-credentials",
                 false,
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AnthropicClaudeAccountResolvedCredential("access-token"));
+            .ReturnsAsync(new AnthropicClaudeAccountResolvedCredential("claude-code-cli"));
 
         RecordingHandler handler = new("""
             {
@@ -601,12 +601,8 @@ public sealed class OpenAiCompatibleModelProviderClientTests
             "stored-credentials",
             CancellationToken.None);
 
-        handler.RequestUri.Should().Be(new Uri("https://api.anthropic.com/v1/models"));
-        handler.AuthorizationHeader.Should().Be("Bearer access-token");
-        handler.AnthropicVersionHeader.Should().Be("2023-06-01");
-        handler.AnthropicBetaHeader.Should().Contain("oauth-2025-04-20");
-        handler.AnthropicAppHeader.Should().Be("cli");
-        models.Select(model => model.Id).Should().Equal("claude-sonnet-4-6");
+        handler.RequestUri.Should().BeNull();
+        models.Select(model => model.Id).Should().Equal("sonnet", "opus", "haiku", "fable");
         credentialService.VerifyAll();
     }
 

@@ -329,7 +329,7 @@ StemCode supports:
 
 - OpenAI
 - ChatGPT Plus/Pro sign-in
-- Anthropic Claude Pro/Max sign-in
+- Claude Code CLI with a Claude Pro/Max/Team/Enterprise subscription
 - GitHub Copilot sign-in
 - OpenRouter
 - OpenCode Zen

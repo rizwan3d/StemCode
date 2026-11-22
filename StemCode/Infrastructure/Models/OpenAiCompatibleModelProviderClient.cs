@@ -15,8 +15,6 @@ namespace StemCode.Infrastructure.Models;
 internal sealed class OpenAiCompatibleModelProviderClient : IModelProviderClient
 {
     private const string AnthropicVersion = "2023-06-01";
-    private const string AnthropicClaudeAccountBetaHeader = "claude-code-20250219,oauth-2025-04-20";
-    private const string AnthropicClaudeAccountUserAgent = "claude-cli/2.1.75";
     private const string AccountHeaderName = "Chat" + "G" + "P" + "T-Account-Id";
     private const string Originator = "stemcode";
     private const string OpenRouterApplicationUrl = "https://github.com/rizwan3d/StemCode";
@@ -376,79 +374,21 @@ internal sealed class OpenAiCompatibleModelProviderClient : IModelProviderClient
                 "Anthropic Claude Pro/Max credentials cannot be resolved in this runtime.");
         }
 
-        Uri baseUri = new AgentProviderProfile(
-            ProviderKind.AnthropicClaudeAccount,
-            BaseUrl: null).ResolveBaseUri();
-        AnthropicClaudeAccountResolvedCredential credential =
-            await _anthropicClaudeAccountCredentialService.ResolveAsync(
-                storedCredentials,
-                forceRefresh: false,
-                cancellationToken);
+        await _anthropicClaudeAccountCredentialService.ResolveAsync(
+            storedCredentials,
+            forceRefresh: false,
+            cancellationToken);
 
-        bool forcedRefreshAfterAuthFailure = false;
-
-        while (true)
-        {
-            try
-            {
-                using HttpRequestMessage request = CreateAnthropicClaudeAccountModelsRequest(
-                    baseUri,
-                    credential);
-                LogDebugApiRequest(request.Method, request.RequestUri);
-
-                using HttpResponseMessage response = await _httpClient.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken);
-
-                string responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                LogDebugApiResponse(response.StatusCode);
-
-                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized &&
-                    !forcedRefreshAfterAuthFailure)
-                {
-                    forcedRefreshAfterAuthFailure = true;
-                    credential = await _anthropicClaudeAccountCredentialService.ResolveAsync(
-                        storedCredentials,
-                        forceRefresh: true,
-                        cancellationToken);
-                    continue;
-                }
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    string detail = string.IsNullOrWhiteSpace(responseBody)
-                        ? $"Provider returned HTTP {(int)response.StatusCode}."
-                        : $"Provider returned HTTP {(int)response.StatusCode}: {Truncate(responseBody.Trim(), 200)}";
-
-                    throw new ModelProviderException(
-                        $"Unable to fetch Anthropic Claude Pro/Max models from the account API. {detail}");
-                }
-
-                IReadOnlyList<AvailableModel> models = ParseAvailableModels(
-                    responseBody,
-                    ProviderKind.AnthropicClaudeAccount);
-                if (models.Count > 0)
-                {
-                    return models;
-                }
-
-                throw new ModelProviderException(
-                    "The Anthropic Claude Pro/Max account API returned an invalid models response.");
-            }
-            catch (HttpRequestException exception)
-            {
-                throw new ModelProviderException(
-                    "Unable to fetch Anthropic Claude Pro/Max models from the account API.",
-                    exception);
-            }
-            catch (JsonException exception)
-            {
-                throw new ModelProviderException(
-                    "The Anthropic Claude Pro/Max account API returned an invalid models response.",
-                    exception);
-            }
-        }
+        // These aliases are resolved by the installed Claude Code release, so the
+        // selected model follows Anthropic's current catalog without StemCode
+        // calling the subscription API or handling OAuth credentials itself.
+        return
+        [
+            new AvailableModel("sonnet"),
+            new AvailableModel("opus"),
+            new AvailableModel("haiku"),
+            new AvailableModel("fable")
+        ];
     }
 
     private async Task<IReadOnlyList<AvailableModel>> GetGitHubCopilotModelsAsync(
@@ -585,20 +525,6 @@ internal sealed class OpenAiCompatibleModelProviderClient : IModelProviderClient
             request.Headers.TryAddWithoutValidation(AccountHeaderName, credential.AccountId);
         }
 
-        return request;
-    }
-
-    private static HttpRequestMessage CreateAnthropicClaudeAccountModelsRequest(
-        Uri baseUri,
-        AnthropicClaudeAccountResolvedCredential credential)
-    {
-        HttpRequestMessage request = new(HttpMethod.Get, new Uri(baseUri, "models"));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential.AccessToken);
-        request.Headers.Accept.ParseAdd("application/json");
-        request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicVersion);
-        request.Headers.TryAddWithoutValidation("anthropic-beta", AnthropicClaudeAccountBetaHeader);
-        request.Headers.TryAddWithoutValidation("User-Agent", AnthropicClaudeAccountUserAgent);
-        request.Headers.TryAddWithoutValidation("x-app", "cli");
         return request;
     }
 

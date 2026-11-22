@@ -129,13 +129,7 @@ public static class ServiceCollectionExtensions
                 serviceProvider.GetRequiredService<ToolExecutionSettings>(),
                 TimeSpan.FromSeconds(30));
         });
-        services.AddHttpClient<AnthropicClaudeAccountCredentialService>((serviceProvider, client) =>
-        {
-            ConfigureHttpClient(
-                client,
-                serviceProvider.GetRequiredService<ToolExecutionSettings>(),
-                TimeSpan.FromSeconds(30));
-        });
+        services.AddTransient<AnthropicClaudeAccountCredentialService>();
         services.AddHttpClient<GitHubCopilotCredentialService>((serviceProvider, client) =>
         {
             ConfigureHttpClient(

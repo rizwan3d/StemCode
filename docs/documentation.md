@@ -117,7 +117,7 @@ StemCode will guide you through provider setup:
 
 1. Choose a setup type: subscription account, API key provider, OpenAI-compatible provider, or local provider.
 2. Choose a provider from the matching submenu when needed.
-3. Enter an API key, sign in with ChatGPT Plus/Pro, Claude Pro/Max, or GitHub Copilot, enter a custom compatible base URL, or use a local provider default.
+3. Enter an API key, sign in with ChatGPT Plus/Pro or GitHub Copilot, connect an existing Claude Code subscription sign-in, enter a custom compatible base URL, or use a local provider default.
 4. Let StemCode discover available models.
 5. Open a desktop workspace or use the current terminal directory.
 6. Start a new section or resume an existing one.
@@ -163,7 +163,7 @@ When a newer StemCode release is available, startup can ask whether to update no
 | Group | Provider | Credential method | Notes |
 | --- | --- | --- | --- |
 | Subscription based | OpenAI ChatGPT Plus/Pro | Browser sign-in | Uses OAuth with local callback port `1455`. |
-| Subscription based | Anthropic Claude Pro/Max | Browser sign-in | Uses OAuth with local callback port `53692`. |
+| Subscription based | Anthropic Claude Pro/Max | Claude Code CLI | Requires the official `claude` executable on `PATH` and an existing `claude auth login` subscription session. StemCode invokes the unmodified CLI and never reads or stores Claude OAuth tokens. |
 | Subscription based | GitHub Copilot | Browser device sign-in | Uses GitHub device-code login. Leave the Enterprise URL/domain prompt blank for `github.com`. |
 | API key | OpenAI | API key | Uses the OpenAI API. |
 | API key | Anthropic | API key | Uses the Anthropic OpenAI-compatible endpoint. |
@@ -179,7 +179,7 @@ When a newer StemCode release is available, startup can ask whether to update no
 | Local provider | Ollama | None | Uses Ollama's local OpenAI-compatible endpoint at `http://127.0.0.1:11434/v1`. |
 | Local provider | LM Studio | Base URL and API key | Uses LM Studio's local OpenAI-compatible endpoint. Leave the base URL empty to use `http://127.0.0.1:1234/v1`. |
 
-Secrets are stored through platform credential storage where supported. ChatGPT Plus/Pro, Claude Pro/Max, and GitHub Copilot sign-in store refreshable account credentials locally.
+Secrets are stored through platform credential storage where supported. ChatGPT Plus/Pro and GitHub Copilot sign-in store refreshable account credentials locally. Claude subscription credentials remain exclusively in Claude Code's own credential store; StemCode saves only a non-secret CLI integration marker.
 
 ## Desktop Workflow
 
@@ -1533,9 +1533,9 @@ Run `/update` to check for a newer release. Run `/update now` to install the lat
 
 Check that port `1455` is available and that the browser callback URL opens locally. Sign-in requires network access and a valid account with access to the selected model.
 
-### Claude Pro/Max sign-in does not complete
+### Claude Pro/Max setup does not complete
 
-Check that port `53692` is available and that the browser callback URL opens locally. Sign-in requires network access and a valid Claude Pro or Max account.
+Install the official Claude Code CLI, confirm that `claude --version` works, and run `claude auth login` in a terminal. Choose your Claude subscription account, then re-run StemCode onboarding. StemCode does not implement its own Claude OAuth flow or copy Claude Code credentials.
 
 ### GitHub Copilot sign-in does not complete
 
