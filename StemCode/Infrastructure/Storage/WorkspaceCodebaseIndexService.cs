@@ -65,7 +65,8 @@ internal sealed class WorkspaceCodebaseIndexService : ICodebaseIndexService, IDi
         ".stemcode/logs/",
         ".stemcode/sessions/",
         ".stemcode/temp/",
-        ".stemcode/tmp/"
+        ".stemcode/tmp/",
+        ".stemcode/worktrees/"
     ];
 
     private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase)

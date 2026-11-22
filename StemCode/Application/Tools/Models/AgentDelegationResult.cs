@@ -8,7 +8,8 @@ public sealed class AgentDelegationResult
         string response,
         IReadOnlyList<string> executedTools,
         int estimatedOutputTokens,
-        bool recordedFileEdits)
+        bool recordedFileEdits,
+        AgentWorktreeResult? worktree = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         ArgumentException.ThrowIfNullOrWhiteSpace(task);
@@ -29,6 +30,7 @@ public sealed class AgentDelegationResult
             .ToArray();
         EstimatedOutputTokens = estimatedOutputTokens;
         RecordedFileEdits = recordedFileEdits;
+        Worktree = worktree;
     }
 
     public string AgentName { get; }
@@ -42,4 +44,6 @@ public sealed class AgentDelegationResult
     public string Response { get; }
 
     public string Task { get; }
+
+    public AgentWorktreeResult? Worktree { get; }
 }

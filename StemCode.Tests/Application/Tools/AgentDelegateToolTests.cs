@@ -233,6 +233,141 @@ public sealed class AgentDelegateToolTests
         conversationPipeline.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task ExecuteAsync_Should_RunSubagentInsideWorktree_When_IsolationIsWorktree()
+    {
+        using TempWorkspace parentWorkspace = TempWorkspace.Create();
+        using TempWorkspace worktreeWorkspace = TempWorkspace.Create();
+        ReplSessionContext parentSession = CreateSession(BuiltInAgentProfiles.Build);
+        IWorkspaceRootProvider rootProvider = new StemCode.Infrastructure.Tools.CurrentDirectoryWorkspaceRootProvider();
+        GitWorktreeHandle handle = new(
+            "agent-test",
+            parentWorkspace.Path,
+            worktreeWorkspace.Path,
+            worktreeWorkspace.Path,
+            "stemcode/worktree/agent-test",
+            "abc123");
+
+        Mock<IGitWorktreeService> worktreeService = new(MockBehavior.Strict);
+        worktreeService
+            .Setup(service => service.CreateAsync(It.IsAny<string>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(handle);
+        worktreeService
+            .Setup(service => service.FinishAsync(handle, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GitWorktreeOutcome(handle, Kept: true, ["src/app.cs"], 0));
+
+        string? rootSeenByChild = null;
+        string? childWorkspacePath = null;
+        string? delegatedInput = null;
+        Mock<IConversationPipeline> conversationPipeline = new(MockBehavior.Strict);
+        conversationPipeline
+            .Setup(pipeline => pipeline.ProcessAsync(
+                It.IsAny<string>(),
+                It.IsAny<ReplSessionContext>(),
+                It.IsAny<IConversationProgressSink>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<string, ReplSessionContext, IConversationProgressSink, CancellationToken>((input, childSession, _, _) =>
+            {
+                delegatedInput = input;
+                rootSeenByChild = rootProvider.GetWorkspaceRoot();
+                childWorkspacePath = childSession.WorkspacePath;
+                childSession.RecordFileEditTransaction(new WorkspaceFileEditTransaction(
+                    "child edit",
+                    [new WorkspaceFileEditState("src/app.cs", true, "before")],
+                    [new WorkspaceFileEditState("src/app.cs", true, "after")]));
+                return Task.FromResult(ConversationTurnResult.AssistantMessage("Changed src/app.cs."));
+            });
+
+        using ServiceProvider serviceProvider = new ServiceCollection()
+            .AddSingleton(conversationPipeline.Object)
+            .AddSingleton(Mock.Of<IWorkspaceFileService>())
+            .AddSingleton(worktreeService.Object)
+            .AddSingleton(rootProvider)
+            .BuildServiceProvider();
+        AgentDelegateTool sut = new(
+            serviceProvider,
+            new BuiltInAgentProfileResolver(),
+            new HeuristicTokenEstimator());
+
+        ToolResult result = await sut.ExecuteAsync(
+            CreateContext(
+                parentSession,
+                """{ "agent": "general", "task": "Implement a focused fix", "isolation": "worktree" }"""),
+            CancellationToken.None);
+
+        result.Status.Should().Be(ToolResultStatus.Success);
+        rootSeenByChild.Should().Be(Path.GetFullPath(worktreeWorkspace.Path));
+        childWorkspacePath.Should().Be(Path.GetFullPath(worktreeWorkspace.Path));
+        rootProvider.GetWorkspaceRoot().Should().NotBe(Path.GetFullPath(worktreeWorkspace.Path));
+        delegatedInput.Should().Contain("isolated git worktree on branch 'stemcode/worktree/agent-test'");
+        parentSession.TryGetPendingUndoFileEdit(out _).Should().BeFalse();
+
+        AgentDelegationResult payload = JsonSerializer.Deserialize(
+            result.JsonResult,
+            ToolJsonContext.Default.AgentDelegationResult)!;
+        payload.RecordedFileEdits.Should().BeFalse();
+        payload.Worktree.Should().NotBeNull();
+        payload.Worktree!.Kept.Should().BeTrue();
+        payload.Worktree.Branch.Should().Be("stemcode/worktree/agent-test");
+        payload.Worktree.ChangedFiles.Should().Equal("src/app.cs");
+        result.RenderPayload.Text.Should().Contain("git merge stemcode/worktree/agent-test");
+        worktreeService.Verify(service => service.FinishAsync(handle, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_ReturnExecutionError_When_WorktreeCannotBeCreated()
+    {
+        ReplSessionContext parentSession = CreateSession(BuiltInAgentProfiles.Build);
+        Mock<IGitWorktreeService> worktreeService = new(MockBehavior.Strict);
+        worktreeService
+            .Setup(service => service.CreateAsync(It.IsAny<string>(), null, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Worktree isolation needs a git repository."));
+        Mock<IConversationPipeline> conversationPipeline = new(MockBehavior.Strict);
+
+        using ServiceProvider serviceProvider = new ServiceCollection()
+            .AddSingleton(conversationPipeline.Object)
+            .AddSingleton(Mock.Of<IWorkspaceFileService>())
+            .AddSingleton(worktreeService.Object)
+            .BuildServiceProvider();
+        AgentDelegateTool sut = new(
+            serviceProvider,
+            new BuiltInAgentProfileResolver(),
+            new HeuristicTokenEstimator());
+
+        ToolResult result = await sut.ExecuteAsync(
+            CreateContext(
+                parentSession,
+                """{ "agent": "general", "task": "Implement a focused fix", "isolation": "worktree" }"""),
+            CancellationToken.None);
+
+        result.Status.Should().Be(ToolResultStatus.ExecutionError);
+        result.JsonResult.Should().Contain("worktree_unavailable");
+        conversationPipeline.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_Should_RejectUnknownIsolation()
+    {
+        ReplSessionContext parentSession = CreateSession(BuiltInAgentProfiles.Build);
+        Mock<IConversationPipeline> conversationPipeline = new(MockBehavior.Strict);
+        using ServiceProvider serviceProvider = new ServiceCollection()
+            .AddSingleton(conversationPipeline.Object)
+            .BuildServiceProvider();
+        AgentDelegateTool sut = new(
+            serviceProvider,
+            new BuiltInAgentProfileResolver(),
+            new HeuristicTokenEstimator());
+
+        ToolResult result = await sut.ExecuteAsync(
+            CreateContext(
+                parentSession,
+                """{ "agent": "general", "task": "Do work", "isolation": "container" }"""),
+            CancellationToken.None);
+
+        result.Status.Should().Be(ToolResultStatus.InvalidArguments);
+        result.JsonResult.Should().Contain("invalid_isolation");
+    }
+
     private static ToolExecutionContext CreateContext(
         ReplSessionContext session,
         string argumentsJson)

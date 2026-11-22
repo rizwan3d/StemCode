@@ -349,6 +349,7 @@ stemcode --session <session-guid>
 | `--section <id>` | Compatibility alias for `--session`. |
 | `--profile <name>` | Start with a profile. |
 | `--thinking <on\|off>` | Start with thinking on or off. |
+| `-w, --worktree[=<name>]` | Run this session in a new git worktree on its own `stemcode/worktree/<name>` branch, so several sessions can work on one repository in parallel. The worktree is removed on exit if nothing changed; otherwise its path and branch are printed for review and merge. |
 | `-v, --version` | Show the StemCode CLI version. |
 | `--doctor` | Run system diagnostics and print the doctor report. |
 | `--no-update-check` | Skip checking for application updates on startup. |
@@ -407,6 +408,7 @@ stemcode --session <session-guid>
 | `/undo` | Roll back the most recent tracked file edit transaction. |
 | `/use <model>` | Switch the active model for subsequent prompts. |
 | `/version` | Show the current StemCode CLI version. |
+| `/worktree [list\|remove <name>\|remove --all]` | List or remove isolated git worktrees created for subagents and `--worktree` sessions. Removing a worktree also deletes its branch. |
 
 The terminal also recognizes `!` and `!!` shell prefixes and `/` command suggestions, described earlier in [Terminal Workflow](#terminal-workflow). See [Code Intelligence](#code-intelligence) for `/lsp` and [Codebase Indexing](#codebase-indexing) for `/index`.
 
@@ -935,6 +937,17 @@ Invoke a subagent for one turn:
 ```
 
 Primary agents can also use `agent_delegate` for one focused handoff or `agent_orchestrate` for several coordinated subtasks. Orchestration is useful when multiple read-only investigations can run independently or when implementation tasks can be split into clear file scopes.
+
+#### Worktree isolation
+
+Both tools accept `"isolation": "worktree"` (per task for `agent_orchestrate`). The subagent then runs in a fresh git worktree under `.stemcode/worktrees/<name>`, on its own `stemcode/worktree/<name>` branch created from `HEAD`. Its file tools, shell commands, and permission checks are all scoped to that worktree, so its edits never touch your working copy. Uncommitted changes in your workspace are not copied into the worktree.
+
+- If the subagent changes nothing, the worktree and branch are deleted automatically.
+- If it changes files, the worktree is kept and the handoff lists the changed files, the path, and the branch. Review them with `git -C <path> diff`, merge with `git merge <branch>`, and clean up with `/worktree remove <name>`.
+- Isolated editing subagents don't share files, so `agent_orchestrate` runs them in parallel (the `auto` and `parallel_readonly` strategies), where shared-workspace editing subagents would run one at a time.
+- Isolated edits are not added to the parent's `/undo` history. The worktree branch is the record of those changes.
+
+`.stemcode/worktrees/` contains its own `.gitignore`, so worktrees never show up in your checkout's `git status`, and they are left out of the codebase index.
 Primary profiles (`build`, `plan`, and `review`) can use the `ask_question` tool to ask you a question and wait for your answer before continuing. It supports multiple-choice options, multi-select, and free-form text, and it works in the interactive terminal, one-shot CLI runs, and ACP editors that support permission or text prompts. In `plan` mode the agent uses it to clarify genuinely ambiguous requirements or choose between approaches before finalizing a plan. In a non-interactive run with no available user, the tool returns gracefully so the agent continues with its best judgment instead of failing the turn.
 
 ### Built-in Profile Prompt Overrides

@@ -23,7 +23,9 @@ internal sealed class AgentDelegateTool : ITool
         _tokenEstimator = tokenEstimator;
     }
 
-    public string Description => "Delegate a focused task to an available subagent and return its handoff response.";
+    public string Description =>
+        "Delegate a focused task to an available subagent and return its handoff response. " +
+        "Set isolation to 'worktree' to have an editing subagent work in its own git worktree and branch instead of the shared workspace.";
 
     public string Name => AgentToolNames.AgentDelegate;
 
@@ -62,6 +64,11 @@ internal sealed class AgentDelegateTool : ITool
             "context": {
               "type": "string",
               "description": "Optional concise context, constraints, files, or expected output for the subagent."
+            },
+            "isolation": {
+              "type": "string",
+              "enum": ["none", "worktree"],
+              "description": "{{EscapeJsonString(AgentDelegationSupport.IsolationSchemaDescription)}}"
             }
           },
           "required": ["agent", "task"],
@@ -96,6 +103,18 @@ internal sealed class AgentDelegateTool : ITool
                 new ToolRenderPayload(
                     "Invalid agent_delegate arguments",
                     "Provide a focused, non-empty delegated task."));
+        }
+
+        if (!AgentDelegationSupport.TryParseIsolation(
+                ToolArguments.GetOptionalString(context.Arguments, "isolation"),
+                out bool useWorktree))
+        {
+            return ToolResultFactory.InvalidArguments(
+                "invalid_isolation",
+                "Tool 'agent_delegate' isolation must be 'none' or 'worktree'.",
+                new ToolRenderPayload(
+                    "Invalid agent_delegate arguments",
+                    "Use isolation 'none' or 'worktree'."));
         }
 
         IAgentProfile subagentProfile;
@@ -149,28 +168,45 @@ internal sealed class AgentDelegateTool : ITool
                     $"Use a read-only subagent such as: {FormatProfileNames(readOnlySubagents)}."));
         }
 
-        ReplSessionContext childSession = AgentDelegationSupport.CreateChildSession(
-            context.Session,
-            subagentProfile);
         string? delegatedContext = ToolArguments.GetOptionalString(context.Arguments, "context");
         string delegatedInput = AgentDelegationSupport.CreateDelegatedInput(
             context.Session,
             task!,
             delegatedContext);
 
-        IConversationPipeline conversationPipeline = _serviceProvider.GetRequiredService<IConversationPipeline>();
-        ConversationTurnResult turnResult = await conversationPipeline.ProcessAsync(
-            delegatedInput,
-            childSession,
-            NoOpConversationProgressSink.Instance,
-            cancellationToken);
+        AgentDelegationSupport.ChildTurn childTurn;
+        try
+        {
+            childTurn = await AgentDelegationSupport.RunChildTurnAsync(
+                _serviceProvider,
+                context.Session,
+                subagentProfile,
+                delegatedInput,
+                NoOpConversationProgressSink.Instance,
+                useWorktree,
+                cancellationToken);
+        }
+        catch (InvalidOperationException exception) when (useWorktree)
+        {
+            return ToolResultFactory.ExecutionError(
+                "worktree_unavailable",
+                exception.Message,
+                new ToolRenderPayload(
+                    "Worktree isolation failed",
+                    exception.Message));
+        }
 
-        bool recordedFileEdits = AgentDelegationSupport.TryRecordChildFileEdits(
-            childSession,
-            context.Session,
-            _serviceProvider.GetRequiredService<IWorkspaceFileService>(),
-            subagentProfile.Name,
-            task!);
+        ConversationTurnResult turnResult = childTurn.Turn;
+
+        // Edits made inside an isolated worktree stay there for review; they are
+        // not added to the parent's undo history.
+        bool recordedFileEdits = childTurn.Worktree is null &&
+            AgentDelegationSupport.TryRecordChildFileEdits(
+                childTurn.Session,
+                context.Session,
+                _serviceProvider.GetRequiredService<IWorkspaceFileService>(),
+                subagentProfile.Name,
+                task!);
 
         string[] executedTools = AgentDelegationSupport.GetExecutedTools(turnResult);
         int estimatedOutputTokens = AgentDelegationSupport.GetEstimatedOutputTokens(
@@ -183,7 +219,8 @@ internal sealed class AgentDelegateTool : ITool
             turnResult.ResponseText,
             executedTools,
             estimatedOutputTokens,
-            recordedFileEdits);
+            recordedFileEdits,
+            childTurn.Worktree);
 
         return ToolResultFactory.Success(
             $"Subagent '{subagentProfile.Name}' completed the delegated task.",
@@ -206,6 +243,11 @@ internal sealed class AgentDelegateTool : ITool
         if (result.RecordedFileEdits)
         {
             text += $"{Environment.NewLine}File edits were recorded for undo.";
+        }
+
+        if (result.Worktree is not null)
+        {
+            text += $"{Environment.NewLine}{result.Worktree.Describe()}";
         }
 
         return text;

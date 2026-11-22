@@ -60,7 +60,8 @@ public static class CustomSlashCommandService
             "tree",
             "undo",
             "update",
-            "use"
+            "use",
+            "worktree"
         ],
         StringComparer.OrdinalIgnoreCase);
 

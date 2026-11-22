@@ -53,7 +53,8 @@ internal static class ReplCommandCatalog
         Create<UpdateCommandHandler>("update", "Check for StemCode updates and install the latest release.", "/update [now]"),
         Create<UndoCommandHandler>("undo", "Roll back the most recent tracked file edit transaction.", "/undo"),
         Create<UseModelCommandHandler>("use", "Switch the active model for subsequent prompts.", "/use <model>", requiresArgument: true),
-        Create<VersionCommandHandler>("version", "Show the current StemCode CLI version.", "/version")
+        Create<VersionCommandHandler>("version", "Show the current StemCode CLI version.", "/version"),
+        Create<WorktreeCommandHandler>("worktree", "List or remove isolated git worktrees created for subagents and parallel sessions.", WorktreeCommandHandler.UsageText)
     ];
 
     public static IReadOnlyList<ReplCommandMetadata> All { get; } = Registrations

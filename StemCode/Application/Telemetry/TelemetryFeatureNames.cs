@@ -39,7 +39,8 @@ internal static class TelemetryFeatureNames
         "tree",
         "undo",
         "update",
-        "use"
+        "use",
+        "worktree"
     ];
 
     public const string AgentMention = "agent_mention";

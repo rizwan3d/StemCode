@@ -45,6 +45,18 @@ internal static class CliApplication
             return ExitCodeMapper.Success;
         }
 
+        if (invocation.WorktreeName is not null)
+        {
+            return await CliWorktreeSession.RunAsync(
+                invocation.WorktreeName,
+                () => RunInvocationAsync(invocation));
+        }
+
+        return await RunInvocationAsync(invocation);
+    }
+
+    private static async Task<int> RunInvocationAsync(CliInvocation invocation)
+    {
         BackendRuntimeArguments runtimeArguments = invocation.RuntimeArguments.WithDefaults(
             BackendRuntimeOptions.CliSurface);
 
@@ -99,6 +111,9 @@ internal static class CliApplication
               --no-old-reader      Resume a section without replaying old messages to the screen
               --profile <name>     Use an agent profile
               --thinking <on|off>  Override thinking mode
+              -w, --worktree[=<name>]
+                                   Run this session in a new git worktree and branch so parallel
+                                   sessions don't edit the same files; removed on exit if unchanged
               -v, --version        Show version
               -h, --help           Show help
               --doctor             Run system diagnostics and print doctor report

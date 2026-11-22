@@ -6,6 +6,6 @@ internal sealed class CurrentDirectoryWorkspaceRootProvider : IWorkspaceRootProv
 {
     public string GetWorkspaceRoot()
     {
-        return Directory.GetCurrentDirectory();
+        return WorkspaceRootScope.Current ?? Directory.GetCurrentDirectory();
     }
 }

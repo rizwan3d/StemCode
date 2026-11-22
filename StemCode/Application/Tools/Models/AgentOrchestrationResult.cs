@@ -41,7 +41,8 @@ public sealed class AgentOrchestrationTaskResult
         IReadOnlyList<string> executedTools,
         int estimatedOutputTokens,
         bool recordedFileEdits,
-        string? errorMessage = null)
+        string? errorMessage = null,
+        AgentWorktreeResult? worktree = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(agentName);
         ArgumentException.ThrowIfNullOrWhiteSpace(task);
@@ -73,6 +74,7 @@ public sealed class AgentOrchestrationTaskResult
         ErrorMessage = string.IsNullOrWhiteSpace(errorMessage)
             ? null
             : errorMessage.Trim();
+        Worktree = worktree;
     }
 
     public string AgentName { get; }
@@ -92,4 +94,6 @@ public sealed class AgentOrchestrationTaskResult
     public bool Succeeded { get; }
 
     public string Task { get; }
+
+    public AgentWorktreeResult? Worktree { get; }
 }

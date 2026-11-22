@@ -79,6 +79,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IToolAuditLogService, WorkspaceToolAuditLogService>();
         services.AddSingleton<IShellCommandService, ShellCommandService>();
         services.AddSingleton<IAutoCommitService, GitAutoCommitService>();
+        services.AddSingleton<IGitWorktreeService, GitWorktreeService>();
         services.AddSingleton<CustomToolProcessExecutor>();
         services.AddSingleton<StemCodeMcpConfigLoader>();
         services.AddSingleton<IDynamicToolProvider, CustomToolDynamicProvider>();

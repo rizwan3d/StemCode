@@ -127,6 +127,88 @@ public sealed class AgentOrchestrateToolTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_Should_RunWorktreeIsolatedEditingTasksInParallel()
+    {
+        ReplSessionContext parentSession = CreateSession(BuiltInAgentProfiles.Build);
+        TaskCompletionSource bothStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int startedCount = 0;
+        int worktreeCount = 0;
+        IWorkspaceRootProvider rootProvider = new StemCode.Infrastructure.Tools.CurrentDirectoryWorkspaceRootProvider();
+        System.Collections.Concurrent.ConcurrentBag<string> rootsSeen = [];
+
+        Mock<IGitWorktreeService> worktreeService = new(MockBehavior.Strict);
+        worktreeService
+            .Setup(service => service.CreateAsync(It.IsAny<string>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                int number = Interlocked.Increment(ref worktreeCount);
+                string path = Path.Combine(Path.GetTempPath(), $"stemcode-orchestrate-wt-{number}");
+                return new GitWorktreeHandle($"wt-{number}", Path.GetTempPath(), path, path, $"stemcode/worktree/wt-{number}", "abc");
+            });
+        worktreeService
+            .Setup(service => service.FinishAsync(It.IsAny<GitWorktreeHandle>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((GitWorktreeHandle handle, CancellationToken _) => new GitWorktreeOutcome(handle, Kept: false, [], 0));
+
+        Mock<IConversationPipeline> conversationPipeline = new(MockBehavior.Strict);
+        conversationPipeline
+            .Setup(pipeline => pipeline.ProcessAsync(
+                It.IsAny<string>(),
+                It.IsAny<ReplSessionContext>(),
+                It.IsAny<IConversationProgressSink>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<string, ReplSessionContext, IConversationProgressSink, CancellationToken>(async (_, _, _, token) =>
+            {
+                rootsSeen.Add(rootProvider.GetWorkspaceRoot());
+                if (Interlocked.Increment(ref startedCount) == 2)
+                {
+                    bothStarted.TrySetResult();
+                }
+
+                await release.Task.WaitAsync(token);
+                rootsSeen.Add(rootProvider.GetWorkspaceRoot());
+                return ConversationTurnResult.AssistantMessage("Done.");
+            });
+
+        using ServiceProvider serviceProvider = new ServiceCollection()
+            .AddSingleton(conversationPipeline.Object)
+            .AddSingleton(Mock.Of<IWorkspaceFileService>())
+            .AddSingleton(worktreeService.Object)
+            .AddSingleton(rootProvider)
+            .BuildServiceProvider();
+        AgentOrchestrateTool sut = new(
+            serviceProvider,
+            new BuiltInAgentProfileResolver(),
+            new HeuristicTokenEstimator(),
+            new ToolExecutionSettings());
+
+        Task<ToolResult> runTask = sut.ExecuteAsync(
+            CreateContext(
+                parentSession,
+                """
+                {
+                  "tasks": [
+                    { "agent": "general", "task": "Fix module A", "isolation": "worktree" },
+                    { "agent": "general", "task": "Fix module B", "isolation": "worktree" }
+                  ]
+                }
+                """),
+            CancellationToken.None);
+
+        await bothStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        release.SetResult();
+        ToolResult result = await runTask;
+
+        result.Status.Should().Be(ToolResultStatus.Success);
+        rootsSeen.Distinct().Should().HaveCount(2, "each isolated task keeps its own workspace root, even while running concurrently");
+        rootsSeen.Should().OnlyContain(static root => root.Contains("stemcode-orchestrate-wt-"));
+        AgentOrchestrationResult payload = JsonSerializer.Deserialize(
+            result.JsonResult,
+            ToolJsonContext.Default.AgentOrchestrationResult)!;
+        payload.Tasks.Should().OnlyContain(static task => task.Worktree != null && !task.Worktree.Kept);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_Should_RunEditingCapableTasksSequentiallyInAutoMode()
     {
         ReplSessionContext parentSession = CreateSession(BuiltInAgentProfiles.Build);

@@ -78,14 +78,14 @@ internal sealed class AgentOrchestrateTool : ITool
         }
 
         if (string.Equals(strategy, ParallelReadOnlyStrategy, StringComparison.Ordinal) &&
-            requests.Any(static request => request.IsEditingCapable))
+            requests.Any(static request => request.RequiresExclusiveWorkspace))
         {
             return ToolResultFactory.InvalidArguments(
                 "parallel_readonly_requires_readonly_subagents",
-                "Strategy 'parallel_readonly' can only run read-only subagents.",
+                "Strategy 'parallel_readonly' can only run read-only or worktree-isolated subagents.",
                 new ToolRenderPayload(
                     "Invalid orchestration strategy",
-                    "Use read-only subagents for parallel_readonly, or use auto/sequential for editing-capable work."));
+                    "Use read-only subagents or isolation 'worktree' for parallel_readonly, or use auto/sequential for shared-workspace editing."));
         }
 
         using CancellationTokenSource? timeoutSource = CreateTimeoutSource(cancellationToken);
@@ -149,7 +149,7 @@ internal sealed class AgentOrchestrateTool : ITool
           "properties": {
             "strategy": {
               "type": "string",
-              "description": "Execution strategy. auto runs consecutive read-only tasks in parallel and editing-capable tasks one at a time. sequential runs every task in order. parallel_readonly runs all tasks together and requires read-only subagents.",
+              "description": "Execution strategy. auto runs consecutive read-only or worktree-isolated tasks in parallel and shared-workspace editing tasks one at a time. sequential runs every task in order. parallel_readonly runs all tasks together and requires read-only or worktree-isolated subagents.",
               "enum": ["auto", "sequential", "parallel_readonly"]
             },
             "tasks": {
@@ -176,6 +176,11 @@ internal sealed class AgentOrchestrateTool : ITool
                   "writeScope": {
                     "type": "string",
                     "description": "Optional file, folder, or module ownership boundary for editing-capable subagents."
+                  },
+                  "isolation": {
+                    "type": "string",
+                    "enum": ["none", "worktree"],
+                    "description": "{{EscapeJsonString(AgentDelegationSupport.IsolationSchemaDescription)}}"
                   }
                 },
                 "required": ["agent", "task"],
@@ -218,7 +223,7 @@ internal sealed class AgentOrchestrateTool : ITool
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (requests[cursor].IsEditingCapable)
+            if (requests[cursor].RequiresExclusiveWorkspace)
             {
                 results[cursor] = await ExecuteRequestAsync(parentSession, requests[cursor], cancellationToken);
                 cursor++;
@@ -226,7 +231,7 @@ internal sealed class AgentOrchestrateTool : ITool
             }
 
             int groupStart = cursor;
-            while (cursor < requests.Count && !requests[cursor].IsEditingCapable)
+            while (cursor < requests.Count && !requests[cursor].RequiresExclusiveWorkspace)
             {
                 cursor++;
             }
@@ -292,9 +297,6 @@ internal sealed class AgentOrchestrateTool : ITool
 
         try
         {
-            ReplSessionContext childSession = AgentDelegationSupport.CreateChildSession(
-                parentSession,
-                request.Profile);
             string input = AgentDelegationSupport.CreateDelegatedInput(
                 parentSession,
                 request.Task,
@@ -302,19 +304,23 @@ internal sealed class AgentOrchestrateTool : ITool
                 request.WriteScope,
                 $"Task {request.Index + 1} of the current orchestration.");
 
-            IConversationPipeline conversationPipeline = _serviceProvider.GetRequiredService<IConversationPipeline>();
-            ConversationTurnResult turnResult = await conversationPipeline.ProcessAsync(
-                input,
-                childSession,
-                NoOpConversationProgressSink.Instance,
-                cancellationToken);
-
-            bool recordedFileEdits = AgentDelegationSupport.TryRecordChildFileEdits(
-                childSession,
+            AgentDelegationSupport.ChildTurn childTurn = await AgentDelegationSupport.RunChildTurnAsync(
+                _serviceProvider,
                 parentSession,
-                _serviceProvider.GetRequiredService<IWorkspaceFileService>(),
-                request.Profile.Name,
-                request.Task);
+                request.Profile,
+                input,
+                NoOpConversationProgressSink.Instance,
+                request.UseWorktree,
+                cancellationToken);
+            ConversationTurnResult turnResult = childTurn.Turn;
+
+            bool recordedFileEdits = childTurn.Worktree is null &&
+                AgentDelegationSupport.TryRecordChildFileEdits(
+                    childTurn.Session,
+                    parentSession,
+                    _serviceProvider.GetRequiredService<IWorkspaceFileService>(),
+                    request.Profile.Name,
+                    request.Task);
 
             return new AgentOrchestrationTaskResult(
                 request.Index,
@@ -324,7 +330,8 @@ internal sealed class AgentOrchestrateTool : ITool
                 turnResult.ResponseText,
                 AgentDelegationSupport.GetExecutedTools(turnResult),
                 AgentDelegationSupport.GetEstimatedOutputTokens(turnResult, _tokenEstimator),
-                recordedFileEdits);
+                recordedFileEdits,
+                worktree: childTurn.Worktree);
         }
         catch (OperationCanceledException)
         {
@@ -466,12 +473,21 @@ internal sealed class AgentOrchestrateTool : ITool
             return false;
         }
 
+        if (!AgentDelegationSupport.TryParseIsolation(
+                GetOptionalString(taskElement, "isolation"),
+                out bool useWorktree))
+        {
+            error = CreateTaskArgumentError(index, "'isolation' must be 'none' or 'worktree'.");
+            return false;
+        }
+
         request = new OrchestrationTaskRequest(
             index,
             profile,
             task!,
             GetOptionalString(taskElement, "context"),
-            GetOptionalString(taskElement, "writeScope"));
+            GetOptionalString(taskElement, "writeScope"),
+            useWorktree);
         return true;
     }
 
@@ -564,6 +580,12 @@ internal sealed class AgentOrchestrateTool : ITool
             {
                 builder.AppendLine();
                 builder.Append("File edits were recorded for undo.");
+            }
+
+            if (task.Worktree is not null)
+            {
+                builder.AppendLine();
+                builder.Append(task.Worktree.Describe());
             }
         }
 
@@ -677,9 +699,16 @@ internal sealed class AgentOrchestrateTool : ITool
         IAgentProfile Profile,
         string Task,
         string? Context,
-        string? WriteScope)
+        string? WriteScope,
+        bool UseWorktree)
     {
         public bool IsEditingCapable => Profile.PermissionIntent.EditMode == AgentProfileEditMode.AllowEdits;
+
+        /// <summary>
+        /// Editing subagents that share the workspace must run alone; isolated
+        /// worktree subagents can run alongside others.
+        /// </summary>
+        public bool RequiresExclusiveWorkspace => IsEditingCapable && !UseWorktree;
     }
 
     private sealed class NoOpConversationProgressSink : IConversationProgressSink

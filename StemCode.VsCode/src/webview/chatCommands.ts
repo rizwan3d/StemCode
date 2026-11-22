@@ -87,7 +87,8 @@ export const CLI_COMMANDS: ChatCommandSuggestion[] = [
     entry('/undo', 'Roll back the most recent tracked file edit transaction.'),
     entry('/update [now]', 'Check for StemCode updates and install the latest release.'),
     entry('/use <model>', 'Switch the active model for subsequent prompts.'),
-    entry('/version', 'Show the current StemCode CLI version.')
+    entry('/version', 'Show the current StemCode CLI version.'),
+    entry('/worktree [list|remove <name>|remove --all]', 'List or remove isolated git worktrees created for subagents and parallel sessions.')
 ];
 
 /** Default list shown before the CLI has advertised its commands. */

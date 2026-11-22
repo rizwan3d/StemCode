@@ -17,6 +17,45 @@ public sealed class CliInvocationTests
         invocation.Prompt.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData(new[] { "--worktree" }, "")]
+    [InlineData(new[] { "-w" }, "")]
+    [InlineData(new[] { "--worktree=fix-login" }, "fix-login")]
+    public void Parse_Should_ReadWorktreeOption(string[] args, string expectedName)
+    {
+        CliInvocation invocation = CliInvocation.Parse(
+            args,
+            stdinRedirected: false,
+            () => throw new InvalidOperationException());
+
+        invocation.Mode.Should().Be(CliMode.Interactive);
+        invocation.WorktreeName.Should().Be(expectedName);
+    }
+
+    [Fact]
+    public void Parse_Should_KeepPromptWordAfterWorktreeFlag()
+    {
+        CliInvocation invocation = CliInvocation.Parse(
+            ["--worktree", "refactor"],
+            stdinRedirected: false,
+            () => throw new InvalidOperationException());
+
+        invocation.Mode.Should().Be(CliMode.SingleTurn);
+        invocation.Prompt.Should().Be("refactor");
+        invocation.WorktreeName.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Parse_Should_LeaveWorktreeUnset_ByDefault()
+    {
+        CliInvocation invocation = CliInvocation.Parse(
+            ["Hello"],
+            stdinRedirected: false,
+            () => throw new InvalidOperationException());
+
+        invocation.WorktreeName.Should().BeNull();
+    }
+
     [Fact]
     public void Parse_Should_EnableJsonOutputForOneShotPrompt()
     {

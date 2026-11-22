@@ -23,6 +23,12 @@ internal sealed record CliInvocation(
 {
     public string[] BackendArgs => RuntimeArguments.RawArgs;
 
+    /// <summary>
+    /// Null when the session runs in the current checkout. Otherwise the session
+    /// runs in a fresh git worktree; an empty string means "pick a name".
+    /// </summary>
+    public string? WorktreeName { get; init; }
+
     public static CliInvocation Help { get; } = new(
         CliMode.Interactive,
         BackendRuntimeArguments.Empty,
@@ -55,6 +61,49 @@ internal sealed record CliInvocation(
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(readStandardInput);
 
+        List<string> remainingArgs = [];
+        string? worktreeName = null;
+        for (int index = 0; index < args.Count; index++)
+        {
+            string arg = args[index];
+            if (string.Equals(arg, "--", StringComparison.Ordinal))
+            {
+                remainingArgs.AddRange(args.Skip(index));
+                break;
+            }
+
+            if (string.Equals(arg, "--worktree", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "-w", StringComparison.Ordinal))
+            {
+                worktreeName = string.Empty;
+                continue;
+            }
+
+            if (arg.StartsWith("--worktree=", StringComparison.OrdinalIgnoreCase))
+            {
+                worktreeName = arg["--worktree=".Length..].Trim();
+                if (worktreeName.Length == 0)
+                {
+                    throw new ArgumentException("Missing value for --worktree=.");
+                }
+
+                continue;
+            }
+
+            remainingArgs.Add(arg);
+        }
+
+        CliInvocation invocation = ParseCore(remainingArgs, stdinRedirected, readStandardInput);
+        return worktreeName is null || invocation.ShowHelp || invocation.ShowVersion
+            ? invocation
+            : invocation with { WorktreeName = worktreeName };
+    }
+
+    private static CliInvocation ParseCore(
+        IReadOnlyList<string> args,
+        bool stdinRedirected,
+        Func<string> readStandardInput)
+    {
         BackendRuntimeArguments.Builder runtimeArgumentsBuilder = new();
         List<string> promptParts = [];
         string? providerAuthKey = null;

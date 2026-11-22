@@ -19,6 +19,6 @@ internal sealed class FixedWorkspaceRootProvider : IWorkspaceRootProvider
 
     public string GetWorkspaceRoot()
     {
-        return _workspaceRoot;
+        return WorkspaceRootScope.Current ?? _workspaceRoot;
     }
 }
