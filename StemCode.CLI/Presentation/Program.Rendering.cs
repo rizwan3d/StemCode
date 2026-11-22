@@ -513,6 +513,18 @@ public static partial class Program
     {
         List<(string PlainText, string Markup, string? Key)> segments = [];
 
+        if (state.VimModeEnabled)
+        {
+            string vimText = state.Vim.Mode == VimMode.Normal ? "-- NORMAL --" : "-- INSERT --";
+            segments.Add((vimText, $"[bold {(state.Vim.Mode == VimMode.Normal ? "yellow" : "grey")}]{vimText}[/]", null));
+        }
+
+        if (TryGetCustomStatusLineText(state) is string customText)
+        {
+            segments.Add((customText, Markup.Escape(customText), null));
+            return RenderStatusSegments(state, segments);
+        }
+
         if (!string.IsNullOrWhiteSpace(state.AgentProfileName))
         {
             segments.Add((state.AgentProfileName, $"[green]{Markup.Escape(state.AgentProfileName.CapitalizeFirstOnly())}[/]", "profile"));
@@ -549,6 +561,35 @@ public static partial class Program
             segments.Add((contextText, $"[grey]Context:[/] {Markup.Escape(FormatContextWindowTokens(contextWindowTokens))}", null));
         }
 
+        return RenderStatusSegments(state, segments);
+    }
+
+    // A configured status line command replaces the built-in segments once it has
+    // produced output; until then (or if it fails) the built-in line is shown.
+    private static string? TryGetCustomStatusLineText(AppState state)
+    {
+        if (state.CustomStatusLine is not CustomStatusLine statusLine)
+        {
+            return null;
+        }
+
+        statusLine.RefreshIfStale(CustomStatusLine.BuildInput(
+            state.SessionId,
+            state.RootDirectory,
+            state.ActiveModelId,
+            state.ProviderName,
+            state.AgentProfileName,
+            state.ThinkingMode,
+            state.ReasoningEffort,
+            state.ActiveModelContextWindowTokens,
+            CliApplication.GetVersionText()));
+        return string.IsNullOrWhiteSpace(statusLine.Text) ? null : statusLine.Text;
+    }
+
+    private static string RenderStatusSegments(
+        AppState state,
+        List<(string PlainText, string Markup, string? Key)> segments)
+    {
         ResetInputPanelClickZones(state);
         int currentColumn = state.InputPanelHeaderLeftColumn + InputLeftGutterWidth;
         List<string> markupSegments = [];

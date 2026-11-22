@@ -225,6 +225,34 @@ public static partial class Program
         return string.Join(", ", names) + suffix;
     }
 
+    private static void ToggleVimMode(AppState state, string command)
+    {
+        bool enable = command switch
+        {
+            "/vim on" => true,
+            "/vim off" => false,
+            _ => !state.VimModeEnabled
+        };
+
+        state.VimModeEnabled = enable;
+        state.Vim.Reset();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await state.TerminalSettingsStore.SaveVimModeAsync(enable, CancellationToken.None);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+            {
+                state.UiBridge.Enqueue(appState => appState.AddSystemMessage($"Could not save the vim mode setting: {exception.Message}"));
+            }
+        });
+
+        state.AddSystemMessage(enable
+            ? "Vim mode on. Esc enters normal mode (h/l/w/b/e/0/$ move, x/dd/dw/cw/D/C edit, p paste, u undo, i/a/A/o insert); Enter sends. /vim to turn it off."
+            : "Vim mode off.");
+    }
+
     private static void HandleCommand(AppState state, string command)
     {
         if (command == "/exit")
@@ -248,6 +276,12 @@ public static partial class Program
         if (command == "/ls")
         {
             ExecuteListFiles(state);
+            return;
+        }
+
+        if (command is "/vim" or "/vim on" or "/vim off")
+        {
+            ToggleVimMode(state, command);
             return;
         }
 

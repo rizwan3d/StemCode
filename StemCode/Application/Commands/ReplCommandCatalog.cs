@@ -31,6 +31,7 @@ internal static class ReplCommandCatalog
         Create<McpCommandHandler>("mcp", "Show MCP servers, tools, and prompts, or sign in to and out of remote MCP servers.", McpCommandHandler.UsageText),
         Create<ModelsCommandHandler>("models", "Open the active model picker.", "/models"),
         Create<NewSessionCommandHandler>("new", "Start a fresh section without carrying over prior context.", "/new"),
+        Create<OutputStyleCommandHandler>("output-style", "Show or switch the output style that shapes how the agent writes its answers.", OutputStyleCommandHandler.UsageText),
         Create<OnboardCommandHandler>("onboard", "Re-run provider onboarding and switch the active session to the new provider.", "/onboard"),
         Create<PermissionsCommandHandler>("permissions", "Show the current permission summary and session override guidance.", "/permissions"),
         Create<PluginCommandHandler>("skill", "Manage data-only skill marketplaces and installs.", "/skill [marketplace add <owner/repo> [--ref <ref>] [--alias <alias>]|marketplace remove <alias>|browse <marketplaceAlias>|install <skillId>@<marketplaceAlias> [--force]|list|uninstall <skillId>]"),

@@ -199,6 +199,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
     private readonly ICodebaseIndexService? _codebaseIndexService;
     private readonly ISessionEventLogService? _sessionEventLogService;
     private readonly HeadlessRunOverrides _headlessRunOverrides;
+    private readonly StemCode.Application.Services.IOutputStyleService? _outputStyleService;
     private readonly CodebaseIndexSettings _codebaseIndexSettings;
     private readonly ILogger<AgentConversationPipeline> _logger;
 
@@ -224,7 +225,8 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         ICodebaseIndexService? codebaseIndexService = null,
         CodebaseIndexSettings? codebaseIndexSettings = null,
         ISessionEventLogService? sessionEventLogService = null,
-        HeadlessRunOverrides? headlessRunOverrides = null)
+        HeadlessRunOverrides? headlessRunOverrides = null,
+        StemCode.Application.Services.IOutputStyleService? outputStyleService = null)
     {
         _timeProvider = timeProvider;
         _tokenEstimator = tokenEstimator;
@@ -248,6 +250,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         _codebaseIndexSettings = codebaseIndexSettings ?? new CodebaseIndexSettings();
         _sessionEventLogService = sessionEventLogService;
         _headlessRunOverrides = headlessRunOverrides ?? HeadlessRunOverrides.None;
+        _outputStyleService = outputStyleService;
         _logger = logger;
     }
 
@@ -775,15 +778,40 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         string? systemPrompt,
         ReplSessionContext session)
     {
-        string? appended = _headlessRunOverrides.AppendSystemPrompt;
-        if (appended is null || session.AgentProfile.Mode != AgentProfileMode.Primary)
+        if (session.AgentProfile.Mode != AgentProfileMode.Primary)
         {
             return systemPrompt;
         }
 
-        return string.IsNullOrWhiteSpace(systemPrompt)
-            ? appended
-            : $"{systemPrompt.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{appended}";
+        // The active output style shapes how the main agent writes; a run-level
+        // --append-system-prompt still has the final word.
+        string? stylePrompt = TryGetOutputStylePrompt();
+        if (string.IsNullOrWhiteSpace(stylePrompt) && _headlessRunOverrides.AppendSystemPrompt is null)
+        {
+            return systemPrompt;
+        }
+
+        string?[] sections = [systemPrompt, stylePrompt, _headlessRunOverrides.AppendSystemPrompt];
+        string[] present = sections
+            .Where(static section => !string.IsNullOrWhiteSpace(section))
+            .Select(static section => section!.Trim())
+            .ToArray();
+        return present.Length == 0
+            ? systemPrompt
+            : string.Join($"{Environment.NewLine}{Environment.NewLine}", present);
+    }
+
+    private string? TryGetOutputStylePrompt()
+    {
+        try
+        {
+            return _outputStyleService?.Active.Prompt;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogWarning(exception, "Could not load the active output style.");
+            return null;
+        }
     }
 
     private static bool IsDynamicTool(string toolName)

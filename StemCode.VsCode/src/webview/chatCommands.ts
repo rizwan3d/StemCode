@@ -68,6 +68,7 @@ export const CLI_COMMANDS: ChatCommandSuggestion[] = [
     entry('/onboard', 'Re-run provider onboarding and switch the active session to the new provider.'),
     entry('/permissions', 'Show the current permission summary and session override guidance.'),
     entry('/profile <name>', 'Switch the active agent profile for subsequent prompts.'),
+    entry('/output-style [list|<style>]', 'Show or switch the output style that shapes how the agent writes its answers.'),
     entry('/provider [list|<name>]', 'List saved providers or switch the active session to another saved provider.'),
     entry('/reasoning [show|<none|minimal|low|medium|high|xhigh|max>]', 'Show or set provider reasoning effort for subsequent prompts.'),
     entry('/redact [on|off]', 'Show or toggle secret redaction for session output.'),

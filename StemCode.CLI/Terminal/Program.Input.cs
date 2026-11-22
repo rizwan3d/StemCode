@@ -116,6 +116,11 @@ public static partial class Program
                 continue;
             }
 
+            if (state.VimModeEnabled && TryHandleVimKey(state, key))
+            {
+                continue;
+            }
+
             if (IsEscapeKey(key))
             {
                 if (TryDismissSlashCommandSuggestions(state))
@@ -311,6 +316,66 @@ public static partial class Program
         state.AbandonTrackedOperation();
         state.AddSystemMessage("Turn abandoned locally. Late output from the interrupted turn will be ignored.");
         TryStartNextPendingSubmission(state);
+    }
+
+    /// <summary>
+    /// vi-style modal editing. In insert mode only Escape is intercepted (to enter
+    /// normal mode, unless it is needed to dismiss suggestions or cancel a turn);
+    /// in normal mode printable keys are commands. Enter, arrows and modified keys
+    /// always fall through to the regular handlers.
+    /// </summary>
+    private static bool TryHandleVimKey(AppState state, ConsoleKeyInfo key)
+    {
+        if (state.Vim.Mode == VimMode.Insert)
+        {
+            if (!IsEscapeKey(key) ||
+                TryDismissSlashCommandSuggestions(state) ||
+                state.IsBusy ||
+                state.IsStreaming)
+            {
+                return false;
+            }
+
+            ApplyVimResult(state, state.Vim.EnterNormalMode(state.Input.ToString(), ClampInputCursor(state)));
+            return true;
+        }
+
+        if (IsEscapeKey(key))
+        {
+            return false;
+        }
+
+        if (IsEnterKey(key))
+        {
+            // Submitting returns to insert mode for the next prompt.
+            state.Vim.Reset();
+            return false;
+        }
+
+        if (key.Modifiers.HasFlag(ConsoleModifiers.Control) ||
+            key.Modifiers.HasFlag(ConsoleModifiers.Alt) ||
+            char.IsControl(key.KeyChar))
+        {
+            return false;
+        }
+
+        VimInputEngine.Result result = state.Vim.HandleNormalKey(key.KeyChar, state.Input.ToString(), ClampInputCursor(state));
+        ApplyVimResult(state, result);
+        return result.Handled;
+    }
+
+    private static void ApplyVimResult(AppState state, VimInputEngine.Result result)
+    {
+        if (!string.Equals(state.Input.ToString(), result.Text, StringComparison.Ordinal))
+        {
+            state.Input.Clear();
+            state.Input.Append(result.Text);
+            state.CollapsedInputPastes.Clear();
+            ResetSlashCommandSuggestions(state);
+        }
+
+        state.InputCursorIndex = Math.Clamp(result.Cursor, 0, state.Input.Length);
+        state.ClearInputSelection();
     }
 
     private static bool HandleInputEditingKey(AppState state, ConsoleKeyInfo key)

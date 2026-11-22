@@ -21,6 +21,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAgentProfileResolver, BuiltInAgentProfileResolver>();
         services.AddSingleton<IProductTelemetry, NoOpProductTelemetry>();
         services.AddSingleton<AgentTurnService>();
+        services.AddSingleton<IOutputStyleService, OutputStyleService>();
         services.AddSingleton<ISessionAppService, SessionAppService>();
         services.AddSingleton<IConversationPipeline, AgentConversationPipeline>();
         services.AddSingleton<IToolOutputFormatter, ToolOutputFormatter>();

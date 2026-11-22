@@ -14,6 +14,36 @@ public sealed class AppState
         UiBridge = uiBridge;
         Backend = backend;
         PlanScrollOffset = 0;
+
+        StemCode.Application.Abstractions.TerminalSettings terminalSettings = LoadTerminalSettings();
+        VimModeEnabled = terminalSettings.VimMode;
+        CustomStatusLine = string.IsNullOrWhiteSpace(terminalSettings.StatusLineCommand)
+            ? null
+            : new CustomStatusLine(terminalSettings.StatusLineCommand, terminalSettings.StatusLineRefreshSeconds);
+    }
+
+    /// <summary>Personal terminal preferences (Application:Terminal in agent-profile.json).</summary>
+    public StemCode.Application.Abstractions.ITerminalSettingsStore TerminalSettingsStore { get; } =
+        new StemCode.Infrastructure.Storage.TerminalSettingsStore(
+            new StemCode.Infrastructure.Storage.UserDataPathProvider(),
+            new StemCode.Infrastructure.Tools.CurrentDirectoryWorkspaceRootProvider());
+
+    public bool VimModeEnabled { get; set; }
+
+    internal VimInputEngine Vim { get; } = new();
+
+    internal CustomStatusLine? CustomStatusLine { get; set; }
+
+    private StemCode.Application.Abstractions.TerminalSettings LoadTerminalSettings()
+    {
+        try
+        {
+            return TerminalSettingsStore.Load();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new StemCode.Application.Abstractions.TerminalSettings();
+        }
     }
 
     public string? ActiveModelId { get; set; }

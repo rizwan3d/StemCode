@@ -23,6 +23,7 @@ internal static class TelemetryFeatureNames
         "models",
         "new",
         "onboard",
+        "output-style",
         "permissions",
         "profile",
         "provider",

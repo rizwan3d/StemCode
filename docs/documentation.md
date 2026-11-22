@@ -428,6 +428,8 @@ stemcode --session <session-guid>
 | `/onboard` | Re-run provider onboarding and switch the active session to the new provider. |
 | `/permissions` | Show the current permission summary and session override guidance. |
 | `/profile <name>` | Switch the active agent profile for subsequent prompts. |
+| `/output-style [list\|<style>]` | Show or switch the output style that shapes how the agent writes its answers. See [Terminal Customisation](#terminal-customisation). |
+| `/vim [on\|off]` | Terminal only: toggle vi-style modal editing in the prompt. |
 | `/provider [list\|<name>]` | List saved providers or switch the active session to another saved provider. |
 | `/reasoning [show\|<none\|minimal\|low\|medium\|high\|xhigh\|max>]` | Show or set provider reasoning effort for subsequent prompts. |
 | `/redact [on\|off]` | Show or toggle secret redaction for session output. |
@@ -561,6 +563,57 @@ When the sidebar is focused, use Up/Down to move the selection and Enter to open
 - `Alt+D` discards the selected file's worktree changes.
 - `Alt+C` commits staged changes after prompting for a commit message.
 - `Alt+B` opens branch actions to switch branches or create a new one.
+
+### Terminal Customisation
+
+Personal terminal preferences live under `Application:Terminal` in your user `agent-profile.json`. A workspace's `.stemcode/agent-profile.json` can override them.
+
+```json
+{
+  "Application": {
+    "Terminal": {
+      "OutputStyle": "explanatory",
+      "VimMode": true,
+      "StatusLine": { "Command": "~/.stemcode/statusline.sh", "RefreshSeconds": 10 }
+    }
+  }
+}
+```
+
+#### Output styles
+
+Output styles change how the agent writes its answers by adding instructions to the main agent's system prompt. They work in the terminal, one-shot runs, and editors. `/output-style` lists the styles, and `/output-style <name>` switches to one for this and future sessions.
+
+| Style | Behavior |
+| --- | --- |
+| `default` | StemCode's normal style, focused on getting the work done. |
+| `explanatory` | Adds short "Insight" notes explaining choices and codebase patterns. |
+| `learning` | Leaves small `TODO(human)` pieces for you to write, with hints. |
+| `concise` | Short, direct answers with minimal explanation. |
+
+To add your own style, put a Markdown file in `.stemcode/output-styles/` (workspace) or in `output-styles/` next to your user `agent-profile.json`. Optional front matter sets `name` and `description`, and the body becomes the instructions. Workspace styles override user and built-in styles with the same name. Subagents are not affected, and `--append-system-prompt` text always comes after the style.
+
+#### Vim mode
+
+`/vim` (or `/vim on` / `/vim off`) toggles vi-style modal editing in the prompt and saves the choice. Esc switches to normal mode, unless it's dismissing suggestions or cancelling a running turn. The status line shows `-- NORMAL --` or `-- INSERT --`. Normal mode supports:
+
+- **Inserting:** `i a I A o O`.
+- **Moving:** `h l 0 ^ $ w b e j k`.
+- **Editing:** `x X D C s S r<char>`.
+- **Operators:** `d c y` with `w b e $ 0 ^`, or doubled (`dd cc yy`) for the whole prompt.
+- **Other:** `p P` to paste, `u` to undo the last change, and count prefixes such as `3w` or `2x`.
+
+Enter sends the prompt and returns to insert mode.
+
+#### Custom status line
+
+Set `StatusLine.Command` to replace the built-in status line under the prompt with your command's first line of output. The command runs through `cmd /c` on Windows and `/bin/sh -c` elsewhere, with a 3-second timeout. It receives the session as JSON on standard input: `session_id`, `cwd`, `workspace.current_dir`, `model.id`, `provider`, `profile`, `thinking`, `reasoning_effort`, `context_window_tokens`, and `version`. StemCode re-runs it when any of these change, or every `RefreshSeconds` (default 10). ANSI color codes are stripped. If the command fails or prints nothing, the built-in status line is shown. For example, with `jq`:
+
+```bash
+#!/bin/sh
+input=$(cat)
+echo "$(echo "$input" | jq -r .model.id) · $(basename "$(echo "$input" | jq -r .cwd)") · $(git branch --show-current 2>/dev/null)"
+```
 
 ### Tool Runtime Settings
 

@@ -65,6 +65,7 @@ public static class ServiceCollectionExtensions
                 serviceProvider.GetRequiredService<IOptions<ApplicationOptions>>().Value));
         services.AddSingleton<IWorkspaceFileService, WorkspaceFileService>();
         services.AddSingleton<IWorkspaceSettingsWriter, WorkspaceSettingsWriter>();
+        services.AddSingleton<ITerminalSettingsStore, TerminalSettingsStore>();
         services.AddSingleton<ICodebaseIndexService, WorkspaceCodebaseIndexService>();
         services.AddSingleton<ILanguageServerRegistry, LanguageServerRegistry>();
         services.AddSingleton<ICodeIntelligenceService, LspCodeIntelligenceService>();

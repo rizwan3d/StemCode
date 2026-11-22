@@ -40,6 +40,8 @@ public static class CustomSlashCommandService
             "models",
             "new",
             "onboard",
+            "output-style",
+            "vim",
             "permissions",
             "plugin",
             "skill",

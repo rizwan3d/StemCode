@@ -72,7 +72,8 @@ public sealed class AgentConversationPipelineTests
             new Mock<IToolExecutionPipeline>(MockBehavior.Strict).Object,
             toolRegistry.Object,
             configurationAccessor.Object,
-            headlessRunOverrides: overrides);
+            headlessRunOverrides: overrides,
+            outputStyleService: new FixedOutputStyleService("Output style: Concise. Be brief."));
 
         await ProcessAsync(sut, "Do the thing.", session);
 
@@ -80,7 +81,8 @@ public sealed class AgentConversationPipelineTests
         requests[0].AvailableTools.Select(static tool => tool.Name)
             .Should()
             .Equal(AgentToolNames.FileRead, AgentToolNames.FileWrite);
-        requests[0].SystemPrompt.Should().EndWith("Always answer in haiku.");
+        requests[0].SystemPrompt.Should().EndWith(
+            "Output style: Concise. Be brief." + Environment.NewLine + Environment.NewLine + "Always answer in haiku.");
     }
 
     [Fact]
@@ -4116,7 +4118,8 @@ public sealed class AgentConversationPipelineTests
         IReplSectionService? sectionService = null,
         ICodebaseIndexService? codebaseIndexService = null,
         CodebaseIndexSettings? codebaseIndexSettings = null,
-        HeadlessRunOverrides? headlessRunOverrides = null)
+        HeadlessRunOverrides? headlessRunOverrides = null,
+        IOutputStyleService? outputStyleService = null)
     {
         return new AgentConversationPipeline(
             timeProvider,
@@ -4138,7 +4141,8 @@ public sealed class AgentConversationPipelineTests
             sectionService: sectionService,
             codebaseIndexService: codebaseIndexService,
             codebaseIndexSettings: codebaseIndexSettings,
-            headlessRunOverrides: headlessRunOverrides);
+            headlessRunOverrides: headlessRunOverrides,
+            outputStyleService: outputStyleService);
     }
 
     private static Task<ConversationTurnResult> ProcessAsync(
@@ -4664,4 +4668,13 @@ public sealed class AgentConversationPipelineTests
                 false));
         }
     }
+}
+
+internal sealed class FixedOutputStyleService(string prompt) : IOutputStyleService
+{
+    public OutputStyle Active { get; } = new("concise", "Concise", prompt, "built-in");
+
+    public IReadOnlyList<OutputStyle> List() => [Active];
+
+    public Task<OutputStyle> SetActiveAsync(string name, CancellationToken cancellationToken) => Task.FromResult(Active);
 }
