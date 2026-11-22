@@ -40,6 +40,7 @@ public sealed class ReplSessionContext
     private int _totalRecordedEditCount;
     private bool _sectionTitleGenerationStarted;
     private readonly Stack<WorkspaceFileEditTransaction> _undoFileEditTransactions = new();
+    private readonly Dictionary<string, int> _fileEditCheckpoints = new(StringComparer.Ordinal);
     private readonly List<PermissionRule> _permissionOverrides = [];
     private SessionContext _sessionContext = SessionContext.Empty;
     private ReasoningOptions _reasoningOptions = ReasoningOptions.Create();
@@ -679,9 +680,51 @@ public sealed class ReplSessionContext
             attachments: attachments,
             status: ConversationTurnStatus.Pending);
 
+        // Checkpoint for /rewind: how much tracked file-edit history existed
+        // before this turn started.
+        _fileEditCheckpoints[turn.TurnId] = _undoFileEditTransactions.Count;
         AddStoredTurn(turn);
         IsPersistedStateDirty = true;
         return turn;
+    }
+
+    /// <summary>
+    /// Undo-stack depth recorded when the given turn started. Only turns started
+    /// in this process have a checkpoint; file edit history is not persisted.
+    /// </summary>
+    public bool TryGetFileEditCheckpoint(string turnId, out int undoDepth)
+    {
+        return _fileEditCheckpoints.TryGetValue(turnId, out undoDepth);
+    }
+
+    public int UndoFileEditDepth => _undoFileEditTransactions.Count;
+
+    /// <summary>
+    /// Copies this session's undo/redo file edit history and turn checkpoints to
+    /// a session that continues from it (for example after /rewind forks), so
+    /// /undo and /redo keep working there.
+    /// </summary>
+    public void TransferFileEditHistoryTo(ReplSessionContext target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+
+        foreach (WorkspaceFileEditTransaction transaction in _undoFileEditTransactions.Reverse())
+        {
+            target._undoFileEditTransactions.Push(transaction);
+        }
+
+        foreach (WorkspaceFileEditTransaction transaction in _redoFileEditTransactions.Reverse())
+        {
+            target._redoFileEditTransactions.Push(transaction);
+        }
+
+        foreach (ConversationSectionTurn turn in target._conversationTurns)
+        {
+            if (_fileEditCheckpoints.TryGetValue(turn.TurnId, out int depth))
+            {
+                target._fileEditCheckpoints[turn.TurnId] = depth;
+            }
+        }
     }
 
     public bool TryCompleteConversationTurn(

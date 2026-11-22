@@ -432,6 +432,7 @@ stemcode --session <session-guid>
 | `/reasoning [show\|<none\|minimal\|low\|medium\|high\|xhigh\|max>]` | Show or set provider reasoning effort for subsequent prompts. |
 | `/redact [on\|off]` | Show or toggle secret redaction for session output. |
 | `/redo` | Re-apply the most recently undone file edit transaction. |
+| `/rewind [turn-number] [both\|code\|conversation]` | Rewind tracked file edits and the conversation together to before an earlier message. See [Rewind](#rewind). |
 | `/reload` | Reload keybindings, extensions, skills, prompts, and themes. |
 | `/resume [session-id]` | Resume a different session. |
 | `/rules` | List the effective permission rules in evaluation order. |
@@ -465,6 +466,16 @@ Built-in tracked edit tools include:
 - `search_and_replace` for single-file literal or regex replacements, with optional `caseSensitive: false` and `.NET` replacement groups such as `$1` in regex mode.
 
 `insert_content` and `search_and_replace` both preserve the normal tracked-edit flow: they record before/after file state, show compact diff previews, and participate in `/undo`, `/redo`, edit summaries, and automatic AI git commits.
+
+### Rewind
+
+`/rewind` takes code and conversation back to a checkpoint in one step. Every message you send records a checkpoint. Pick a message (or pass its number, as in `/rewind 3`), then choose what to rewind:
+
+- **Code and conversation** (default): rolls back every tracked file edit made since that message, and continues the conversation on a new branch that ends just before it.
+- **Conversation only**: like `/fork`. Files stay as they are.
+- **Code only**: rolls back the file edits and keeps the conversation.
+
+Add `both`, `code`, or `conversation` to skip the second question, for example `/rewind 3 code`. Nothing is lost. Rolled-back edits move to the redo history, so `/redo` reapplies them one at a time, and the previous conversation branch stays available in `/tree`. Checkpoints cover tracked file tools (including subagent edits), not changes made by shell commands. File edit history is kept only for the current run, so for messages from a resumed earlier run only the conversation can be rewound.
 
 ### Custom Slash Commands
 

@@ -72,6 +72,7 @@ export const CLI_COMMANDS: ChatCommandSuggestion[] = [
     entry('/reasoning [show|<none|minimal|low|medium|high|xhigh|max>]', 'Show or set provider reasoning effort for subsequent prompts.'),
     entry('/redact [on|off]', 'Show or toggle secret redaction for session output.'),
     entry('/redo', 'Re-apply the most recently undone file edit transaction.'),
+    entry('/rewind [turn-number] [both|code|conversation]', 'Rewind file edits and the conversation together to before an earlier message.'),
     entry('/reload', 'Reload keybindings, extensions, skills, prompts, and themes.'),
     entry('/resume [session-id]', 'Resume a different session.'),
     entry('/rules', 'List the effective permission rules in evaluation order.'),

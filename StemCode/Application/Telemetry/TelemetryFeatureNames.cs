@@ -29,6 +29,7 @@ internal static class TelemetryFeatureNames
         "read",
         "reload",
         "redo",
+        "rewind",
         "resume",
         "rules",
         "session",

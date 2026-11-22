@@ -39,6 +39,7 @@ internal static class ReplCommandCatalog
         Create<ReasoningCommandHandler>("reasoning", "Show or set provider reasoning effort for subsequent prompts.", "/reasoning [show|<none|minimal|low|medium|high|xhigh|max>]"),
         Create<RedactCommandHandler>("redact", "Show or toggle secret redaction for session output.", "/redact [on|off]"),
         Create<RedoCommandHandler>("redo", "Re-apply the most recently undone file edit transaction.", "/redo"),
+        Create<RewindCommandHandler>("rewind", "Rewind file edits and the conversation together to before an earlier message.", RewindCommandHandler.UsageText),
         Create<ReloadCommandHandler>("reload", "Reload keybindings, extensions, skills, prompts, and themes.", "/reload"),
         Create<ResumeCommandHandler>("resume", "Resume a different session.", "/resume [session-id]", exposeConcreteType: true),
         Create<RulesCommandHandler>("rules", "List the effective permission rules in evaluation order.", "/rules"),

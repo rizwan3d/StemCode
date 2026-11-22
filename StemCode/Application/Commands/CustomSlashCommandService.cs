@@ -50,6 +50,7 @@ public static class CustomSlashCommandService
             "redact",
             "read",
             "redo",
+            "rewind",
             "reload",
             "resume",
             "rules",
