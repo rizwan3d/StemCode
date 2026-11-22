@@ -83,7 +83,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<CustomToolProcessExecutor>();
         services.AddSingleton<StemCodeMcpConfigLoader>();
         services.AddSingleton<IDynamicToolProvider, CustomToolDynamicProvider>();
+        services.AddSingleton<McpOAuthTokenStore>();
         services.AddSingleton<McpDynamicToolProvider>();
+        services.AddSingleton<IMcpAuthService, McpOAuthService>();
         services.AddSingleton<IDynamicToolProvider>(static serviceProvider => serviceProvider.GetRequiredService<McpDynamicToolProvider>());
         services.AddSingleton<IMcpPromptService>(static serviceProvider => serviceProvider.GetRequiredService<McpDynamicToolProvider>());
         services.AddSingleton(static serviceProvider =>

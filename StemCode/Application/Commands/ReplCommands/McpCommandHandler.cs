@@ -8,30 +8,78 @@ internal sealed class McpCommandHandler : IReplCommandHandler
 {
     private readonly IEnumerable<IDynamicToolProvider> _dynamicToolProviders;
     private readonly IToolRegistry _toolRegistry;
+    public const string UsageText = "/mcp [login <server>|logout <server>]";
+
     private readonly IMcpPromptService? _mcpPromptService;
+    private readonly IMcpAuthService? _mcpAuthService;
 
     public McpCommandHandler(
         IEnumerable<IDynamicToolProvider> dynamicToolProviders,
         IToolRegistry toolRegistry,
-        IMcpPromptService? mcpPromptService = null)
+        IMcpPromptService? mcpPromptService = null,
+        IMcpAuthService? mcpAuthService = null)
     {
         _dynamicToolProviders = dynamicToolProviders;
         _toolRegistry = toolRegistry;
         _mcpPromptService = mcpPromptService;
+        _mcpAuthService = mcpAuthService;
     }
 
     public string CommandName => "mcp";
 
-    public string Description => "Show configured MCP servers, custom tool providers, and discovered dynamic tools.";
+    public string Description => "Show MCP servers, tools, and prompts, or sign in to and out of remote MCP servers.";
 
-    public string Usage => "/mcp";
+    public string Usage => UsageText;
 
-    public Task<ReplCommandResult> ExecuteAsync(
+    public async Task<ReplCommandResult> ExecuteAsync(
         ReplCommandContext context,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (context.Arguments.Count > 0)
+        {
+            return await ExecuteAuthCommandAsync(context, cancellationToken);
+        }
+
+        return ShowStatus();
+    }
+
+    private async Task<ReplCommandResult> ExecuteAuthCommandAsync(
+        ReplCommandContext context,
+        CancellationToken cancellationToken)
+    {
+        string action = context.Arguments[0].Trim().ToLowerInvariant();
+        if (action is not ("login" or "logout") || context.Arguments.Count != 2)
+        {
+            return ReplCommandResult.Continue($"Usage: {UsageText}", ReplFeedbackKind.Error);
+        }
+
+        if (_mcpAuthService is null)
+        {
+            return ReplCommandResult.Continue("MCP sign-in is not available in this host.", ReplFeedbackKind.Error);
+        }
+
+        try
+        {
+            string message = action == "login"
+                ? await _mcpAuthService.LoginAsync(context.Arguments[1], cancellationToken)
+                : await _mcpAuthService.LogoutAsync(context.Arguments[1], cancellationToken);
+            return ReplCommandResult.Continue(message, ReplFeedbackKind.Info);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return ReplCommandResult.Continue("MCP sign-in timed out waiting for the browser.", ReplFeedbackKind.Error);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException or IOException)
+        {
+            return ReplCommandResult.Continue(exception.Message, ReplFeedbackKind.Error);
+        }
+    }
+
+    private ReplCommandResult ShowStatus()
+    {
 
         DynamicToolProviderStatus[] statuses = _dynamicToolProviders
             .SelectMany(static provider => provider.GetStatuses())
@@ -86,6 +134,6 @@ internal sealed class McpCommandHandler : IReplCommandHandler
             }
         }
 
-        return Task.FromResult(ReplCommandResult.Continue(string.Join(Environment.NewLine, lines)));
+        return ReplCommandResult.Continue(string.Join(Environment.NewLine, lines));
     }
 }

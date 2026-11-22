@@ -19,16 +19,47 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IMcpPromptS
     private IReadOnlyList<IMcpServerClient> _clients = [];
     private IReadOnlyDictionary<string, PromptBinding> _prompts = new Dictionary<string, PromptBinding>();
 
+    private readonly McpOAuthTokenStore? _tokenStore;
+    private int _version;
+
     public McpDynamicToolProvider(
         StemCodeMcpConfigLoader configLoader,
         IHttpClientFactory httpClientFactory,
         ToolExecutionSettings toolExecutionSettings,
-        ILogger<McpDynamicToolProvider> logger)
+        ILogger<McpDynamicToolProvider> logger,
+        McpOAuthTokenStore? tokenStore = null)
     {
         _configLoader = configLoader;
         _httpClientFactory = httpClientFactory;
         _toolExecutionSettings = toolExecutionSettings;
         _logger = logger;
+        _tokenStore = tokenStore;
+    }
+
+    public int Version => Volatile.Read(ref _version);
+
+    /// <summary>
+    /// Disconnects every server so the next use reconnects with fresh
+    /// configuration and credentials (used after /mcp login and /mcp logout).
+    /// </summary>
+    public async Task ResetAsync()
+    {
+        IReadOnlyList<IMcpServerClient> previousClients;
+        lock (_gate)
+        {
+            previousClients = _clients;
+            _clients = [];
+            _tools = [];
+            _statuses = [];
+            _prompts = new Dictionary<string, PromptBinding>();
+            _initialized = false;
+            Interlocked.Increment(ref _version);
+        }
+
+        foreach (IMcpServerClient client in previousClients)
+        {
+            await client.DisposeAsync();
+        }
     }
 
     public IReadOnlyList<ITool> GetTools()
@@ -217,7 +248,9 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IMcpPromptS
                     await client.DisposeAsync();
                 }
 
-                string message = $"MCP server '{configuration.Name}' unavailable: {exception.Message}";
+                string message = exception is McpAuthenticationException
+                    ? $"MCP server '{configuration.Name}' needs sign-in: run /mcp login {configuration.Name}"
+                    : $"MCP server '{configuration.Name}' unavailable: {exception.Message}";
                 _logger.LogWarning(exception, "{Message}", message);
                 statuses.Add(new DynamicToolProviderStatus(
                     configuration.Name,
@@ -225,7 +258,7 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IMcpPromptS
                     Enabled: true,
                     IsAvailable: false,
                     ToolCount: 0,
-                    Details: FormatDetails(configuration, exception.Message)));
+                    Details: FormatDetails(configuration, exception is McpAuthenticationException ? $"needs sign-in: run /mcp login {configuration.Name}" : exception.Message)));
 
                 if (configuration.Required)
                 {
@@ -303,10 +336,18 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IMcpPromptS
 
         if (!string.IsNullOrWhiteSpace(configuration.Url))
         {
+            IMcpAccessTokenProvider? tokenProvider = _tokenStore is null
+                ? null
+                : new McpOAuthAccessTokenProvider(
+                    configuration.Name,
+                    configuration.Url!,
+                    _tokenStore,
+                    new McpOAuthClient(_httpClientFactory.CreateClient("StemCode.McpOAuth")));
             return new McpHttpServerClient(
                 _httpClientFactory.CreateClient("StemCode.Mcp"),
                 configuration,
-                GetRequestTimeout());
+                GetRequestTimeout(),
+                tokenProvider);
         }
 
         throw new InvalidOperationException(

@@ -62,7 +62,7 @@ export const CLI_COMMANDS: ChatCommandSuggestion[] = [
     entry('/init [recommended|minimal|custom]', 'Choose and initialize workspace-local StemCode files.'),
     entry('/lessons [status|on|off|list|search|save|edit|delete]', 'Manage local lesson memory.'),
     entry('/lsp [status|refresh|file <path> [refresh]]', 'Show discovered language servers, or inspect which ones apply to a file.'),
-    entry('/mcp', 'Show configured MCP servers, custom tool providers, and discovered dynamic tools.'),
+    entry('/mcp [login <server>|logout <server>]', 'Show MCP servers, tools, and prompts, or sign in to and out of remote MCP servers.'),
     entry('/models', 'Open the active model picker.'),
     entry('/new', 'Start a fresh session without carrying over prior context.'),
     entry('/onboard', 'Re-run provider onboarding and switch the active session to the new provider.'),

@@ -27,6 +27,35 @@ public sealed class ToolRegistryTests
     }
 
     [Fact]
+    public void Registry_Should_RebuildDynamicTools_When_ProviderVersionChanges()
+    {
+        MutableDynamicToolProvider provider = new();
+        ToolRegistry sut = new([new StubTool("file_read")], new ToolPermissionParser(), [provider]);
+
+        sut.GetRegisteredToolNames().Should().Equal("file_read");
+        sut.TryResolve("mcp__remote__search", out _).Should().BeFalse();
+
+        provider.Tools = [new StubTool("mcp__remote__search")];
+        sut.GetRegisteredToolNames().Should().Equal("file_read");
+
+        provider.Version++;
+        sut.GetRegisteredToolNames().Should().Equal("file_read", "mcp__remote__search");
+        sut.TryResolve("mcp__remote__search", out ToolRegistration? tool).Should().BeTrue();
+        tool!.Name.Should().Be("mcp__remote__search");
+    }
+
+    private sealed class MutableDynamicToolProvider : IDynamicToolProvider
+    {
+        public IReadOnlyList<ITool> Tools { get; set; } = [];
+
+        public int Version { get; set; }
+
+        public IReadOnlyList<ITool> GetTools() => Tools;
+
+        public IReadOnlyList<DynamicToolProviderStatus> GetStatuses() => [];
+    }
+
+    [Fact]
     public void Constructor_Should_Throw_When_DuplicateToolNamesAreRegistered()
     {
         Action action = () => new ToolRegistry([

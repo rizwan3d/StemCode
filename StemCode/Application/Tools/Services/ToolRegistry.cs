@@ -7,8 +7,16 @@ namespace StemCode.Application.Tools.Services;
 
 internal sealed class ToolRegistry : IToolRegistry
 {
-    private readonly IReadOnlyList<ToolDefinition> _toolDefinitions;
-    private readonly IReadOnlyDictionary<string, ToolRegistration> _tools;
+    private sealed record Snapshot(
+        IReadOnlyList<ToolDefinition> Definitions,
+        IReadOnlyDictionary<string, ToolRegistration> Tools,
+        string VersionKey);
+
+    private readonly IReadOnlyList<ITool> _staticTools;
+    private readonly ToolPermissionParser _permissionParser;
+    private readonly IReadOnlyList<IDynamicToolProvider> _dynamicToolProviders;
+    private readonly object _gate = new();
+    private Snapshot _snapshot;
 
     public ToolRegistry(
         IEnumerable<ITool> tools,
@@ -18,10 +26,66 @@ internal sealed class ToolRegistry : IToolRegistry
         ArgumentNullException.ThrowIfNull(tools);
         ArgumentNullException.ThrowIfNull(permissionParser);
 
+        _staticTools = tools.ToArray();
+        _permissionParser = permissionParser;
+        _dynamicToolProviders = dynamicToolProviders?.ToArray() ?? [];
+        _snapshot = Build();
+    }
+
+    public IReadOnlyList<ToolDefinition> GetToolDefinitions()
+    {
+        return GetCurrentSnapshot().Definitions;
+    }
+
+    public IReadOnlyList<string> GetRegisteredToolNames()
+    {
+        return GetCurrentSnapshot().Definitions
+            .Select(static definition => definition.Name)
+            .ToArray();
+    }
+
+    public bool TryResolve(string toolName, out ToolRegistration? tool)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
+
+        return GetCurrentSnapshot().Tools.TryGetValue(toolName.Trim(), out tool);
+    }
+
+    // Dynamic providers (MCP, custom tools) can change their tool set at runtime,
+    // for example after an MCP server is signed in; rebuild when any version moves.
+    private Snapshot GetCurrentSnapshot()
+    {
+        Snapshot snapshot = _snapshot;
+        if (string.Equals(snapshot.VersionKey, ComputeVersionKey(), StringComparison.Ordinal))
+        {
+            return snapshot;
+        }
+
+        lock (_gate)
+        {
+            if (!string.Equals(_snapshot.VersionKey, ComputeVersionKey(), StringComparison.Ordinal))
+            {
+                _snapshot = Build();
+            }
+
+            return _snapshot;
+        }
+    }
+
+    private string ComputeVersionKey()
+    {
+        return _dynamicToolProviders.Count == 0
+            ? string.Empty
+            : string.Join(",", _dynamicToolProviders.Select(static provider => provider.Version));
+    }
+
+    private Snapshot Build()
+    {
+        string versionKey = ComputeVersionKey();
         Dictionary<string, ToolRegistration> toolMap = new(StringComparer.Ordinal);
         List<ToolDefinition> definitions = [];
 
-        foreach (ITool tool in tools.Concat(GetDynamicTools(dynamicToolProviders)))
+        foreach (ITool tool in _staticTools.Concat(_dynamicToolProviders.SelectMany(static provider => provider.GetTools())))
         {
             if (string.IsNullOrWhiteSpace(tool.Description))
             {
@@ -34,7 +98,7 @@ internal sealed class ToolRegistry : IToolRegistry
                 tool.Description,
                 ParseSchema(tool));
 
-            ToolPermissionPolicy permissionPolicy = permissionParser.Parse(
+            ToolPermissionPolicy permissionPolicy = _permissionParser.Parse(
                 tool.Name,
                 tool.PermissionRequirements);
 
@@ -47,29 +111,12 @@ internal sealed class ToolRegistry : IToolRegistry
             definitions.Add(definition);
         }
 
-        _tools = toolMap;
-        _toolDefinitions = definitions
-            .OrderBy(static definition => definition.Name, StringComparer.Ordinal)
-            .ToArray();
-    }
-
-    public IReadOnlyList<ToolDefinition> GetToolDefinitions()
-    {
-        return _toolDefinitions;
-    }
-
-    public IReadOnlyList<string> GetRegisteredToolNames()
-    {
-        return _toolDefinitions
-            .Select(static definition => definition.Name)
-            .ToArray();
-    }
-
-    public bool TryResolve(string toolName, out ToolRegistration? tool)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
-
-        return _tools.TryGetValue(toolName.Trim(), out tool);
+        return new Snapshot(
+            definitions
+                .OrderBy(static definition => definition.Name, StringComparer.Ordinal)
+                .ToArray(),
+            toolMap,
+            versionKey);
     }
 
     private static JsonElement ParseSchema(ITool tool)
@@ -88,15 +135,5 @@ internal sealed class ToolRegistry : IToolRegistry
         }
 
         return schemaDocument.RootElement.Clone();
-    }
-
-    private static IEnumerable<ITool> GetDynamicTools(IEnumerable<IDynamicToolProvider>? dynamicToolProviders)
-    {
-        if (dynamicToolProviders is null)
-        {
-            return [];
-        }
-
-        return dynamicToolProviders.SelectMany(static provider => provider.GetTools());
     }
 }

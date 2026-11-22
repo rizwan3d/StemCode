@@ -11,16 +11,19 @@ internal sealed class McpHttpServerClient : IMcpServerClient
     private readonly TimeSpan _requestTimeout;
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private int _nextRequestId;
+    private readonly IMcpAccessTokenProvider? _accessTokenProvider;
     private string? _sessionId;
 
     public McpHttpServerClient(
         HttpClient httpClient,
         McpServerConfiguration configuration,
-        TimeSpan requestTimeout)
+        TimeSpan requestTimeout,
+        IMcpAccessTokenProvider? accessTokenProvider = null)
     {
         _httpClient = httpClient;
         _configuration = configuration;
         _requestTimeout = requestTimeout;
+        _accessTokenProvider = accessTokenProvider;
     }
 
     public string Endpoint => _configuration.Url ?? string.Empty;
@@ -159,17 +162,16 @@ internal sealed class McpHttpServerClient : IMcpServerClient
                 $"MCP server '{ServerName}' does not define an HTTP URL.");
         }
 
-        using HttpRequestMessage request = new(HttpMethod.Post, _configuration.Url);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-        AddConfiguredHeaders(request);
-
-        using HttpResponseMessage response = await _httpClient.SendAsync(
-            request,
-            HttpCompletionOption.ResponseHeadersRead,
-            cancellationToken);
+        using HttpResponseMessage response = await SendWithAuthenticationAsync(payload, cancellationToken);
         CaptureSessionId(response);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            string wwwAuthenticate = string.Join(", ", response.Headers.WwwAuthenticate.Select(static value => value.ToString()));
+            throw new McpAuthenticationException(
+                $"MCP server '{ServerName}' requires sign-in. Run /mcp login {ServerName}.",
+                wwwAuthenticate);
+        }
 
         if (!response.IsSuccessStatusCode)
         {
@@ -209,6 +211,54 @@ internal sealed class McpHttpServerClient : IMcpServerClient
 
         using JsonDocument document = JsonDocument.Parse(json);
         return document.RootElement.Clone();
+    }
+
+    // Sends the payload with the stored OAuth token (if any). A 401 with a token
+    // triggers one forced refresh and retry before the caller sees it.
+    private async Task<HttpResponseMessage> SendWithAuthenticationAsync(
+        string payload,
+        CancellationToken cancellationToken)
+    {
+        bool usesOAuth = _accessTokenProvider is not null && string.IsNullOrWhiteSpace(_configuration.BearerTokenEnvVar);
+        string? accessToken = usesOAuth
+            ? await _accessTokenProvider!.GetAccessTokenAsync(forceRefresh: false, cancellationToken)
+            : null;
+
+        HttpResponseMessage response = await SendOnceAsync(payload, accessToken, cancellationToken);
+        if (response.StatusCode != System.Net.HttpStatusCode.Unauthorized || accessToken is null)
+        {
+            return response;
+        }
+
+        string? refreshed = await _accessTokenProvider!.GetAccessTokenAsync(forceRefresh: true, cancellationToken);
+        if (refreshed is null || string.Equals(refreshed, accessToken, StringComparison.Ordinal))
+        {
+            return response;
+        }
+
+        response.Dispose();
+        return await SendOnceAsync(payload, refreshed, cancellationToken);
+    }
+
+    private async Task<HttpResponseMessage> SendOnceAsync(
+        string payload,
+        string? accessToken,
+        CancellationToken cancellationToken)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Post, _configuration.Url);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+        AddConfiguredHeaders(request);
+        if (accessToken is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        }
+
+        return await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
     }
 
     private CancellationTokenSource? CreateRequestTimeoutSource(CancellationToken cancellationToken)

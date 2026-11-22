@@ -28,7 +28,7 @@ internal static class ReplCommandCatalog
         Create<InitCommandHandler>("init", "Choose and initialize workspace-local StemCode files.", "/init [recommended|minimal|custom]"),
         Create<LessonsCommandHandler>("lessons", "Manage local lesson memory from the shell. It is off by default and can inject relevant lessons into prompts when enabled.", "/lessons [status|on|off|list [limit]|search <query>|save <trigger> | <problem> | <lesson>|edit <id> <trigger> | <problem> | <lesson>|delete <id>]"),
         Create<LspCommandHandler>("lsp", "Show discovered language servers, or inspect which ones apply to a file.", "/lsp [status|refresh|file <path> [refresh]]"),
-        Create<McpCommandHandler>("mcp", "Show configured MCP servers, custom tool providers, and discovered dynamic tools.", "/mcp"),
+        Create<McpCommandHandler>("mcp", "Show MCP servers, tools, and prompts, or sign in to and out of remote MCP servers.", McpCommandHandler.UsageText),
         Create<ModelsCommandHandler>("models", "Open the active model picker.", "/models"),
         Create<NewSessionCommandHandler>("new", "Start a fresh section without carrying over prior context.", "/new"),
         Create<OnboardCommandHandler>("onboard", "Re-run provider onboarding and switch the active session to the new provider.", "/onboard"),

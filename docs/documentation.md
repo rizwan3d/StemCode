@@ -422,7 +422,7 @@ stemcode --session <session-guid>
 | `/init [recommended\|minimal\|custom]` | Choose and initialize workspace-local StemCode files. |
 | `/lessons [status\|on\|off\|list [limit]\|search <query>\|save <trigger> \| <problem> \| <lesson>\|edit <id> ...\|delete <id>]` | Manage local lesson memory; off by default and can inject relevant lessons when enabled. |
 | `/lsp [status\|refresh\|file <path> [refresh]]` | Show discovered language servers, or inspect which ones apply to a file. See [Code Intelligence](#code-intelligence). |
-| `/mcp` | Show configured MCP servers, custom tool providers, and discovered dynamic tools. |
+| `/mcp [login <server>\|logout <server>]` | Show MCP servers, tools, and prompts, or sign in to and out of a remote MCP server with OAuth. |
 | `/models` | Open the active model picker. |
 | `/new` | Start a fresh section without carrying over prior context. |
 | `/onboard` | Re-run provider onboarding and switch the active session to the new provider. |
@@ -1318,6 +1318,17 @@ StemCode supports the MCP **resources** and **prompts** features as well as tool
 
 - **Resources.** When any connected server advertises the `resources` capability, the agent gets two extra tools. `mcp__list_resources` lists each server's resources and resource templates, and `mcp__read_resource` (`server`, `uri`) returns a resource's contents. Binary contents are summarized, not inlined. Both tools are read-only and run without a prompt. Deny them with a rule on the `mcp:resources` tag if needed.
 - **Prompts.** Every prompt a server publishes becomes a slash command named `/mcp__<server>__<prompt>`. Arguments are given positionally in declared order, or as `name=value`, and can be quoted: `/mcp__github__review 128 focus="error handling"`. Words beyond the last argument are appended to it. StemCode fetches the prompt from the server and sends the result as your turn. Missing required arguments are reported without calling the model. Prompts appear in `/mcp`, and ACP editors such as VS Code list them with the other commands.
+
+### Signing In to Remote MCP Servers (OAuth)
+
+Remote HTTP servers that require OAuth show up in `/mcp` as `needs sign-in`. Run `/mcp login <server>` to sign in:
+
+1. StemCode finds the server's authorization server using MCP protected resource metadata (RFC 9728) and authorization server metadata (RFC 8414 or OpenID discovery).
+2. It registers itself as a client through dynamic client registration (RFC 7591).
+3. It opens your browser for the authorization-code flow with PKCE, using a one-time `http://127.0.0.1:<port>/callback` redirect. The server URL is sent as the `resource` indicator (RFC 8707).
+4. The access and refresh tokens go into your operating system's credential store (Windows Credential Manager, macOS Keychain, or Secret Service on Linux), never into config files.
+
+After you sign in, MCP reconnects and the server's tools are available immediately, without a restart. StemCode refreshes expired tokens automatically and retries once if the server rejects a token. `/mcp logout <server>` forgets the tokens. A server configured with `bearerTokenEnvVar` keeps using that token and never uses OAuth. Authorization servers that don't support dynamic client registration can't be signed in to automatically; use `bearerTokenEnvVar` or `httpHeaders` for those.
 
 ## Code Intelligence
 
