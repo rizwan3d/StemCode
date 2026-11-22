@@ -2421,6 +2421,42 @@ a.changed-file-name {
     color: var(--fg);
 }
 
+.voice-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--muted);
+    flex: none;
+}
+
+.voice-button:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.voice-button.recording {
+    background: var(--vscode-inputValidation-errorBackground, rgba(229, 83, 75, 0.15));
+    color: var(--vscode-errorForeground, #e5534b);
+    animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(229, 83, 75, 0.35); }
+    50% { box-shadow: 0 0 0 4px rgba(229, 83, 75, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .voice-button.recording {
+        animation: none;
+    }
+}
+
 .send-button.stop-mode:hover:not(:disabled) {
     background: var(--button2-hover);
 }

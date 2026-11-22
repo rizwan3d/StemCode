@@ -271,6 +271,7 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
                             <svg class="context-ring" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle class="ring-bg" cx="10" cy="10" r="8"/><circle id="context-ring-fg" class="ring-fg" cx="10" cy="10" r="8" stroke-dasharray="50.27" stroke-dashoffset="50.27"/></svg>
                             <span id="context-meter-label" class="context-meter-label"></span>
                         </span>
+                        <button type="button" id="voice-button" class="voice-button" title="Voice dictation" aria-label="Voice dictation" aria-pressed="false" data-ico="mic"></button>
                         <button type="button" id="send-button" class="send-button" title="Send (Enter)" aria-label="Send message" data-ico="send"></button>
                     </div>
                 </div>

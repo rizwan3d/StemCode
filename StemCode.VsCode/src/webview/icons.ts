@@ -35,6 +35,7 @@ export const ICONS = {
     eyeOff: svg('<path d="M2 2l12 12M6.5 4a6.6 6.6 0 0 1 1.5-.5c4 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.8 2.3M10.4 11.9a5.6 5.6 0 0 1-2.4.6C4 12.5 1.5 8 1.5 8a11.3 11.3 0 0 1 2.7-3"/>'),
     mention: svg('<circle cx="8" cy="8" r="2.5"/><path d="M10.5 8v1a2 2 0 0 0 3.5 1.3A6 6 0 1 0 11 13.2"/>'),
     slash: svg('<path d="m10.5 2.5-5 11"/>'),
+    mic: svg('<rect x="5.8" y="1.8" width="4.4" height="7.4" rx="2.2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.2"/>'),
     refresh: svg('<path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v2.2h-2.2"/>'),
     output: svg('<path d="M2.5 3.5h11M2.5 6.5h11M2.5 9.5h7M2.5 12.5h5"/>'),
     spinner: '<svg class="icon spin" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2a6 6 0 1 1-6 6" /></svg>',

@@ -50,6 +50,7 @@ let commandSuggestions = CHAT_COMMANDS;
         const settingsProviderValue = document.getElementById('settings-provider-value');
         const inputField = document.getElementById('chat-input') as HTMLTextAreaElement;
         const mentionButton = document.getElementById('mention-button');
+        const voiceButton = document.getElementById('voice-button') as HTMLButtonElement | null;
         const newChatButton = document.getElementById('new-chat-button');
         const settingsButton = document.getElementById('settings-button');
         const sessionsButton = document.getElementById('sessions-button');
@@ -1067,6 +1068,44 @@ let commandSuggestions = CHAT_COMMANDS;
             updateComposerState();
         }
 
+        /** Inserts dictated text at the caret (replacing any selection), spacing it from neighbouring text. */
+        function insertComposerText(text) {
+            const value = inputField.value;
+            const start = typeof inputField.selectionStart === 'number' ? inputField.selectionStart : value.length;
+            const end = typeof inputField.selectionEnd === 'number' ? inputField.selectionEnd : start;
+            const before = value.slice(0, start);
+            const after = value.slice(end);
+            const trimmed = String(text || '').trim();
+            if (!trimmed) {
+                return;
+            }
+            const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : '';
+            const trail = after.length > 0 && !/^\s/.test(after) ? ' ' : '';
+            const insert = lead + trimmed + trail;
+            inputField.value = before + insert + after;
+            autoResizeInput();
+            inputField.focus();
+            const caret = before.length + lead.length + trimmed.length;
+            inputField.setSelectionRange(caret, caret);
+            updateSuggestions();
+            updateComposerState();
+        }
+
+        function renderVoiceState(state, message) {
+            if (!voiceButton) {
+                return;
+            }
+            const busy = state === 'busy';
+            voiceButton.classList.toggle('recording', busy);
+            voiceButton.setAttribute('aria-pressed', busy ? 'true' : 'false');
+            setIconContent(voiceButton, busy ? 'stop' : 'mic');
+            const label = busy
+                ? (message ? message + ' — click to cancel' : 'Cancel voice dictation')
+                : 'Voice dictation';
+            voiceButton.title = label;
+            voiceButton.setAttribute('aria-label', busy ? 'Cancel voice dictation' : 'Voice dictation');
+        }
+
         function recallHistory(direction) {
             if (promptHistory.length === 0) {
                 return false;
@@ -1114,6 +1153,9 @@ let commandSuggestions = CHAT_COMMANDS;
         }
 
         sendButton.addEventListener('click', handleSendButtonClick);
+        voiceButton?.addEventListener('click', () => {
+            post({ command: 'voiceDictation' });
+        });
         mentionButton.addEventListener('click', () => {
             const caret = typeof inputField.selectionStart === 'number' ? inputField.selectionStart : inputField.value.length;
             const before = inputField.value.slice(0, caret);
@@ -1455,6 +1497,11 @@ let commandSuggestions = CHAT_COMMANDS;
             } else if (message.command === 'prefillComposer') {
                 showChatPage();
                 setComposerText(message.text || '');
+            } else if (message.command === 'insertComposerText') {
+                showChatPage();
+                insertComposerText(message.text || '');
+            } else if (message.command === 'voiceState') {
+                renderVoiceState(message.state, message.message);
             } else if (message.command === 'focusInput') {
                 showChatPage();
                 inputField.focus();

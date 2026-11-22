@@ -117,6 +117,31 @@ describe('chat webview', function () {
             JSON.stringify(h.posted.filter(message => message.level === 'error')));
     });
 
+    it('mic button starts dictation, reflects voice state, and inserts the transcript at the caret', () => {
+        const button = h.$('#voice-button');
+        const input = h.$('#chat-input') as HTMLTextAreaElement;
+        assert.ok(button.querySelector('svg'));
+
+        button.click();
+        assert.ok(h.lastPosted('voiceDictation'));
+
+        h.send({ command: 'voiceState', state: 'busy', message: 'Listening' });
+        assert.ok(button.classList.contains('recording'));
+        assert.strictEqual(button.getAttribute('aria-pressed'), 'true');
+        assert.ok(button.title.includes('Listening'));
+
+        h.send({ command: 'voiceState', state: 'idle' });
+        assert.ok(!button.classList.contains('recording'));
+        assert.strictEqual(button.getAttribute('aria-pressed'), 'false');
+
+        h.type('fix the parser');
+        input.setSelectionRange(3, 3);
+        h.send({ command: 'insertComposerText', text: ' quickly ' });
+        assert.strictEqual(input.value, 'fix quickly the parser');
+        assert.strictEqual(input.selectionStart, 'fix quickly'.length);
+        assert.strictEqual((h.$('#send-button') as HTMLButtonElement).disabled, false);
+    });
+
     it('renders session info: title, model pill, and context meter warning', () => {
         h.send({ command: 'setSessionInfo', sessionInfo, workingDirectory: '/repo' });
         assert.strictEqual(h.$('#section-title').textContent, 'Refactor parser');

@@ -24,7 +24,13 @@ export type ChatMessage =
     | OpenLogsMessage
     | InsertCodeMessage
     | OpenInEditorMessage
-    | RunVsCodeCommandMessage;
+    | RunVsCodeCommandMessage
+    | VoiceDictationMessage;
+
+/** Mic button: start voice dictation, or cancel it while one is running. */
+type VoiceDictationMessage = {
+    command: 'voiceDictation';
+};
 
 /** Active editor snapshot shared with the webview for the context chip. */
 export type EditorContextInfo = {

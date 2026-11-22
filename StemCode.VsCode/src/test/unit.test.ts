@@ -183,3 +183,31 @@ describe('ChatWebviewContent', () => {
         assert.ok(/^[A-Za-z0-9]+$/.test(a));
     });
 });
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { describeVoiceProgress, joinDictation, quoteWindowsShellArg } = require('../commands/voice');
+
+describe('voice dictation helpers', () => {
+    it('quotes cmd.exe arguments only when needed', () => {
+        assert.strictEqual(quoteWindowsShellArg('--voice-dictate'), '--voice-dictate');
+        assert.strictEqual(quoteWindowsShellArg('base.en'), 'base.en');
+        assert.strictEqual(quoteWindowsShellArg('Microphone (USB Audio)'), '"Microphone (USB Audio)"');
+        assert.strictEqual(quoteWindowsShellArg('a&b'), '"a&b"');
+        assert.strictEqual(quoteWindowsShellArg('say "hi"'), '"say ""hi"""');
+        assert.strictEqual(quoteWindowsShellArg(''), '""');
+    });
+
+    it('joins dictated text onto existing text with single spaces', () => {
+        assert.strictEqual(joinDictation('', ' hello world '), 'hello world');
+        assert.strictEqual(joinDictation('fix', 'the parser'), 'fix the parser');
+        assert.strictEqual(joinDictation('fix ', 'the parser'), 'fix the parser');
+        assert.strictEqual(joinDictation('fix', 'the', 'parser'), 'fix the parser');
+        assert.strictEqual(joinDictation('fix', 'the', ' parser'), 'fix the parser');
+        assert.strictEqual(joinDictation('keep', '   '), 'keep');
+    });
+
+    it('turns the listening stage into a speak-now prompt', () => {
+        assert.ok(describeVoiceProgress('Listening').startsWith('Listening… speak now'));
+        assert.strictEqual(describeVoiceProgress(' Downloading voice model 40% '), 'Downloading voice model 40%');
+    });
+});

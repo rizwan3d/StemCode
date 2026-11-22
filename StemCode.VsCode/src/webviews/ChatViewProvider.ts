@@ -6,6 +6,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'stemcode.chatView';
 
     private controller: ChatWebviewController | undefined;
+    private readonly resolvedEmitter = new vscode.EventEmitter<ChatWebviewController>();
 
     constructor(
         private readonly sessionManager: SessionManager,
@@ -24,6 +25,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         webviewView.onDidDispose(() => {
             this.controller?.dispose();
             this.controller = undefined;
+        });
+
+        this.resolvedEmitter.fire(this.controller);
+    }
+
+    public isController(controller: ChatWebviewController): boolean {
+        return this.controller === controller;
+    }
+
+    /**
+     * Returns the sidebar chat controller, waiting briefly for VS Code to resolve the view
+     * when it was only just revealed (e.g. right after `stemcode.openChat`).
+     */
+    public waitForController(timeoutMs: number): Promise<ChatWebviewController | undefined> {
+        if (this.controller) {
+            return Promise.resolve(this.controller);
+        }
+
+        return new Promise(resolve => {
+            const timer = setTimeout(() => {
+                subscription.dispose();
+                resolve(this.controller);
+            }, timeoutMs);
+            const subscription = this.resolvedEmitter.event(controller => {
+                clearTimeout(timer);
+                subscription.dispose();
+                resolve(controller);
+            });
         });
     }
 

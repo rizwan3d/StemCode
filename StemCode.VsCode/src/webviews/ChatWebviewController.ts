@@ -25,7 +25,30 @@ import { parseExportedFile } from '../webview/chatCommands';
 /** VS Code commands the webview is allowed to trigger directly (starter buttons). */
 const ALLOWED_WEBVIEW_COMMANDS = new Set(['stemcode.reviewGitDiff']);
 
+/** Voice dictation state shown on every chat view's mic button. */
+export type VoiceUiState = {
+    state: 'idle' | 'busy';
+    message?: string;
+};
+
 export class ChatWebviewController {
+    /** Live chat views (sidebar and editor panel), used for voice state broadcasts. */
+    private static readonly instances = new Set<ChatWebviewController>();
+    /** The chat view the user interacted with most recently; voice transcripts go here. */
+    private static lastActive: ChatWebviewController | undefined;
+    private static voiceState: VoiceUiState = { state: 'idle' };
+
+    public static getLastActive(): ChatWebviewController | undefined {
+        return ChatWebviewController.lastActive;
+    }
+
+    public static setVoiceState(voiceState: VoiceUiState) {
+        ChatWebviewController.voiceState = voiceState;
+        for (const instance of ChatWebviewController.instances) {
+            instance.postVoiceState();
+        }
+    }
+
     private readonly disposables: vscode.Disposable[] = [];
     private readonly localRequestResolvers = new Map<string, (resolution: ClientRequestResolution) => void>();
     private readonly toolCalls = new Map<string, ToolCallUpdate>();
@@ -63,11 +86,18 @@ export class ChatWebviewController {
 
         this.registerSessionListeners();
         this.registerEditorListeners();
+        ChatWebviewController.instances.add(this);
 
         this.disposables.push(
             this.webview.onDidReceiveMessage(async (message: ChatMessage) => {
                 LogService.getInstance().info(`Chat webview message received: ${message.command}`);
-                if (message.command === 'sendMessage') {
+                if (message.command !== 'webviewLog' && message.command !== 'ready') {
+                    ChatWebviewController.lastActive = this;
+                }
+
+                if (message.command === 'voiceDictation') {
+                    await this.executeVsCodeCommand('stemcode.voiceDictation');
+                } else if (message.command === 'sendMessage') {
                     await this.handleUserMessage(message.text, message.editorContext);
                 } else if (message.command === 'newChat') {
                     await this.startNewChatSession();
@@ -125,6 +155,7 @@ export class ChatWebviewController {
                     this.webviewReady = true;
                     LogService.getInstance().info('Chat webview reported ready');
                     this.postActiveEditor();
+                    this.postVoiceState();
                     await this.postInitialState();
                     await this.ensureSessionReady();
                 }
@@ -136,7 +167,16 @@ export class ChatWebviewController {
         this.scheduleBootstrap();
     }
 
+    public get isDisposed(): boolean {
+        return !ChatWebviewController.instances.has(this);
+    }
+
     public dispose() {
+        ChatWebviewController.instances.delete(this);
+        if (ChatWebviewController.lastActive === this) {
+            ChatWebviewController.lastActive = undefined;
+        }
+
         if (this.bootstrapTimer) {
             clearTimeout(this.bootstrapTimer);
             this.bootstrapTimer = null;
@@ -171,6 +211,15 @@ export class ChatWebviewController {
 
     public prefillMessage(text: string) {
         this.webview.postMessage({ command: 'prefillComposer', text });
+    }
+
+    /** Inserts dictated text at the composer caret, keeping whatever the user already typed. */
+    public insertDictation(text: string) {
+        this.webview.postMessage({ command: 'insertComposerText', text });
+    }
+
+    private postVoiceState() {
+        this.webview.postMessage({ command: 'voiceState', ...ChatWebviewController.voiceState });
     }
 
     public showSettings() {

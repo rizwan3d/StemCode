@@ -160,6 +160,15 @@ export class StemCodeProcessManager extends EventEmitter {
         return this.status;
     }
 
+    /**
+     * The StemCode CLI command, resolved and quoted the same way as the agent process,
+     * for one-shot helpers (such as voice dictation) that spawn their own CLI process.
+     */
+    public getCliSpawnCommand(): string {
+        const configured = vscode.workspace.getConfiguration('stemcode').get<string>('command', 'stemcode');
+        return this.prepareCommandForSpawn(this.resolveCommand(configured));
+    }
+
     private setStatus(status: StemCodeProcessStatus) {
         this.status = status;
         this.emit('status', status);
