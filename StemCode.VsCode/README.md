@@ -68,6 +68,14 @@ Then open the StemCode view in VS Code or run `StemCode: Open Chat` from the Com
 - Session history (resume, fork, export), a settings page, a skills marketplace, and process controls (start, stop, restart, logs).
 - Follows your VS Code theme, including light and high-contrast themes.
 
+**Every CLI command**
+
+- All `stemcode` CLI slash commands work in the chat. The `/` suggestion list comes from the CLI you're running, so it includes custom commands from `.stemcode/commands`.
+- **StemCode: Run Slash Command...** in the Command Palette lists every command. Commands that take arguments are prefilled in the composer.
+- Common actions also have their own palette entries: undo/redo AI edits, compact, fork, clone, session tree, resume, export, import, share, trajectory, model/provider selection, onboarding, `/init`, doctor, permissions, MCP, codebase index, language servers, reload, update, and version.
+- The terminal-only commands map to VS Code: `/voice` (and `/voice setup`, `/voice update`) runs voice dictation, `/trajectory` exports the trajectory HTML and opens it, `/copy` uses the VS Code clipboard (this also works in remote windows), and `/exit` stops the CLI process. `/export` offers to open the exported file.
+- Commands that switch sessions (`/fork`, `/clone`, `/import`, `/resume`, `/tree`) reload the chat with the new session's history.
+
 ## Skills
 
 Open **Settings (gear) → Workspace → Skills** in the StemCode chat view to manage data-only skills without leaving VS Code:

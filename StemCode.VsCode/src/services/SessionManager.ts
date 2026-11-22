@@ -5,6 +5,7 @@ import { AcpClient } from './AcpClient';
 import { LogService } from './LogService';
 import { StemCodeProcessManager, StemCodeProcessStatus } from './StemCodeProcessManager';
 import { AcpNotification, AcpRequest } from '../types/acp';
+import { readAvailableCommand } from '../webview/chatCommands';
 import type {
     SessionPromptResult,
     AgentProfileInfo,
@@ -21,7 +22,8 @@ import type {
     PermissionClientRequest,
     TextClientRequest,
     PermissionOption,
-    ClientRequestResolution
+    ClientRequestResolution,
+    AvailableCommand
 } from './sessionTypes';
 
 export * from './sessionTypes';
@@ -53,6 +55,7 @@ export class SessionManager extends EventEmitter {
     };
     private initializePromise: Promise<void> | null = null;
     private pendingClientRequests = new Map<string, PendingClientRequest>();
+    private availableCommands: AvailableCommand[] = [];
     private promptTail: Promise<void> = Promise.resolve();
     private sessionId: string | null = null;
     private sessionPromise: Promise<string> | null = null;
@@ -525,6 +528,38 @@ export class SessionManager extends EventEmitter {
             this.currentFileEditsSummary = fileEdits;
             this.emit('fileEditsSummaryChanged', fileEdits);
         }
+
+        const commands = this.tryReadAvailableCommands(message);
+        if (commands) {
+            this.availableCommands = commands;
+            this.emit('availableCommandsChanged', commands);
+        }
+
+        const sessionUpdate = this.tryReadSessionUpdate(message);
+        if (sessionUpdate && this.optionalString(sessionUpdate.update.sessionUpdate) === 'session_history_reset') {
+            // A command like /fork or /resume switched sections; the CLI replays the new
+            // section's history right after this, so drop per-session state first.
+            this.currentFileEditsSummary = null;
+            this.emit('sessionHistoryReset', sessionUpdate.sessionId);
+        }
+    }
+
+    /** Commands advertised by the CLI for the current session (empty until the first update). */
+    public getAvailableCommands(): AvailableCommand[] {
+        return this.availableCommands;
+    }
+
+    private tryReadAvailableCommands(message: AcpNotification): AvailableCommand[] | null {
+        const sessionUpdate = this.tryReadSessionUpdate(message);
+        if (!sessionUpdate ||
+            this.optionalString(sessionUpdate.update.sessionUpdate) !== 'available_commands_update' ||
+            !Array.isArray(sessionUpdate.update.availableCommands)) {
+            return null;
+        }
+
+        return sessionUpdate.update.availableCommands
+            .map((entry) => readAvailableCommand(entry))
+            .filter((command): command is AvailableCommand => command !== null);
     }
 
     public getFileEditsSummary(): FileEditsSummary | null {

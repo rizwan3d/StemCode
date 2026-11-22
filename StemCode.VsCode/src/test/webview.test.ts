@@ -354,6 +354,25 @@ describe('chat webview', function () {
         assert.strictEqual(h.lastPosted('sendMessage')?.text, '/compact 5');
     });
 
+    it('replaces the slash command list with the CLI-advertised commands', () => {
+        const input = h.$('#chat-input') as HTMLTextAreaElement;
+        h.send({
+            command: 'setAvailableCommands',
+            commands: [
+                { name: 'review-pr', description: 'Review a PR', usage: '/review-pr <number>', input: { hint: '<number>' }, custom: true },
+                { name: 'help', description: 'List commands.', usage: '/help', custom: false }
+            ]
+        });
+        h.type('/review');
+        assert.strictEqual(h.$('.suggestion.active .suggestion-usage').textContent, '/review-pr <number>');
+        h.key(input, 'Tab');
+        assert.strictEqual(input.value, '/review-pr ');
+
+        // Locally handled commands stay available alongside the server list.
+        h.type('/voi');
+        assert.ok(h.$$('.suggestion').some(item => item.textContent?.includes('/voice setup')));
+    });
+
     it('requests @file mentions and inserts the chosen path', () => {
         const input = h.$('#chat-input') as HTMLTextAreaElement;
         h.type('look at @pars');

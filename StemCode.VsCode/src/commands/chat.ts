@@ -4,6 +4,7 @@ import { ChatPanel } from '../webviews/ChatPanel';
 import { SessionManager } from '../services/SessionManager';
 import { ChatViewProvider } from '../webviews/ChatViewProvider';
 import { LogService } from '../services/LogService';
+import { buildChatCommands, ChatCommandSuggestion } from '../webview/chatCommands';
 
 export function registerChatCommands(
     context: vscode.ExtensionContext,
@@ -130,8 +131,74 @@ export function registerChatCommands(
         }),
         vscode.commands.registerCommand('stemcode.showTerminals', async () => {
             await submitPrompt('/terminals');
-        })
+        }),
+        vscode.commands.registerCommand('stemcode.runSlashCommand', async () => {
+            const command = await pickSlashCommand(sessionManager);
+            if (!command) {
+                return;
+            }
+
+            // Commands with arguments are prefilled so the user can complete them.
+            if (command.insertText.endsWith(' ')) {
+                await prefillPrompt(command.insertText);
+            } else {
+                await submitPrompt(command.command);
+            }
+        }),
+        ...DIRECT_SLASH_COMMANDS.map(([commandId, text]) =>
+            vscode.commands.registerCommand(commandId, async () => {
+                await submitPrompt(text);
+            }))
     );
+}
+
+/** Palette commands that map one-to-one onto a CLI slash command. */
+export const DIRECT_SLASH_COMMANDS: ReadonlyArray<readonly [commandId: string, slashCommand: string]> = [
+    ['stemcode.undo', '/undo'],
+    ['stemcode.redo', '/redo'],
+    ['stemcode.compact', '/compact'],
+    ['stemcode.fork', '/fork'],
+    ['stemcode.clone', '/clone'],
+    ['stemcode.sessionTree', '/tree'],
+    ['stemcode.resumeSession', '/resume'],
+    ['stemcode.exportSession', '/export'],
+    ['stemcode.exportTrajectory', '/trajectory'],
+    ['stemcode.importSession', '/import'],
+    ['stemcode.shareSession', '/share'],
+    ['stemcode.selectModel', '/models'],
+    ['stemcode.selectProvider', '/provider'],
+    ['stemcode.onboard', '/onboard'],
+    ['stemcode.initWorkspace', '/init'],
+    ['stemcode.doctor', '/doctor'],
+    ['stemcode.sessionInfo', '/session'],
+    ['stemcode.permissions', '/permissions'],
+    ['stemcode.mcpStatus', '/mcp'],
+    ['stemcode.indexStatus', '/index status'],
+    ['stemcode.indexRebuild', '/index rebuild'],
+    ['stemcode.lspStatus', '/lsp'],
+    ['stemcode.reload', '/reload'],
+    ['stemcode.checkForUpdates', '/update'],
+    ['stemcode.version', '/version'],
+    ['stemcode.copyLastMessage', '/copy']
+];
+
+async function pickSlashCommand(sessionManager: SessionManager): Promise<ChatCommandSuggestion | undefined> {
+    const commands = buildChatCommands(sessionManager.getAvailableCommands());
+    const picked = await vscode.window.showQuickPick(
+        commands.map((command) => ({
+            label: command.command,
+            description: command.usage !== command.command ? command.usage.slice(command.command.length).trim() : '',
+            detail: command.description,
+            command
+        })),
+        {
+            title: 'StemCode: Run Slash Command',
+            placeHolder: 'Type to filter StemCode CLI commands',
+            matchOnDescription: true,
+            matchOnDetail: true
+        });
+
+    return picked?.command;
 }
 
 function getSelectedText(): EditorText | undefined {

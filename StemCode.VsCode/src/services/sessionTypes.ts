@@ -118,6 +118,9 @@ export type TextClientRequest = {
     allowCancellation: boolean;
 };
 
+/** A slash command advertised by the CLI through ACP `available_commands_update`. */
+export type { AvailableCommandEntry as AvailableCommand } from '../webview/chatCommands';
+
 export type PermissionOption = {
     optionId: string;
     name: string;

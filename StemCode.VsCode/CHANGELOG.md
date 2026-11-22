@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Every StemCode CLI command now works in VS Code. The CLI sends its full command list over ACP (`available_commands_update`), including custom `.stemcode/commands`, and the chat's `/` suggestions use it. The built-in list, now complete, is only a fallback.
+- Added **StemCode: Run Slash Command...** plus palette commands for undo/redo, compact, fork, clone, session tree, resume, export/import/share, trajectory, model/provider selection, onboarding, init, doctor, permissions, MCP, index, LSP, reload, update, version, and copy.
+- `/voice`, `/voice setup`, `/voice update`, `/trajectory`, `/copy`, and `/exit` map to VS Code behavior. `/export` offers to open the exported file.
+- `/fork`, `/clone`, `/import`, `/resume`, and `/tree` now reset the chat and replay the new session's history (new `session_history_reset` ACP update).
+
 ## 0.1.0
 
 - Redesigned the chat view to work like a coding agent: user prompts in boxed messages, compact tool-call rows with live status, inline diffs, a collapsible thinking section, and per-turn stats.

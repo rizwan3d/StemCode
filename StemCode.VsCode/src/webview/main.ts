@@ -1,5 +1,5 @@
 import { buildDiffModel } from './diffModel';
-import { CHAT_COMMANDS } from './chatCommands';
+import { CHAT_COMMANDS, buildChatCommands, readAvailableCommand } from './chatCommands';
 import { ICONS, iconElement, setIconContent } from './icons';
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): unknown; setState(state: unknown): void };
@@ -27,7 +27,8 @@ window.addEventListener('unhandledrejection', event => {
 });
 
 api.postMessage({ command: 'webviewLog', level: 'info', message: 'Main script starting' });
-const commandSuggestions = CHAT_COMMANDS;
+// Replaced by the CLI's live list (built-ins + custom commands) once it is advertised.
+let commandSuggestions = CHAT_COMMANDS;
         const messagesDiv = document.getElementById('messages');
         const emptyState = document.getElementById('empty-state');
         const settingsPage = document.getElementById('settings-page');
@@ -1333,6 +1334,12 @@ const commandSuggestions = CHAT_COMMANDS;
                 renderAgentThreads();
                 updateStatusRail();
                 updateJumpToLatest();
+            } else if (message.command === 'setAvailableCommands') {
+                const entries = Array.isArray(message.commands)
+                    ? message.commands.map(readAvailableCommand).filter(Boolean)
+                    : [];
+                commandSuggestions = buildChatCommands(entries);
+                updateSuggestions();
             } else if (message.command === 'setSessionInfo') {
                 sessionInfo = message.sessionInfo;
                 workingDirectory = message.workingDirectory || '';

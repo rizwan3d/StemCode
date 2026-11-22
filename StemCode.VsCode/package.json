@@ -174,6 +174,168 @@
         "title": "Open Settings",
         "category": "StemCode",
         "icon": "$(gear)"
+      },
+      {
+        "command": "stemcode.runSlashCommand",
+        "title": "Run Slash Command...",
+        "category": "StemCode",
+        "icon": "$(terminal-cmd)"
+      },
+      {
+        "command": "stemcode.undo",
+        "title": "Undo Last AI Edit",
+        "category": "StemCode",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "stemcode.redo",
+        "title": "Redo Last AI Edit",
+        "category": "StemCode",
+        "icon": "$(redo)"
+      },
+      {
+        "command": "stemcode.compact",
+        "title": "Compact Session Context",
+        "category": "StemCode",
+        "icon": "$(fold)"
+      },
+      {
+        "command": "stemcode.fork",
+        "title": "Fork Session",
+        "category": "StemCode",
+        "icon": "$(repo-forked)"
+      },
+      {
+        "command": "stemcode.clone",
+        "title": "Clone Session",
+        "category": "StemCode",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "stemcode.sessionTree",
+        "title": "Navigate Session Tree",
+        "category": "StemCode",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "stemcode.resumeSession",
+        "title": "Resume Session...",
+        "category": "StemCode",
+        "icon": "$(history)"
+      },
+      {
+        "command": "stemcode.exportSession",
+        "title": "Export Session...",
+        "category": "StemCode",
+        "icon": "$(export)"
+      },
+      {
+        "command": "stemcode.exportTrajectory",
+        "title": "Open Session Trajectory",
+        "category": "StemCode",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "stemcode.importSession",
+        "title": "Import Session...",
+        "category": "StemCode",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "stemcode.shareSession",
+        "title": "Share Session as Gist",
+        "category": "StemCode",
+        "icon": "$(live-share)"
+      },
+      {
+        "command": "stemcode.selectModel",
+        "title": "Select Model...",
+        "category": "StemCode",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "stemcode.selectProvider",
+        "title": "Select Provider...",
+        "category": "StemCode",
+        "icon": "$(server)"
+      },
+      {
+        "command": "stemcode.onboard",
+        "title": "Re-run Provider Onboarding",
+        "category": "StemCode",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "stemcode.initWorkspace",
+        "title": "Initialize Workspace Files",
+        "category": "StemCode",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "stemcode.doctor",
+        "title": "Run Diagnostics (Doctor)",
+        "category": "StemCode",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "stemcode.sessionInfo",
+        "title": "Show Session Info",
+        "category": "StemCode",
+        "icon": "$(info)"
+      },
+      {
+        "command": "stemcode.permissions",
+        "title": "Show Permissions",
+        "category": "StemCode",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "stemcode.mcpStatus",
+        "title": "Show MCP Servers and Tools",
+        "category": "StemCode",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "stemcode.indexStatus",
+        "title": "Show Codebase Index Status",
+        "category": "StemCode",
+        "icon": "$(database)"
+      },
+      {
+        "command": "stemcode.indexRebuild",
+        "title": "Rebuild Codebase Index",
+        "category": "StemCode",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "stemcode.lspStatus",
+        "title": "Show Language Servers",
+        "category": "StemCode",
+        "icon": "$(symbol-class)"
+      },
+      {
+        "command": "stemcode.reload",
+        "title": "Reload Skills, Prompts, and Extensions",
+        "category": "StemCode",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "stemcode.checkForUpdates",
+        "title": "Check for CLI Updates",
+        "category": "StemCode",
+        "icon": "$(cloud)"
+      },
+      {
+        "command": "stemcode.version",
+        "title": "Show CLI Version",
+        "category": "StemCode",
+        "icon": "$(versions)"
+      },
+      {
+        "command": "stemcode.copyLastMessage",
+        "title": "Copy Last Agent Message",
+        "category": "StemCode",
+        "icon": "$(clippy)"
       }
     ],
     "menus": {
@@ -220,6 +382,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "stemcode.runSlashCommand",
+          "when": "view == stemcode.chatView",
+          "group": "1_tools@0"
+        },
+        {
           "command": "stemcode.showTerminals",
           "when": "view == stemcode.chatView",
           "group": "1_tools@1"
@@ -248,6 +415,36 @@
           "command": "stemcode.openLogs",
           "when": "view == stemcode.chatView",
           "group": "3_diagnostics@1"
+        },
+        {
+          "command": "stemcode.undo",
+          "when": "view == stemcode.chatView",
+          "group": "4_edits@1"
+        },
+        {
+          "command": "stemcode.redo",
+          "when": "view == stemcode.chatView",
+          "group": "4_edits@2"
+        },
+        {
+          "command": "stemcode.exportSession",
+          "when": "view == stemcode.chatView",
+          "group": "5_session@1"
+        },
+        {
+          "command": "stemcode.resumeSession",
+          "when": "view == stemcode.chatView",
+          "group": "5_session@2"
+        },
+        {
+          "command": "stemcode.fork",
+          "when": "view == stemcode.chatView",
+          "group": "5_session@3"
+        },
+        {
+          "command": "stemcode.doctor",
+          "when": "view == stemcode.chatView",
+          "group": "3_diagnostics@2"
         }
       ]
     },

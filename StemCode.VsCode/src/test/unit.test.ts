@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { buildDiffModel } from '../webview/diffModel';
-import { CHAT_COMMANDS } from '../webview/chatCommands';
+import { buildChatCommands, CHAT_COMMANDS, parseExportedFile, readAvailableCommand } from '../webview/chatCommands';
 import {
     formatEditorContextLabel,
     formatPromptWithEditorContext,
@@ -62,6 +62,49 @@ describe('chatCommands', () => {
             assert.ok(!seen.has(command.command), `duplicate ${command.command}`);
             seen.add(command.command);
         }
+    });
+
+    it('covers every CLI built-in plus the locally handled terminal commands', () => {
+        const names = new Set(CHAT_COMMANDS.map(command => command.command));
+        for (const expected of ['/autocommit', '/doctor', '/index', '/lessons', '/lsp', '/reasoning', '/redact',
+            '/setup-sandbox', '/tooloutput', '/version', '/voice', '/voice setup', '/trajectory', '/copy', '/exit']) {
+            assert.ok(names.has(expected), `missing ${expected}`);
+        }
+    });
+
+    it('parses ACP available_commands_update entries', () => {
+        assert.deepStrictEqual(
+            readAvailableCommand({ name: 'compact', description: 'Compact.', usage: '/compact [retained-turns]', input: { hint: '[retained-turns]' } }),
+            { name: 'compact', description: 'Compact.', usage: '/compact [retained-turns]', inputHint: '[retained-turns]', custom: false });
+        assert.deepStrictEqual(
+            readAvailableCommand({ name: '/review', description: 'Review', input: { hint: '<file>' }, custom: true }),
+            { name: 'review', description: 'Review', usage: '/review <file>', inputHint: '<file>', custom: true });
+        assert.strictEqual(readAvailableCommand({ name: 'has space' }), null);
+        assert.strictEqual(readAvailableCommand('compact'), null);
+    });
+
+    it('merges server commands with local ones and falls back to the static catalog', () => {
+        const merged = buildChatCommands([
+            { name: 'review', description: 'Review a file', usage: '/review <file>', inputHint: '<file>', custom: true },
+            { name: 'copy', description: 'server copy', usage: '/copy', custom: false }
+        ]);
+        const review = merged.find(command => command.command === '/review');
+        assert.ok(review);
+        assert.strictEqual(review.insertText, '/review ');
+        assert.ok(review.description.includes('(custom)'));
+        // Local handling wins for commands the extension intercepts.
+        assert.strictEqual(merged.find(command => command.command === '/copy')?.description,
+            'Copy the last agent message to the clipboard.');
+        // Server-provided list replaces the static fallback.
+        assert.ok(!merged.some(command => command.command === '/doctor'));
+        assert.ok(buildChatCommands([]).some(command => command.command === '/doctor'));
+    });
+
+    it('extracts the exported file path from /export output', () => {
+        assert.deepStrictEqual(
+            parseExportedFile('Exported session as TRAJECTORY:\nC:\\tmp\\s.trajectory.html'),
+            { format: 'TRAJECTORY', filePath: 'C:\\tmp\\s.trajectory.html' });
+        assert.strictEqual(parseExportedFile('Export cancelled.'), null);
     });
 });
 

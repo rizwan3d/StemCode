@@ -13,12 +13,14 @@ import {
     SessionMessageChunk,
     SessionSummaryInfo,
     ToolCallUpdate,
-    TurnMetrics
+    TurnMetrics,
+    AvailableCommand
 } from '../services/SessionManager';
 import { StemCodeProcessStatus } from '../services/StemCodeProcessManager';
 import { getChatWebviewContent, getNonce } from './ChatWebviewContent';
 import type { ChatMessage, EditorContextInfo } from './chatMessages';
 import { CapturedEditorContext, formatEditorContextLabel, formatPromptWithEditorContext } from './editorContext';
+import { parseExportedFile } from '../webview/chatCommands';
 
 /** VS Code commands the webview is allowed to trigger directly (starter buttons). */
 const ALLOWED_WEBVIEW_COMMANDS = new Set(['stemcode.reviewGitDiff']);
@@ -35,6 +37,10 @@ export class ChatWebviewController {
     private webviewReady = false;
     private bootstrapAttempt = 0;
     private editorContextTimer: NodeJS.Timeout | null = null;
+    /** Text of the most recent agent message, for /copy. */
+    private lastAssistantText = '';
+    /** Active captures of agent output, used to read slash-command results such as export paths. */
+    private readonly outputCaptures = new Set<{ text: string }>();
 
     constructor(
         private readonly webview: vscode.Webview,
@@ -291,6 +297,12 @@ export class ChatWebviewController {
             this.postSessionInfo(sessionInfo);
         };
         const messageChunkListener = (chunk: SessionMessageChunk) => {
+            if (chunk.role === 'assistant') {
+                for (const capture of this.outputCaptures) {
+                    capture.text += chunk.text;
+                }
+            }
+
             this.webview.postMessage({ command: 'appendMessageChunk', chunk });
         };
         const toolCallListener = (update: ToolCallUpdate) => {
@@ -311,6 +323,16 @@ export class ChatWebviewController {
         const clientRequestResolvedListener = (requestId: string) => {
             this.webview.postMessage({ command: 'resolveClientRequest', requestId });
         };
+        const availableCommandsListener = (commands: AvailableCommand[]) => {
+            this.webview.postMessage({ command: 'setAvailableCommands', commands });
+        };
+        const sessionHistoryResetListener = () => {
+            // The CLI switched sections (/fork, /clone, /import, /resume, /tree) and is
+            // about to replay the new section's history.
+            this.clearSessionActivity();
+            this.lastAssistantText = '';
+            this.webview.postMessage({ command: 'clearMessages' });
+        };
 
         this.sessionManager.on('processStatusChanged', processStatusListener);
         this.sessionManager.on('promptStateChanged', promptStateListener);
@@ -321,8 +343,12 @@ export class ChatWebviewController {
         this.sessionManager.on('fileEditsSummaryChanged', fileEditsSummaryListener);
         this.sessionManager.on('clientRequest', clientRequestListener);
         this.sessionManager.on('clientRequestResolved', clientRequestResolvedListener);
+        this.sessionManager.on('availableCommandsChanged', availableCommandsListener);
+        this.sessionManager.on('sessionHistoryReset', sessionHistoryResetListener);
 
         this.disposables.push(
+            new vscode.Disposable(() => this.sessionManager.off('availableCommandsChanged', availableCommandsListener)),
+            new vscode.Disposable(() => this.sessionManager.off('sessionHistoryReset', sessionHistoryResetListener)),
             new vscode.Disposable(() => this.sessionManager.off('processStatusChanged', processStatusListener)),
             new vscode.Disposable(() => this.sessionManager.off('promptStateChanged', promptStateListener)),
             new vscode.Disposable(() => this.sessionManager.off('sessionInfoChanged', sessionInfoListener)),
@@ -344,6 +370,11 @@ export class ChatWebviewController {
         void this.postProcessStatus(this.sessionManager.getProcessStatus());
         void this.postPromptState(this.sessionManager.getPromptState());
         void this.postSessionInfo(this.currentSessionInfo);
+
+        const commands = this.sessionManager.getAvailableCommands();
+        if (commands.length > 0) {
+            void this.postToWebview({ command: 'setAvailableCommands', commands }, 'available commands');
+        }
 
         if (this.currentPlan) {
             void this.postToWebview({ command: 'setPlan', plan: this.currentPlan }, 'plan');
@@ -436,15 +467,36 @@ export class ChatWebviewController {
             return;
         }
 
+        if (await this.tryHandleLocalCommand(trimmedText)) {
+            return;
+        }
+
+        if (/^\/export(\s|$)/i.test(trimmedText)) {
+            await this.runExportCommand(trimmedText, false);
+            return;
+        }
+
+        const isSlashCommand = trimmedText.startsWith('/');
+        // Agent replies (not command output) are remembered for /copy.
+        const reply = { text: '' };
+        if (!isSlashCommand) {
+            this.outputCaptures.add(reply);
+        }
+
         try {
             const result = await this.sessionManager.sendPrompt(formatPromptWithEditorContext(trimmedText, context));
-            if (!trimmedText.startsWith('/')) {
+            if (!isSlashCommand) {
                 this.postTurnMetrics(result?.metrics);
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
             LogService.getInstance().error('Chat request failed', error);
             this.postSystemMessage(`Error: ${message}`);
+        } finally {
+            this.outputCaptures.delete(reply);
+            if (reply.text.trim()) {
+                this.lastAssistantText = reply.text;
+            }
         }
     }
 
@@ -477,6 +529,110 @@ export class ChatWebviewController {
         }
 
         this.postChatMessage(parts.join(' / '), 'metrics');
+    }
+
+    /**
+     * Commands the terminal CLI handles in its own UI rather than in the backend.
+     * The extension maps them to VS Code equivalents. Returns true when handled.
+     */
+    private async tryHandleLocalCommand(trimmedText: string): Promise<boolean> {
+        const normalized = trimmedText.replace(/\s+/g, ' ').toLowerCase();
+        switch (normalized) {
+            case '/voice':
+                await this.executeVsCodeCommand('stemcode.voiceDictation');
+                return true;
+            case '/voice setup':
+                await this.executeVsCodeCommand('stemcode.voiceSetup');
+                return true;
+            case '/voice update':
+                await this.executeVsCodeCommand('stemcode.voiceUpdate');
+                return true;
+            case '/trajectory':
+            case '/traj':
+                await this.runExportCommand('/export trajectory', true);
+                return true;
+            case '/copy':
+                await this.copyLastAgentMessage();
+                return true;
+            case '/exit':
+                this.postSystemMessage('Stopping StemCode. Send a message or run "StemCode: Start" to start it again.');
+                await this.executeVsCodeCommand('stemcode.stop');
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private async executeVsCodeCommand(commandId: string) {
+        try {
+            await vscode.commands.executeCommand(commandId);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            LogService.getInstance().error(`Command '${commandId}' failed`, error);
+            this.postSystemMessage(`Error: ${message}`);
+        }
+    }
+
+    private async copyLastAgentMessage() {
+        const text = this.lastAssistantText.trim();
+        if (!text) {
+            this.postSystemMessage('There is no agent message to copy yet.');
+            return;
+        }
+
+        await vscode.env.clipboard.writeText(text);
+        this.postSystemMessage('Copied the last agent message to the clipboard.');
+    }
+
+    /**
+     * Runs /export through the CLI, then opens the exported file: HTML in the browser,
+     * JSON in an editor. When openAutomatically is false the user is offered a button.
+     */
+    private async runExportCommand(commandText: string, openAutomatically: boolean) {
+        const output = await this.runSessionCommandCapturingOutput(commandText, 'Export failed');
+        const exported = parseExportedFile(output);
+        if (!exported) {
+            return;
+        }
+
+        const uri = vscode.Uri.file(exported.filePath);
+        const isHtml = /\.html?$/i.test(exported.filePath);
+        if (!openAutomatically) {
+            const choice = await vscode.window.showInformationMessage(
+                `Exported StemCode session as ${exported.format}.`,
+                isHtml ? 'Open in Browser' : 'Open',
+                'Reveal File');
+            if (choice === 'Reveal File') {
+                await vscode.commands.executeCommand('revealFileInOS', uri);
+                return;
+            }
+
+            if (!choice) {
+                return;
+            }
+        }
+
+        if (isHtml) {
+            await vscode.env.openExternal(uri);
+        } else {
+            await vscode.window.showTextDocument(uri, { preview: false });
+        }
+    }
+
+    private async runSessionCommandCapturingOutput(commandText: string, logContext: string): Promise<string> {
+        const capture = { text: '' };
+        this.outputCaptures.add(capture);
+        try {
+            await this.sessionManager.sendPrompt(commandText);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            LogService.getInstance().error(logContext, error);
+            this.postSystemMessage(`Error: ${message}`);
+        } finally {
+            this.outputCaptures.delete(capture);
+        }
+
+        return capture.text;
     }
 
     private async handleModelSelection() {

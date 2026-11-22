@@ -527,6 +527,7 @@ internal sealed class AcpServer : IAsyncDisposable
             cancellationToken);
 
         await SendSessionInfoUpdateAsync(session, cancellationToken);
+        await SendAvailableCommandsAsync(session, cancellationToken);
     }
 
     // Reads the on-disk session store directly — no backend/provider init needed just to list.
@@ -597,6 +598,7 @@ internal sealed class AcpServer : IAsyncDisposable
             cancellationToken);
 
         await SendSessionInfoUpdateAsync(session, cancellationToken);
+        await SendAvailableCommandsAsync(session, cancellationToken);
     }
 
     private async Task HandleSessionPromptAsync(
@@ -652,6 +654,21 @@ internal sealed class AcpServer : IAsyncDisposable
                         promptCancellation.Token);
                     session.SessionInfo = commandResult.SessionInfo;
                     await SendSessionInfoUpdateAsync(session, cancellationToken);
+
+                    // Commands like /fork, /clone, /import, /resume, and /tree switch the
+                    // backend to another section. The terminal re-renders the transcript;
+                    // ACP clients get a reset signal followed by the new section's history.
+                    if (commandResult.CommandResult.ReplaySession)
+                    {
+                        await SendSessionHistoryResetAsync(session.SessionId, cancellationToken);
+                        await ReplayConversationHistoryAsync(
+                            session.SessionId,
+                            commandResult.SessionInfo,
+                            cancellationToken);
+                    }
+
+                    // /reload, /init, and /skill install can change the command set.
+                    await SendAvailableCommandsAsync(session, cancellationToken);
                     responseText = FormatCommandResultMessage(commandResult.CommandResult);
                 }
             }
@@ -800,7 +817,7 @@ internal sealed class AcpServer : IAsyncDisposable
 
             if (replayHistory)
             {
-                await ReplayConversationHistoryAsync(sessionInfo, cancellationToken);
+                await ReplayConversationHistoryAsync(sessionInfo.SessionId, sessionInfo, cancellationToken);
             }
 
             return session;
@@ -812,7 +829,10 @@ internal sealed class AcpServer : IAsyncDisposable
         }
     }
 
+    // acpSessionId is the client-facing id; it can differ from sessionInfo.SessionId
+    // after commands such as /fork or /resume switch the backend to another section.
     private async Task ReplayConversationHistoryAsync(
+        string acpSessionId,
         BackendSessionInfo sessionInfo,
         CancellationToken cancellationToken)
     {
@@ -830,7 +850,7 @@ internal sealed class AcpServer : IAsyncDisposable
                 if (!string.IsNullOrWhiteSpace(reasoningText))
                 {
                     await SendThinkingAsync(
-                        sessionInfo.SessionId,
+                        acpSessionId,
                         reasoningText,
                         cancellationToken);
                 }
@@ -841,7 +861,7 @@ internal sealed class AcpServer : IAsyncDisposable
                 : "agent_message_chunk";
 
             await SendMessageChunkAsync(
-                sessionInfo.SessionId,
+                acpSessionId,
                 updateKind,
                 message.Content,
                 cancellationToken);
@@ -974,6 +994,131 @@ internal sealed class AcpServer : IAsyncDisposable
             },
             cancellationToken);
     }
+
+    private Task SendSessionHistoryResetAsync(string sessionId, CancellationToken cancellationToken)
+    {
+        return SendNotificationAsync(
+            "session/update",
+            writer =>
+            {
+                writer.WriteStartObject();
+                writer.WriteString("sessionId", sessionId);
+                writer.WritePropertyName("update");
+                writer.WriteStartObject();
+                writer.WriteString("sessionUpdate", "session_history_reset");
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            },
+            cancellationToken);
+    }
+
+    // Standard ACP available_commands_update. Names omit the leading slash per the ACP
+    // spec; "usage" is a StemCode extension field clients may show as a hint.
+    private Task SendAvailableCommandsAsync(AcpSession session, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<AcpAvailableCommand> commands = GetAvailableCommands(session.WorkingDirectory);
+
+        return SendNotificationAsync(
+            "session/update",
+            writer =>
+            {
+                writer.WriteStartObject();
+                writer.WriteString("sessionId", session.SessionId);
+                writer.WritePropertyName("update");
+                writer.WriteStartObject();
+                writer.WriteString("sessionUpdate", "available_commands_update");
+                writer.WriteStartArray("availableCommands");
+                foreach (AcpAvailableCommand command in commands)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("name", command.Name);
+                    writer.WriteString("description", command.Description);
+                    writer.WriteString("usage", command.Usage);
+                    writer.WriteBoolean("custom", command.IsCustom);
+                    if (!string.IsNullOrWhiteSpace(command.InputHint))
+                    {
+                        writer.WritePropertyName("input");
+                        writer.WriteStartObject();
+                        writer.WriteString("hint", command.InputHint);
+                        writer.WriteEndObject();
+                    }
+
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            },
+            cancellationToken);
+    }
+
+    internal static IReadOnlyList<AcpAvailableCommand> GetAvailableCommands(string workingDirectory)
+    {
+        List<AcpAvailableCommand> commands = ReplCommandCatalog.All
+            .Select(static metadata => CreateAvailableCommand(
+                metadata.CommandName,
+                metadata.Usage,
+                metadata.Description,
+                isCustom: false))
+            .ToList();
+
+        HashSet<string> builtInNames = new(
+            commands.Select(static command => command.Name),
+            StringComparer.OrdinalIgnoreCase);
+
+        IReadOnlyList<CustomSlashCommandDescriptor> customCommands;
+        try
+        {
+            customCommands = CustomSlashCommandService.List(workingDirectory);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            customCommands = [];
+        }
+
+        foreach (CustomSlashCommandDescriptor custom in customCommands)
+        {
+            string name = custom.Command.TrimStart('/');
+            if (name.Length == 0 || builtInNames.Contains(name))
+            {
+                continue;
+            }
+
+            commands.Add(CreateAvailableCommand(name, custom.Usage, custom.Description, isCustom: true));
+        }
+
+        return commands
+            .OrderBy(static command => command.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private static AcpAvailableCommand CreateAvailableCommand(
+        string name,
+        string usage,
+        string description,
+        bool isCustom)
+    {
+        string normalizedUsage = string.IsNullOrWhiteSpace(usage) ? "/" + name : usage.Trim();
+        string prefix = "/" + name;
+        string? inputHint = normalizedUsage.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? normalizedUsage[prefix.Length..].Trim()
+            : null;
+
+        return new AcpAvailableCommand(
+            name,
+            description ?? string.Empty,
+            normalizedUsage,
+            string.IsNullOrWhiteSpace(inputHint) ? null : inputHint,
+            isCustom);
+    }
+
+    internal sealed record AcpAvailableCommand(
+        string Name,
+        string Description,
+        string Usage,
+        string? InputHint,
+        bool IsCustom);
 
     private async Task SendFileEditsSummaryAsync(AcpSession session, CancellationToken cancellationToken)
     {

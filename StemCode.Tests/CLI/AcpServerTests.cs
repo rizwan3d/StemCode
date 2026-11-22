@@ -101,6 +101,109 @@ public sealed class AcpServerTests
     }
 
     [Fact]
+    public async Task RunAsync_Should_AdvertiseAvailableCommands_AfterSessionNew()
+    {
+        string cwd = Directory.GetCurrentDirectory();
+        string input = string.Join(
+            Environment.NewLine,
+            """
+            {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}
+            """,
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/new\",\"params\":{\"cwd\":" +
+                JsonSerializer.Serialize(cwd) +
+                "}}");
+
+        using StringReader reader = new(input);
+        using StringWriter output = new();
+        using StringWriter error = new();
+        AcpServer sut = new(reader, output, error, backendArgs: [], providerAuthKey: null, _ => new FakeBackend());
+
+        await sut.RunAsync(CancellationToken.None);
+
+        IReadOnlyList<JsonElement> messages = ParseJsonLines(output.ToString());
+        JsonElement update = messages
+            .Single(message => IsSessionUpdate(message, "available_commands_update"))
+            .GetProperty("params")
+            .GetProperty("update");
+        JsonElement[] commands = update.GetProperty("availableCommands").EnumerateArray().ToArray();
+        commands.Select(static command => command.GetProperty("name").GetString())
+            .Should()
+            .Contain(["compact", "doctor", "fork", "undo", "use"]);
+        JsonElement compact = commands.Single(static command => command.GetProperty("name").GetString() == "compact");
+        compact.GetProperty("usage").GetString().Should().Be("/compact [retained-turns]");
+        compact.GetProperty("input").GetProperty("hint").GetString().Should().Be("[retained-turns]");
+        commands.Single(static command => command.GetProperty("name").GetString() == "doctor")
+            .TryGetProperty("input", out _)
+            .Should()
+            .BeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_Should_ResetAndReplayHistory_WhenCommandSwitchesSession()
+    {
+        string cwd = Directory.GetCurrentDirectory();
+        FakeBackend backend = new() { SwitchSessionOnCommand = "sess-forked" };
+        string input = string.Join(
+            Environment.NewLine,
+            """
+            {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}
+            """,
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"session/new\",\"params\":{\"cwd\":" +
+                JsonSerializer.Serialize(cwd) +
+                "}}",
+            """
+            {"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"sess-test","prompt":[{"type":"text","text":"/fork 1"}]}}
+            """);
+
+        using StringReader reader = new(input);
+        using StringWriter output = new();
+        using StringWriter error = new();
+        AcpServer sut = new(reader, output, error, backendArgs: [], providerAuthKey: null, _ => backend);
+
+        await sut.RunAsync(CancellationToken.None);
+
+        IReadOnlyList<JsonElement> messages = ParseJsonLines(output.ToString());
+        backend.LastCommand.Should().Be("/fork 1");
+
+        int resetIndex = IndexOf(messages, message => IsSessionUpdate(message, "session_history_reset"));
+        resetIndex.Should().BeGreaterThanOrEqualTo(0);
+        messages[resetIndex].GetProperty("params").GetProperty("sessionId").GetString().Should().Be("sess-test");
+
+        // History is replayed after the reset, under the client-facing ACP session id.
+        int userIndex = IndexOf(messages, message =>
+            IsSessionUpdate(message, "user_message_chunk") &&
+            message.GetProperty("params").GetProperty("sessionId").GetString() == "sess-test" &&
+            message.GetProperty("params").GetProperty("update").GetProperty("content").GetProperty("text").GetString() ==
+                "earlier question");
+        int agentIndex = IndexOf(messages, message =>
+            IsSessionUpdate(message, "agent_message_chunk") &&
+            message.GetProperty("params").GetProperty("update").GetProperty("content").GetProperty("text").GetString() ==
+                "earlier answer");
+        int confirmationIndex = IndexOf(messages, message =>
+            IsSessionUpdate(message, "agent_message_chunk") &&
+            message.GetProperty("params").GetProperty("update").GetProperty("content").GetProperty("text").GetString() ==
+                "Forked.");
+
+        userIndex.Should().BeGreaterThan(resetIndex);
+        agentIndex.Should().BeGreaterThan(userIndex);
+        confirmationIndex.Should().BeGreaterThan(agentIndex);
+        FindResponse(messages, 3).GetProperty("result").GetProperty("stopReason").GetString().Should().Be("end_turn");
+    }
+
+    private static int IndexOf(IReadOnlyList<JsonElement> messages, Func<JsonElement, bool> predicate)
+    {
+        for (int index = 0; index < messages.Count; index++)
+        {
+            if (predicate(messages[index]))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    [Fact]
     public async Task RunAsync_Should_AdvertiseAndRequireAuthentication_WhenAcpTokenConfigured()
     {
         string cwd = Directory.GetCurrentDirectory();
@@ -1008,6 +1111,9 @@ public sealed class AcpServerTests
 
         public string LastInput { get; private set; } = string.Empty;
 
+        /// <summary>When set, commands switch the backend to this section id, like /fork.</summary>
+        public string? SwitchSessionOnCommand { get; init; }
+
         public ValueTask DisposeAsync()
         {
             DisposeCount++;
@@ -1026,6 +1132,22 @@ public sealed class AcpServerTests
             CancellationToken cancellationToken)
         {
             LastCommand = commandText;
+            if (SwitchSessionOnCommand is not null)
+            {
+                BackendSessionInfo switched = CreateSessionInfo() with
+                {
+                    SessionId = SwitchSessionOnCommand,
+                    ConversationHistory =
+                    [
+                        new BackendConversationMessage("user", "earlier question"),
+                        new BackendConversationMessage("assistant", "earlier answer")
+                    ]
+                };
+                return Task.FromResult(new BackendCommandResult(
+                    new ReplCommandResult(ExitRequested: false, "Forked.", ReplFeedbackKind.Info, ReplaySession: true),
+                    switched));
+            }
+
             return Task.FromResult(new BackendCommandResult(
                 ReplCommandResult.Continue("command:" + commandText),
                 CreateSessionInfo()));
