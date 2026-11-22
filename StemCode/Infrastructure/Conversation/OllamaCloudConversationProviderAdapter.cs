@@ -31,7 +31,8 @@ internal sealed class OllamaCloudConversationProviderAdapter : IConversationProv
             chatPayload.Model,
             chatPayload.Messages,
             chatPayload.Tools.Count == 0 ? null : chatPayload.Tools,
-            Stream: false);
+            Stream: false,
+            Think: _payloadFactory.MapOllamaThink(request));
         string requestBody = JsonSerializer.Serialize(
             payload,
             OpenAiConversationJsonContext.Default.OllamaChatRequest);

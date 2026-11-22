@@ -34,7 +34,7 @@ internal sealed class ConversationProviderRequestPayloadFactory
                     definition.Schema)))
             .ToArray();
 
-        string? mappedChatCompletionReasoningEffort = MapChatCompletionReasoningEffort(request);
+        ChatCompletionReasoningParameters familyReasoning = MapChatCompletionReasoningParameters(request);
         ProviderReasoningConfig? reasoning = MapChatCompletionReasoning(request);
         GeminiThinkingConfig? thinkingConfig = MapGeminiThinkingConfig(request);
 
@@ -42,9 +42,11 @@ internal sealed class ConversationProviderRequestPayloadFactory
             request.ModelId,
             messages,
             tools,
-            mappedChatCompletionReasoningEffort,
+            familyReasoning.ReasoningEffort,
             reasoning,
-            thinkingConfig);
+            thinkingConfig,
+            familyReasoning.Thinking,
+            familyReasoning.EnableThinking);
     }
 
     public OpenAiResponsesRequest BuildResponsesRequest(ConversationProviderRequest request)
@@ -150,25 +152,30 @@ internal sealed class ConversationProviderRequestPayloadFactory
             thinking);
     }
 
-    private static string? MapChatCompletionReasoningEffort(ConversationProviderRequest request)
+    public JsonElement MapOllamaThink(ConversationProviderRequest request)
     {
-        if (!ShouldEnableReasoning(request))
-        {
-            return SupportsChatCompletionReasoningEffort(request.ProviderProfile.ProviderKind)
-                ? ReasoningEffortOptions.None
-                : null;
-        }
+        return ChatCompletionReasoningMapper.MapOllamaThink(
+            request.ModelId,
+            ShouldEnableReasoning(request),
+            ResolveEffectiveEffort(request));
+    }
 
+    private static ChatCompletionReasoningParameters MapChatCompletionReasoningParameters(
+        ConversationProviderRequest request)
+    {
+        // OpenRouter and Google AI Studio carry reasoning in their own objects (see
+        // MapChatCompletionReasoning / MapGeminiThinkingConfig).
         if (!SupportsChatCompletionReasoningEffort(request.ProviderProfile.ProviderKind) ||
             request.ProviderProfile.ProviderKind is ProviderKind.OpenRouter or ProviderKind.GoogleAiStudio)
         {
-            return null;
+            return ChatCompletionReasoningParameters.Empty;
         }
 
-        string effectiveEffort = ResolveEffectiveEffort(request);
-        return request.ProviderProfile.ProviderKind == ProviderKind.DeepSeek
-            ? MapDeepSeekEffort(effectiveEffort)
-            : MapOpenAiCompatibleEffort(effectiveEffort);
+        return ChatCompletionReasoningMapper.Map(
+            request.ProviderProfile.ProviderKind,
+            request.ModelId,
+            ShouldEnableReasoning(request),
+            ResolveEffectiveEffort(request));
     }
 
     private static ProviderReasoningConfig? MapChatCompletionReasoning(ConversationProviderRequest request)
@@ -586,17 +593,6 @@ internal sealed class ConversationProviderRequestPayloadFactory
         {
             ReasoningEffortOptions.Max => ReasoningEffortOptions.XHigh,
             _ => reasoningEffort
-        };
-    }
-
-    private static string MapDeepSeekEffort(string reasoningEffort)
-    {
-        return reasoningEffort switch
-        {
-            ReasoningEffortOptions.None => ReasoningEffortOptions.None,
-            ReasoningEffortOptions.XHigh => ReasoningEffortOptions.Max,
-            ReasoningEffortOptions.Max => ReasoningEffortOptions.Max,
-            _ => ReasoningEffortOptions.High
         };
     }
 

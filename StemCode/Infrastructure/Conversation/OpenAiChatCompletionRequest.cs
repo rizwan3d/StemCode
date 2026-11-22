@@ -12,7 +12,22 @@ internal sealed record OpenAiChatCompletionRequest(
     [property: JsonPropertyName("reasoning")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ProviderReasoningConfig? Reasoning = null,
     [property: JsonPropertyName("thinkingConfig")]
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GeminiThinkingConfig? ThinkingConfig = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] GeminiThinkingConfig? ThinkingConfig = null,
+    [property: JsonPropertyName("thinking")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ChatCompletionThinkingConfig? Thinking = null,
+    [property: JsonPropertyName("enable_thinking")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? EnableThinking = null);
+
+/// <summary>
+/// Vendor thinking switch used by DeepSeek, Z.ai GLM and Moonshot Kimi: {"type": "enabled" | "disabled"}.
+/// </summary>
+internal sealed record ChatCompletionThinkingConfig(
+    [property: JsonPropertyName("type")] string Type)
+{
+    public static ChatCompletionThinkingConfig Enabled { get; } = new("enabled");
+
+    public static ChatCompletionThinkingConfig Disabled { get; } = new("disabled");
+}
 
 internal sealed record OpenAiChatCompletionRequestMessage(
     [property: JsonPropertyName("role")] string Role,
@@ -51,4 +66,6 @@ internal sealed record OllamaChatRequest(
     [property: JsonPropertyName("messages")] IReadOnlyList<OpenAiChatCompletionRequestMessage> Messages,
     [property: JsonPropertyName("tools")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<OpenAiChatCompletionToolDefinition>? Tools,
-    [property: JsonPropertyName("stream")] bool Stream);
+    [property: JsonPropertyName("stream")] bool Stream,
+    [property: JsonPropertyName("think")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] JsonElement? Think = null);
