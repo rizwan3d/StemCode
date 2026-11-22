@@ -1,8 +1,8 @@
 {
   "name": "stemcode-vscode",
   "displayName": "StemCode for VS Code",
-  "description": "Use StemCode inside VS Code through ACP mode.",
-  "version": "0.0.1",
+  "description": "StemCode coding agent for VS Code: chat, edits, tools, and inline approvals over ACP.",
+  "version": "0.1.0",
   "icon": "resources/logo.png",
   "license": "Apache-2.0",
   "homepage": "https://github.com/rizwan3d/StemCode#readme",
@@ -74,79 +74,106 @@
     "commands": [
       {
         "command": "stemcode.start",
-        "title": "StemCode: Start"
+        "title": "Start",
+        "category": "StemCode",
+        "icon": "$(play)"
       },
       {
         "command": "stemcode.stop",
-        "title": "StemCode: Stop"
+        "title": "Stop",
+        "category": "StemCode",
+        "icon": "$(debug-stop)"
       },
       {
         "command": "stemcode.restart",
-        "title": "StemCode: Restart"
+        "title": "Restart",
+        "category": "StemCode",
+        "icon": "$(debug-restart)"
       },
       {
         "command": "stemcode.openChat",
-        "title": "StemCode: Open Chat",
-        "icon": "$(comment-discussion)"
+        "title": "Open Chat",
+        "icon": "$(comment-discussion)",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.newChat",
-        "title": "StemCode: New Chat",
-        "icon": "$(add)"
+        "title": "New Chat",
+        "icon": "$(add)",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.voiceDictation",
-        "title": "StemCode: Voice Dictation",
-        "icon": "$(mic)"
+        "title": "Voice Dictation",
+        "icon": "$(mic)",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.voiceSetup",
-        "title": "StemCode: Voice Setup"
+        "title": "Voice Setup",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.voiceUpdate",
-        "title": "StemCode: Update Voice Models"
+        "title": "Update Voice Models",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.sendSelection",
-        "title": "StemCode: Send Selection"
+        "title": "Send Selection",
+        "category": "StemCode",
+        "icon": "$(comment)"
       },
       {
         "command": "stemcode.sendCurrentFile",
-        "title": "StemCode: Send Current File"
+        "title": "Send Current File",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.reviewCurrentFile",
-        "title": "StemCode: Review Current File"
+        "title": "Review Current File",
+        "category": "StemCode",
+        "icon": "$(checklist)"
       },
       {
         "command": "stemcode.reviewGitDiff",
-        "title": "StemCode: Review Git Diff"
+        "title": "Review Git Diff",
+        "category": "StemCode",
+        "icon": "$(git-compare)"
       },
       {
         "command": "stemcode.explainSelection",
-        "title": "StemCode: Explain Selection"
+        "title": "Explain Selection",
+        "category": "StemCode",
+        "icon": "$(question)"
       },
       {
         "command": "stemcode.planChanges",
-        "title": "StemCode: Plan Changes"
+        "title": "Plan Changes",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.applySuggestedChanges",
-        "title": "StemCode: Apply Suggested Changes"
+        "title": "Apply Suggested Changes",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.showTerminals",
-        "title": "StemCode: Show Background Terminals",
-        "icon": "$(terminal)"
+        "title": "Show Background Terminals",
+        "icon": "$(terminal)",
+        "category": "StemCode"
       },
       {
         "command": "stemcode.openLogs",
-        "title": "StemCode: Open Logs"
+        "title": "Open Logs",
+        "category": "StemCode",
+        "icon": "$(output)"
       },
       {
         "command": "stemcode.openSettings",
-        "title": "StemCode: Open Settings"
+        "title": "Open Settings",
+        "category": "StemCode",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
@@ -156,26 +183,71 @@
           "group": "navigation@90"
         }
       ],
+      "editor/context": [
+        {
+          "submenu": "stemcode.editorContext",
+          "group": "navigation@90"
+        }
+      ],
+      "stemcode.editorContext": [
+        {
+          "command": "stemcode.explainSelection",
+          "when": "editorHasSelection",
+          "group": "1_selection@1"
+        },
+        {
+          "command": "stemcode.sendSelection",
+          "when": "editorHasSelection",
+          "group": "1_selection@2"
+        },
+        {
+          "command": "stemcode.sendCurrentFile",
+          "group": "2_file@1"
+        },
+        {
+          "command": "stemcode.reviewCurrentFile",
+          "group": "2_file@2"
+        },
+        {
+          "command": "stemcode.reviewGitDiff",
+          "group": "3_git@1"
+        }
+      ],
       "view/title": [
         {
-          "command": "stemcode.newChat",
+          "command": "stemcode.voiceDictation",
           "when": "view == stemcode.chatView",
           "group": "navigation@1"
         },
         {
-          "command": "stemcode.voiceDictation",
+          "command": "stemcode.showTerminals",
           "when": "view == stemcode.chatView",
-          "group": "navigation@2"
+          "group": "1_tools@1"
+        },
+        {
+          "command": "stemcode.openSettings",
+          "when": "view == stemcode.chatView",
+          "group": "1_tools@2"
         },
         {
           "command": "stemcode.start",
           "when": "view == stemcode.chatView",
-          "group": "navigation@3"
+          "group": "2_process@1"
         },
         {
-          "command": "stemcode.showTerminals",
+          "command": "stemcode.restart",
           "when": "view == stemcode.chatView",
-          "group": "navigation@4"
+          "group": "2_process@2"
+        },
+        {
+          "command": "stemcode.stop",
+          "when": "view == stemcode.chatView",
+          "group": "2_process@3"
+        },
+        {
+          "command": "stemcode.openLogs",
+          "when": "view == stemcode.chatView",
+          "group": "3_diagnostics@1"
         }
       ]
     },
@@ -223,7 +295,26 @@
           "description": "The log level for the extension."
         }
       }
-    }
+    },
+    "submenus": [
+      {
+        "id": "stemcode.editorContext",
+        "label": "StemCode"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "stemcode.openChat",
+        "key": "ctrl+shift+alt+s",
+        "mac": "cmd+shift+alt+s"
+      },
+      {
+        "command": "stemcode.sendSelection",
+        "key": "ctrl+shift+alt+l",
+        "mac": "cmd+shift+alt+l",
+        "when": "editorTextFocus && editorHasSelection"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -232,25 +323,30 @@
     "package": "webpack --mode production --devtool hidden-source-map",
     "compile-tests": "tsc -p . --outDir out",
     "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "typecheck:webview": "tsc --noEmit -p tsconfig.webview.json",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js",
+    "pretest": "npm run compile-tests && npm run compile && npm run typecheck:webview && npm run lint",
+    "test": "mocha --config .mocharc.json",
     "package:vsix": "vsce package --no-dependencies --githubBranch master",
-    "publish:marketplace": "vsce publish --no-dependencies --githubBranch master"
+    "publish:marketplace": "vsce publish --no-dependencies --githubBranch master",
+    "test:integration": "npm run compile-tests && npm run compile && node ./out/test/runIntegration.js"
   },
   "overrides": {
     "serialize-javascript": "^7.0.5"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
+    "@types/jsdom": "^21.1.7",
     "@types/mocha": "^10.0.1",
     "@types/node": "20.2.5",
     "@types/vscode": "^1.80.0",
     "@typescript-eslint/eslint-plugin": "^5.59.8",
     "@typescript-eslint/parser": "^5.59.8",
+    "@vscode/test-electron": "^2.4.1",
     "@vscode/vsce": "^3.9.1",
     "eslint": "^8.41.0",
     "glob": "^8.1.0",
+    "jsdom": "^24.1.3",
     "mocha": "^10.2.0",
     "ts-loader": "^9.4.3",
     "typescript": "^5.1.3",

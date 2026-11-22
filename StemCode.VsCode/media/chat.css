@@ -1,2217 +1,2351 @@
-        .prompt-queue {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            margin-bottom: 6px;
-        }
-
-        .prompt-queue.hidden {
-            display: none;
-        }
-
-        .prompt-queue-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px 8px;
-            border: 1px solid var(--border, #2b2b2b);
-            border-left: 2px solid var(--button-bg, #0e639c);
-            border-radius: 6px;
-            background: var(--input-bg, #252526);
-            font-size: 12px;
-            color: var(--muted, #8f8f8f);
-        }
-
-        .prompt-queue-text {
-            flex: 1;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .prompt-queue-remove {
-            flex: none;
-            border: none;
-            background: transparent;
-            color: var(--muted, #8f8f8f);
-            cursor: pointer;
-            font-size: 14px;
-            line-height: 1;
-            padding: 0 2px;
-        }
-
-        .prompt-queue-remove:hover {
-            color: var(--fg, #cccccc);
-        }
-
-        :root {
-            color-scheme: dark;
-
-            --app-bg: var(--vscode-editor-background, #1e1e1e);
-            --panel-bg: var(--vscode-sideBar-background, #181818);
-            --input-bg: var(--vscode-input-background, #252526);
-            --input-fg: var(--vscode-input-foreground, var(--vscode-foreground, #cccccc));
-            --fg: var(--vscode-foreground, #cccccc);
-            --muted: var(--vscode-descriptionForeground, #8f8f8f);
-            --border: var(--vscode-panel-border, #2b2b2b);
-            --focus: var(--vscode-focusBorder, #007fd4);
-            --button-bg: var(--vscode-button-background, #0e639c);
-            --button-fg: var(--vscode-button-foreground, #ffffff);
-            --button-hover: var(--vscode-button-hoverBackground, #1177bb);
-            --danger: var(--vscode-errorForeground, #f48771);
-            --warning: var(--vscode-charts-yellow, #cca700);
-            --ok: var(--vscode-testing-iconPassed, #73c991);
-            --link: var(--vscode-textLink-foreground, #3794ff);
-
-            --surface-0: var(--app-bg);
-            --surface-1: color-mix(in srgb, var(--panel-bg) 92%, var(--app-bg));
-            --surface-2: color-mix(in srgb, var(--input-bg) 86%, var(--app-bg));
-            --surface-3: color-mix(in srgb, var(--input-bg) 72%, var(--fg) 4%);
-            --surface-hover: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--fg) 7%, transparent));
-            --surface-active: var(--vscode-list-activeSelectionBackground, color-mix(in srgb, var(--focus) 18%, transparent));
-            --border-subtle: color-mix(in srgb, var(--border) 72%, transparent);
-            --border-strong: color-mix(in srgb, var(--fg) 18%, var(--border));
-            --muted-soft: color-mix(in srgb, var(--muted) 82%, transparent);
-
-            --radius-xs: 5px;
-            --radius-sm: 7px;
-            --radius-md: 10px;
-            --radius-lg: 14px;
-            --radius-xl: 18px;
-            --space-1: 4px;
-            --space-2: 6px;
-            --space-3: 8px;
-            --space-4: 10px;
-            --space-5: 12px;
-            --space-6: 14px;
-            --shadow-overlay: 0 18px 44px rgba(0, 0, 0, 0.38);
-            --shadow-soft: 0 10px 28px rgba(0, 0, 0, 0.24);
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        html,
-        body {
-            width: 100%;
-            height: 100%;
-            padding: 0;
-            margin: 0;
-            overflow: hidden;
-            color: var(--fg);
-            background: var(--app-bg);
-            font-family: var(--vscode-font-family, "Segoe UI", system-ui, sans-serif);
-            font-size: var(--vscode-font-size, 13px);
-            line-height: 1.45;
-            letter-spacing: 0;
-        }
-
-        button,
-        input,
-        select,
-        textarea {
-            font: inherit;
-        }
-
-        button {
-            border: 0;
-            cursor: pointer;
-        }
-
-        button:disabled,
-        input:disabled,
-        textarea:disabled,
-        select:disabled {
-            cursor: not-allowed;
-            opacity: 0.52;
-        }
-
-        button:focus-visible,
-        input:focus-visible,
-        select:focus-visible,
-        summary:focus-visible,
-        .file-link:focus-visible,
-        .agent-thread-item:focus-visible,
-        .modal-option:focus-visible,
-        .suggestion:focus-visible {
-            outline: 1px solid var(--focus);
-            outline-offset: 2px;
-        }
-
-        ::selection {
-            color: var(--vscode-editor-selectionForeground, var(--fg));
-            background: var(--vscode-editor-selectionBackground, color-mix(in srgb, var(--focus) 36%, transparent));
-        }
-
-        ::-webkit-scrollbar {
-            width: 10px;
-            height: 10px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            border: 3px solid transparent;
-            border-radius: 999px;
-            background: color-mix(in srgb, var(--fg) 17%, transparent);
-            background-clip: padding-box;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: color-mix(in srgb, var(--fg) 30%, transparent);
-            background-clip: padding-box;
-        }
-
-        .icon-button,
-        .ghost-button,
-        .danger-button,
-        .primary-button,
-        .model-pill,
-        .profile-select,
-        .modal-option,
-        .settings-action,
-        .suggestion,
-        .agent-thread-item,
-        .file-link,
-        .composer-row {
-            transition:
-                background-color 0.14s ease,
-                border-color 0.14s ease,
-                color 0.14s ease,
-                opacity 0.14s ease,
-                transform 0.14s ease;
-        }
-
-        .workbench {
-            display: grid;
-            grid-template-rows: minmax(0, 1fr);
-            width: 100%;
-            height: 100vh;
-            min-width: 0;
-            background:
-                radial-gradient(circle at top right, color-mix(in srgb, var(--focus) 7%, transparent), transparent 34%),
-                var(--app-bg);
-        }
-
-        .top-rail,
-        .brand-row {
-            display: none;
-        }
-
-        .main-grid {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr);
-            min-height: 0;
-        }
-
-        .chat-pane {
-            display: grid;
-            grid-template-rows: auto minmax(0, 1fr) auto auto;
-            min-width: 0;
-            min-height: 0;
-        }
-
-        .chat-header {
-            grid-row: 1;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: var(--space-3);
-            min-width: 0;
-            min-height: 42px;
-            padding: 8px 14px 7px;
-            border-bottom: 1px solid var(--border-subtle);
-            background: color-mix(in srgb, var(--app-bg) 94%, var(--panel-bg));
-        }
-
-        .chat-header-copy {
-            display: grid;
-            gap: 1px;
-            min-width: 0;
-        }
-
-        .chat-kicker {
-            color: var(--muted);
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.45px;
-            line-height: 1.1;
-            text-transform: uppercase;
-        }
-
-        .chat-section-title {
-            max-width: min(460px, 56vw);
-            color: var(--fg);
-            font-size: 12px;
-            font-weight: 650;
-            line-height: 1.25;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .chat-header-actions {
-            display: inline-flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: var(--space-2);
-            flex: 0 0 auto;
-        }
-
-        .top-action {
-            border-color: var(--border-subtle);
-            background: color-mix(in srgb, var(--surface-2) 62%, transparent);
-        }
-
-        .top-action:hover,
-        .top-action.active {
-            border-color: color-mix(in srgb, var(--focus) 45%, var(--border-subtle));
-            background: var(--surface-hover);
-        }
-
-        .top-action.active {
-            color: var(--focus);
-        }
-
-        .messages,
-        .settings-page {
-            grid-row: 2;
-        }
-
-        .messages.hidden,
-        .settings-page.hidden,
-        .suggestions.hidden,
-        .modal-backdrop.hidden,
-        .agent-menu.hidden {
-            display: none;
-        }
-
-        .messages {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-            min-height: 0;
-            padding: 18px 14px 10px;
-            overflow-y: auto;
-            scroll-behavior: smooth;
-        }
-
-        .message-card {
-            display: grid;
-            gap: var(--space-1);
-            max-width: min(860px, 94%);
-            white-space: pre-wrap;
-            word-break: break-word;
-            overflow-wrap: anywhere;
-        }
-
-        .message-card.user {
-            align-self: flex-end;
-            max-width: min(680px, 92%);
-            padding: 0;
-            border: 0;
-            border-radius: 0;
-            color: var(--input-fg);
-            background: transparent;
-        }
-
-        .message-card.assistant {
-            align-self: flex-start;
-            max-width: min(860px, 94%);
-            padding: 0;
-        }
-
-        .message-card.reasoning,
-        .message-card.tool,
-        .message-card.metrics,
-        .message-card.system {
-            align-self: flex-start;
-            max-width: min(780px, 92%);
-        }
-
-        .message-card.reasoning {
-            color: var(--muted);
-        }
-
-        .message-card.tool {
-            padding: 0;
-            border: 0;
-            border-radius: 0;
-            color: var(--muted);
-            background: transparent;
-        }
-
-        .message-card.tool.completed,
-        .message-card.tool.failed {
-            border: 0;
-        }
-
-        .message-card.metrics {
-            color: var(--muted-soft);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 11px;
-            opacity: 0.9;
-        }
-
-        .message-card.system {
-            align-self: center;
-            max-width: 96%;
-            padding: 0;
-            border: 0;
-            border-radius: 0;
-            color: color-mix(in srgb, var(--warning) 92%, var(--fg));
-            background: transparent;
-        }
-
-        .message-label {
-            display: none;
-        }
-
-        .message-text {
-            color: inherit;
-            font-size: 13px;
-            line-height: 1.52;
-        }
-
-        .assistant .message-text {
-            color: var(--fg);
-        }
-
-        .markdown-rendered {
-            color: inherit;
-            white-space: normal;
-            word-break: break-word;
-            overflow-wrap: anywhere;
-        }
-
-        .markdown-rendered :first-child {
-            margin-top: 0;
-        }
-
-        .markdown-rendered :last-child {
-            margin-bottom: 0;
-        }
-
-        .markdown-rendered p {
-            margin: 0 0 0.58em;
-        }
-
-        .markdown-rendered h1,
-        .markdown-rendered h2,
-        .markdown-rendered h3,
-        .markdown-rendered h4,
-        .markdown-rendered h5,
-        .markdown-rendered h6 {
-            margin: 0.72em 0 0.34em;
-            color: inherit;
-            font-size: inherit;
-            line-height: inherit;
-            font-weight: 700;
-        }
-
-        .markdown-rendered ul,
-        .markdown-rendered ol {
-            margin: 0.34em 0 0.64em 1.35em;
-            padding: 0;
-        }
-
-        .markdown-rendered li {
-            margin: 0.16em 0;
-            padding: 0;
-        }
-
-        .markdown-rendered blockquote {
-            margin: 0.45em 0 0.65em;
-            padding: 0 0 0 0.9em;
-            border: 0;
-            color: inherit;
-        }
-
-        .markdown-rendered code,
-        .markdown-rendered pre {
-            border: 0;
-            border-radius: 0;
-            color: inherit;
-            background: transparent;
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-        }
-
-        .markdown-rendered code {
-            padding: 0;
-            font-size: 0.96em;
-        }
-
-        .markdown-rendered pre {
-            max-height: none;
-            margin: 0.45em 0 0.7em;
-            padding: 0;
-            overflow: auto;
-            font-size: 12px;
-            line-height: 1.48;
-            white-space: pre;
-            overflow-wrap: normal;
-        }
-
-        .markdown-rendered a {
-            color: var(--link);
-            text-decoration: none;
-            text-underline-offset: 2px;
-        }
-
-        .markdown-rendered a:hover {
-            color: var(--vscode-textLink-activeForeground, #4daafc);
-            text-decoration: underline;
-        }
-
-
-        .thinking-details,
-        .tool-call-details {
-            min-width: 0;
-            overflow: visible;
-            border: 0;
-            border-radius: 0;
-            background: transparent;
-        }
-
-        .thinking-details,
-        .tool-call-details,
-        .message-card.tool.completed .tool-call-details,
-        .message-card.tool.failed .tool-call-details {
-            border-left: 0;
-        }
-
-        .thinking-details > summary,
-        .tool-call-details > summary {
-            list-style: none;
-        }
-
-        .thinking-details > summary::-webkit-details-marker,
-        .tool-call-details > summary::-webkit-details-marker {
-            display: none;
-        }
-
-        .inline-call-summary {
-            display: flex;
-            align-items: center;
-            gap: var(--space-3);
-            min-width: 0;
-            padding: 0;
-            color: var(--muted);
-            cursor: pointer;
-            user-select: none;
-        }
-
-        .inline-call-summary:hover .inline-call-title,
-        .inline-call-summary:hover .inline-call-icon,
-        .inline-call-summary:hover .inline-call-chevron {
-            color: var(--fg);
-        }
-
-        .inline-call-icon {
-            flex: 0 0 auto;
-            width: 16px;
-            color: var(--muted-soft);
-            font-size: 12px;
-            line-height: 1;
-            text-align: center;
-        }
-
-        .inline-call-icon:empty {
-            display: none;
-        }
-
-        .inline-call-title {
-            min-width: 0;
-            color: var(--muted);
-            font-size: 12px;
-            font-weight: 650;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .inline-call-meta {
-            flex: 0 0 auto;
-            color: var(--muted);
-            font-size: 10px;
-            letter-spacing: 0.35px;
-            text-transform: uppercase;
-        }
-
-        .inline-call-chevron {
-            flex: 0 0 auto;
-            margin-left: auto;
-            color: var(--muted-soft);
-            font-size: 12px;
-            transition: transform 0.14s ease;
-        }
-
-        .thinking-details[open] .inline-call-chevron,
-        .tool-call-details[open] .inline-call-chevron {
-            transform: rotate(180deg);
-        }
-
-        .inline-call-content {
-            display: grid;
-            gap: var(--space-3);
-            padding: 6px 0 0 24px;
-        }
-
-        .tool-call-details > .inline-call-content {
-            padding-left: 0;
-        }
-
-        .thinking-details pre,
-        .tool-output-pre {
-            max-height: 260px;
-            margin: 0;
-            padding: 0;
-            overflow: auto;
-            border: 0;
-            border-radius: 0;
-            color: var(--fg);
-            background: transparent;
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 12px;
-            line-height: 1.48;
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-        }
-
-        .thinking-details pre {
-            color: var(--muted);
-        }
-
-        .tool-output-pre {
-            white-space: pre;
-            overflow-wrap: normal;
-        }
-
-        .vscode-code-block {
-            display: grid;
-            max-width: 100%;
-            overflow: hidden;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            background: color-mix(in srgb, var(--surface-1) 96%, #000000 4%);
-        }
-
-        .vscode-code-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: var(--space-3);
-            min-width: 0;
-            padding: 6px 9px;
-            border-bottom: 1px solid var(--border-subtle);
-            background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-            font-size: 11px;
-        }
-
-        .vscode-code-header-main {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-2);
-            min-width: 0;
-        }
-
-        .vscode-code-header-main .file-link,
-        .vscode-code-title {
-            min-width: 0;
-            overflow: hidden;
-            color: var(--muted);
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .vscode-code-actions {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-2);
-            flex: 0 0 auto;
-        }
-
-        .vscode-code-language,
-        .vscode-code-line-count {
-            color: var(--muted);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 10px;
-            letter-spacing: 0.25px;
-            text-transform: uppercase;
-        }
-
-        .vscode-code-copy-button {
-            display: inline-grid;
-            place-items: center;
-            width: 20px;
-            height: 20px;
-            padding: 0;
-            border: 0;
-            border-radius: var(--radius-xs);
-            color: var(--muted);
-            background: transparent;
-            font-size: 13px;
-            line-height: 1;
-        }
-
-        .vscode-code-copy-button:hover {
-            color: var(--fg);
-            background: var(--surface-hover);
-        }
-
-        .vscode-code-body {
-            max-height: 360px;
-            margin: 0;
-            padding: 0;
-            overflow: auto;
-            border: 0;
-            border-radius: 0;
-            color: var(--vscode-editor-foreground, var(--fg));
-            background: var(--vscode-editor-background, color-mix(in srgb, var(--app-bg) 91%, #000000 9%));
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 12px;
-            line-height: 1.48;
-            white-space: pre;
-        }
-
-        .vscode-code-line {
-            display: grid;
-            grid-template-columns: minmax(42px, max-content) minmax(0, 1fr);
-            min-width: max-content;
-        }
-
-        .vscode-code-line.no-line-number {
-            grid-template-columns: minmax(0, 1fr);
-            min-width: 0;
-        }
-
-        .vscode-code-block.tool-output .vscode-code-body {
-            max-height: 320px;
-            white-space: pre-wrap;
-        }
-
-        .vscode-code-block.read-file-output .vscode-code-body {
-            max-height: 520px;
-        }
-
-        .vscode-code-block.tool-output .vscode-code-line-content,
-        .vscode-code-line.no-line-number .vscode-code-line-content {
-            padding: 1px 12px;
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-        }
-
-        .vscode-code-line:hover {
-            background: color-mix(in srgb, var(--vscode-editorLineHighlightBackground, var(--fg)) 8%, transparent);
-        }
-
-        .vscode-code-line-number {
-            padding: 1px 9px;
-            color: var(--vscode-editorLineNumber-foreground, var(--muted-soft));
-            text-align: right;
-            user-select: none;
-        }
-
-        .vscode-code-line-content {
-            min-width: 0;
-            padding: 1px 12px 1px 0;
-            white-space: pre;
-        }
-
-        .syntax-comment {
-            color: var(--vscode-editorLineNumber-foreground, var(--muted));
-            font-style: italic;
-        }
-
-        .syntax-keyword {
-            color: var(--vscode-symbolIcon-keywordForeground, #c586c0);
-        }
-
-        .syntax-string {
-            color: var(--vscode-symbolIcon-stringForeground, #ce9178);
-        }
-
-        .syntax-number,
-        .syntax-constant {
-            color: var(--vscode-symbolIcon-numberForeground, #b5cea8);
-        }
-
-        .syntax-function {
-            color: var(--vscode-symbolIcon-functionForeground, #dcdcaa);
-        }
-
-        .syntax-property {
-            color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe);
-        }
-
-        .syntax-muted {
-            color: var(--muted);
-        }
-
-        .tool-message {
-            display: grid;
-            gap: var(--space-3);
-            min-width: 0;
-        }
-
-        .tool-message-kind,
-        .tool-pending {
-            color: var(--muted);
-            font-size: 11px;
-        }
-
-        .tool-message-kind {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .tool-arguments summary {
-            color: var(--muted);
-            font-size: 11px;
-            cursor: pointer;
-        }
-
-        .diff-view {
-            display: grid;
-            gap: 0;
-            max-width: 100%;
-            overflow: hidden;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            background: color-mix(in srgb, var(--surface-1) 96%, #000000 4%);
-        }
-
-        .diff-view + .diff-view {
-            margin-top: var(--space-2);
-        }
-
-        .diff-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: var(--space-3);
-            min-width: 0;
-            padding: 6px 9px;
-            border-bottom: 1px solid var(--border-subtle);
-            background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-            font-size: 11px;
-        }
-
-        .diff-header-main {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-2);
-            min-width: 0;
-        }
-
-        .diff-header-main .file-link {
-            min-width: 0;
-            overflow: hidden;
-            color: var(--muted);
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .diff-header-actions {
-            display: inline-flex;
-            align-items: center;
-            gap: var(--space-2);
-            flex: 0 0 auto;
-        }
-
-        .diff-stat {
-            flex: 0 0 auto;
-            color: var(--muted);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-        }
-
-        .diff-copy-button {
-            display: inline-grid;
-            place-items: center;
-            width: 20px;
-            height: 20px;
-            padding: 0;
-            border: 0;
-            border-radius: var(--radius-xs);
-            color: var(--muted);
-            background: transparent;
-            font-size: 13px;
-            line-height: 1;
-        }
-
-        .diff-copy-button:hover {
-            color: var(--fg);
-            background: var(--surface-hover);
-        }
-
-        .diff-body {
-            max-height: 320px;
-            margin: 0;
-            padding: 0;
-            overflow: auto;
-            border: 0;
-            border-radius: 0;
-            background: color-mix(in srgb, var(--app-bg) 91%, #000000 9%);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 12px;
-            line-height: 1.45;
-            white-space: pre;
-        }
-
-        .diff-created .diff-body,
-        .diff-add-only .diff-body {
-            border-left: 4px solid color-mix(in srgb, var(--ok) 88%, transparent);
-        }
-
-        .diff-deleted .diff-body,
-        .diff-del-only .diff-body {
-            border-left: 4px solid color-mix(in srgb, var(--danger) 88%, transparent);
-        }
-
-        .diff-line {
-            display: grid;
-            grid-template-columns: minmax(42px, max-content) 18px minmax(0, 1fr);
-            min-width: max-content;
-            white-space: pre;
-        }
-
-        .diff-line-number {
-            padding: 1px 8px 1px 9px;
-            color: var(--muted-soft);
-            text-align: right;
-            user-select: none;
-        }
-
-        .diff-line-sign {
-            padding: 1px 4px 1px 2px;
-            color: var(--muted-soft);
-            user-select: none;
-        }
-
-        .diff-line-code {
-            min-width: 0;
-            padding: 1px 10px 1px 0;
-            color: inherit;
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-        }
-
-        .diff-add {
-            color: color-mix(in srgb, var(--ok) 84%, var(--fg));
-            background: color-mix(in srgb, var(--ok) 12%, transparent);
-        }
-
-        .diff-del {
-            color: color-mix(in srgb, var(--danger) 86%, var(--fg));
-            background: color-mix(in srgb, var(--danger) 13%, transparent);
-        }
-
-        .diff-meta {
-            color: var(--muted);
-            background: color-mix(in srgb, var(--focus) 10%, transparent);
-        }
-
-        .diff-add .diff-line-sign,
-        .diff-add .diff-line-number {
-            color: color-mix(in srgb, var(--ok) 82%, var(--muted));
-        }
-
-        .diff-del .diff-line-sign,
-        .diff-del .diff-line-number {
-            color: color-mix(in srgb, var(--danger) 82%, var(--muted));
-        }
-
-        .tool-pending {
-            color: var(--muted);
-            font-size: 12px;
-        }
-
-        .file-link {
-            color: var(--link);
-            text-decoration: none;
-            text-underline-offset: 2px;
-            cursor: pointer;
-        }
-
-        .file-link:hover {
-            color: var(--vscode-textLink-activeForeground, #4daafc);
-            text-decoration: underline;
-        }
-
-        .progress-indicator {
-            position: sticky;
-            bottom: 0;
-            z-index: 1;
-            width: max-content;
-            max-width: min(320px, 90%);
-            padding: 0;
-            border: 0;
-            border-radius: 0;
-            color: var(--muted);
-            background: transparent;
-            box-shadow: none;
-        }
-
-        .progress-dots {
-            display: inline-flex;
-            gap: 2px;
-            margin-left: 2px;
-        }
-
-        .progress-dots span {
-            animation: progress-dot 1.1s infinite ease-in-out;
-        }
-
-        .progress-dots span:nth-child(2) {
-            animation-delay: 0.15s;
-        }
-
-        .progress-dots span:nth-child(3) {
-            animation-delay: 0.3s;
-        }
-
-        @keyframes progress-dot {
-            0%,
-            80%,
-            100% {
-                opacity: 0.22;
-            }
-
-            40% {
-                opacity: 1;
-            }
-        }
-
-        .empty-state {
-            display: flex;
-            flex-direction: column;
-            gap: var(--space-3);
-            align-items: center;
-            margin: auto;
-            max-width: 430px;
-            padding: 22px 20px;
-            border: 0;
-            border-radius: 0;
-            color: var(--muted);
-            text-align: center;
-            line-height: 1.5;
-            background: transparent;
-        }
-
-        .empty-title {
-            color: var(--fg);
-            font-size: 19px;
-            font-weight: 650;
-            letter-spacing: 0.1px;
-        }
-
-        .empty-hint {
-            max-width: 320px;
-            font-size: 13px;
-        }
-
-        .empty-keys {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-2);
-            margin-top: 4px;
-            font-size: 11px;
-        }
-
-        .empty-dot {
-            opacity: 0.45;
-        }
-
-        .empty-keys kbd {
-            min-width: 18px;
-            padding: 2px 6px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-xs);
-            color: var(--fg);
-            background: color-mix(in srgb, var(--surface-2) 86%, transparent);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 10px;
-            font-weight: 600;
-        }
-
-        .side-pane {
-            grid-row: 3;
-            display: none;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: var(--space-3);
-            min-width: 0;
-            max-height: 176px;
-            padding: 0 14px 8px;
-            overflow: hidden;
-            background: transparent;
-        }
-
-        .side-pane.visible {
-            display: grid;
-        }
-
-        .section {
-            min-width: 0;
-            min-height: 0;
-            padding: 9px;
-            overflow: hidden;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            background: color-mix(in srgb, var(--surface-1) 90%, transparent);
-        }
-
-        .section-scroll {
-            overflow-y: auto;
-        }
-
-        .section-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: var(--space-3);
-            margin-bottom: 8px;
-        }
-
-        .section-header h2 {
-            margin: 0;
-            color: var(--fg);
-            font-size: 10px;
-            line-height: 1.2;
-            font-weight: 700;
-            letter-spacing: 0.45px;
-            text-transform: uppercase;
-        }
-
-        .section-count {
-            color: var(--muted);
-            font-size: 10px;
-            white-space: nowrap;
-        }
-
-        .context-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: var(--space-2);
-        }
-
-        .context-item {
-            min-width: 0;
-            padding: 7px;
-            border: 1px solid transparent;
-            border-radius: var(--radius-sm);
-            background: color-mix(in srgb, var(--surface-2) 78%, transparent);
-        }
-
-        .context-item.wide {
-            grid-column: 1 / -1;
-        }
-
-        .context-label {
-            color: var(--muted);
-            font-size: 9px;
-            letter-spacing: 0.35px;
-            text-transform: uppercase;
-        }
-
-        .context-value {
-            margin-top: 3px;
-            color: var(--fg);
-            font-size: 11px;
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-        }
-
-        .plan-list,
-        .tool-list,
-        .agent-thread-list,
-        .changed-files-list {
-            display: grid;
-            gap: var(--space-2);
-        }
-
-        .changed-files-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.85em;
-        }
-
-        .changed-files-table th,
-        .changed-files-table td {
-            padding: 2px var(--space-2);
-            text-align: left;
-            border-bottom: 1px solid color-mix(in srgb, var(--border, #30363d) 60%, transparent);
-            white-space: nowrap;
-        }
-
-        .changed-files-table th {
-            font-weight: 600;
-            opacity: 0.7;
-        }
-
-        .changed-files-table .changed-file-num {
-            text-align: right;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .changed-files-table .changed-file-name {
-            width: 100%;
-            max-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .changed-files-total td {
-            border-bottom: none;
-            opacity: 0.8;
-        }
-
-        .changed-file-action {
-            font-size: 0.85em;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        }
-
-        .changed-file-action-created {
-            color: var(--success, #3fb950);
-        }
-
-        .changed-file-action-deleted {
-            color: var(--danger, #f85149);
-        }
-
-        .changed-file-action-edited {
-            color: var(--warning, #d29922);
-        }
-
-        .changed-file-added {
-            color: var(--success, #3fb950);
-        }
-
-        .changed-file-removed {
-            color: var(--danger, #f85149);
-        }
-
-        .plan-item {
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: var(--space-3);
-            align-items: start;
-            padding: 7px;
-            border: 1px solid transparent;
-            border-radius: var(--radius-sm);
-            background: color-mix(in srgb, var(--surface-2) 78%, transparent);
-        }
-
-        .plan-dot {
-            width: 7px;
-            height: 7px;
-            margin-top: 5px;
-            border-radius: 50%;
-            background: var(--muted);
-        }
-
-        .plan-item.completed .plan-dot {
-            background: var(--ok);
-        }
-
-        .plan-item.in_progress .plan-dot {
-            background: var(--warning);
-            box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 12%, transparent);
-        }
-
-        .plan-content {
-            color: var(--fg);
-            font-size: 12px;
-            line-height: 1.4;
-            overflow-wrap: anywhere;
-        }
-
-        .plan-status {
-            margin-top: 2px;
-            color: var(--muted);
-            font-size: 9px;
-            letter-spacing: 0.35px;
-            text-transform: uppercase;
-        }
-
-        .agent-thread-item {
-            width: 100%;
-            display: grid;
-            gap: var(--space-1);
-            padding: 7px;
-            border: 1px solid transparent;
-            border-radius: var(--radius-sm);
-            color: inherit;
-            text-align: left;
-            background: color-mix(in srgb, var(--surface-2) 78%, transparent);
-            cursor: pointer;
-        }
-
-        .agent-thread-item:hover,
-        .agent-thread-item.active {
-            border-color: color-mix(in srgb, var(--focus) 44%, var(--border-subtle));
-            background: var(--surface-hover);
-        }
-
-        .agent-thread-item.active {
-            box-shadow: inset 2px 0 0 var(--focus);
-        }
-
-        .agent-thread-topline {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: var(--space-3);
-        }
-
-        .agent-thread-name {
-            color: var(--fg);
-            font-size: 12px;
-            font-weight: 650;
-        }
-
-        .agent-thread-status {
-            color: var(--muted);
-            font-size: 9px;
-            letter-spacing: 0.35px;
-            text-transform: uppercase;
-            white-space: nowrap;
-        }
-
-        .agent-thread-task,
-        .agent-thread-meta,
-        .agent-thread-output {
-            color: var(--muted);
-            font-size: 11px;
-            line-height: 1.4;
-            overflow-wrap: anywhere;
-        }
-
-        .agent-thread-output {
-            padding-top: 5px;
-            color: var(--fg);
-            border-top: 1px solid var(--border-subtle);
-            white-space: pre-wrap;
-        }
-
-        .tool-card {
-            display: grid;
-            gap: var(--space-2);
-            padding: 7px;
-            border: 1px solid transparent;
-            border-left: 2px solid var(--warning);
-            border-radius: var(--radius-sm);
-            background: color-mix(in srgb, var(--surface-2) 78%, transparent);
-        }
-
-        .tool-card.completed {
-            border-left-color: var(--ok);
-        }
-
-        .tool-card.failed {
-            border-left-color: var(--danger);
-        }
-
-        .tool-title-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: var(--space-3);
-        }
-
-        .tool-title {
-            min-width: 0;
-            color: var(--fg);
-            font-size: 12px;
-            font-weight: 650;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .tool-status {
-            flex: 0 0 auto;
-            color: var(--warning);
-            font-size: 9px;
-            font-weight: 700;
-            letter-spacing: 0.35px;
-            text-transform: uppercase;
-        }
-
-        .tool-card.completed .tool-status {
-            color: var(--ok);
-        }
-
-        .tool-card.failed .tool-status {
-            color: var(--danger);
-        }
-
-        .tool-kind {
-            color: var(--muted);
-            font-size: 11px;
-        }
-
-        details {
-            min-width: 0;
-        }
-
-        summary {
-            color: var(--muted);
-            font-size: 11px;
-            cursor: pointer;
-        }
-
-        pre {
-            max-height: 180px;
-            margin: 6px 0 0;
-            padding: 8px;
-            overflow: auto;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-sm);
-            color: var(--fg);
-            background: color-mix(in srgb, var(--app-bg) 92%, #000000 8%);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 11px;
-            line-height: 1.5;
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-        }
-
-        .empty-panel {
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1.45;
-        }
-
-        .settings-page {
-            min-height: 0;
-            padding: 16px;
-            overflow-y: auto;
-            background:
-                radial-gradient(circle at top left, color-mix(in srgb, var(--focus) 10%, transparent), transparent 38%),
-                transparent;
-        }
-
-        .settings-shell {
-            display: grid;
-            gap: 14px;
-            width: min(980px, 100%);
-            margin: 0 auto;
-        }
-
-        .settings-hero {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: var(--space-5);
-            align-items: start;
-            padding: 16px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-xl);
-            background:
-                linear-gradient(135deg, color-mix(in srgb, var(--surface-2) 88%, transparent), color-mix(in srgb, var(--surface-1) 94%, transparent)),
-                var(--surface-1);
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
-        }
-
-        .settings-header {
-            display: grid;
-            gap: var(--space-3);
-            min-width: 0;
-        }
-
-        .settings-kicker {
-            width: max-content;
-            max-width: 100%;
-            padding: 3px 8px;
-            border: 1px solid color-mix(in srgb, var(--focus) 28%, var(--border-subtle));
-            border-radius: 999px;
-            color: color-mix(in srgb, var(--focus) 70%, var(--fg));
-            background: color-mix(in srgb, var(--focus) 10%, transparent);
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.45px;
-            text-transform: uppercase;
-        }
-
-        .settings-title {
-            min-width: 0;
-        }
-
-        .settings-title h1 {
-            margin: 0;
-            color: var(--fg);
-            font-size: 20px;
-            line-height: 1.15;
-            font-weight: 700;
-            letter-spacing: -0.25px;
-        }
-
-        .settings-summary {
-            max-width: 720px;
-            margin-top: 6px;
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1.45;
-            overflow-wrap: anywhere;
-        }
-
-        .settings-quick {
-            display: flex;
-            flex-wrap: wrap;
-            gap: var(--space-2);
-            align-items: center;
-        }
-
-        .settings-chip {
-            display: inline-flex;
-            align-items: center;
-            min-height: 22px;
-            padding: 2px 8px;
-            border: 1px solid var(--border-subtle);
-            border-radius: 999px;
-            color: var(--muted);
-            background: color-mix(in srgb, var(--surface-2) 72%, transparent);
-            font-size: 11px;
-            line-height: 1;
-            white-space: nowrap;
-        }
-
-        .settings-hero-actions {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: var(--space-2);
-        }
-
-        .settings-groups {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(260px, 1fr));
-            gap: 12px;
-        }
-
-        .settings-group {
-            display: grid;
-            align-content: start;
-            gap: var(--space-2);
-            min-width: 0;
-            padding: 12px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-lg);
-            background: color-mix(in srgb, var(--surface-1) 88%, transparent);
-        }
-
-        .settings-group.wide {
-            grid-column: 1 / -1;
-        }
-
-        .settings-group-header {
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            gap: var(--space-4);
-            margin-bottom: 2px;
-        }
-
-        .settings-group h2 {
-            margin: 0;
-            color: var(--fg);
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.2px;
-        }
-
-        .settings-group-hint {
-            margin: 3px 0 0;
-            color: var(--muted);
-            font-size: 11px;
-            line-height: 1.35;
-        }
-
-        .settings-group-count {
-            flex: 0 0 auto;
-            min-width: 22px;
-            padding: 2px 7px;
-            border-radius: 999px;
-            color: var(--muted);
-            background: color-mix(in srgb, var(--surface-2) 76%, transparent);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 10px;
-            text-align: center;
-        }
-
-        .settings-action {
-            position: relative;
-            display: grid;
-            grid-template-columns: 30px minmax(0, 1fr) auto 12px;
-            gap: var(--space-3);
-            align-items: center;
-            width: 100%;
-            min-height: 46px;
-            padding: 8px 9px;
-            border: 1px solid transparent;
-            border-radius: var(--radius-md);
-            color: var(--fg);
-            text-align: left;
-            background: color-mix(in srgb, var(--surface-2) 56%, transparent);
-        }
-
-        .settings-action::before {
-            content: attr(data-icon);
-            display: inline-grid;
-            place-items: center;
-            width: 28px;
-            height: 28px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-sm);
-            color: var(--fg);
-            background: color-mix(in srgb, var(--surface-3) 78%, transparent);
-            font-size: 11px;
-            font-weight: 700;
-            line-height: 1;
-        }
-
-        .settings-action::after {
-            content: '›';
-            color: var(--muted-soft);
-            font-size: 18px;
-            line-height: 1;
-        }
-
-        .settings-action:hover,
-        .settings-action:focus-visible {
-            border-color: color-mix(in srgb, var(--focus) 42%, var(--border-subtle));
-            background: var(--surface-hover);
-            transform: translateY(-1px);
-        }
-
-        .settings-action:hover::before,
-        .settings-action:focus-visible::before {
-            border-color: color-mix(in srgb, var(--focus) 34%, var(--border-subtle));
-            color: color-mix(in srgb, var(--focus) 72%, var(--fg));
-            background: color-mix(in srgb, var(--focus) 12%, var(--surface-3));
-        }
-
-        .settings-action-main {
-            display: grid;
-            gap: 2px;
-            min-width: 0;
-        }
-
-        .settings-action-title {
-            color: var(--fg);
-            font-size: 13px;
-            font-weight: 650;
-            overflow-wrap: anywhere;
-        }
-
-        .settings-action-description {
-            color: var(--muted);
-            font-size: 11px;
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-        }
-
-        .settings-action-value {
-            max-width: min(220px, 30vw);
-            padding: 3px 8px;
-            border: 1px solid color-mix(in srgb, var(--border-subtle) 84%, transparent);
-            border-radius: 999px;
-            color: var(--muted);
-            background: color-mix(in srgb, var(--app-bg) 34%, transparent);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 10px;
-            overflow: hidden;
-            text-align: right;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .composer {
-            grid-row: 4;
-            position: relative;
-            display: grid;
-            gap: var(--space-3);
-            padding: 8px 14px 14px;
-            background: linear-gradient(to top, var(--app-bg) 70%, transparent);
-        }
-
-        .suggestions {
-            position: absolute;
-            left: 14px;
-            right: 14px;
-            bottom: calc(100% - 8px);
-            z-index: 4;
-            max-height: min(280px, 45vh);
-            overflow-y: auto;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-lg);
-            background: color-mix(in srgb, var(--surface-1) 98%, #000000 2%);
-            box-shadow: var(--shadow-overlay);
-        }
-
-        .suggestion {
-            display: grid;
-            gap: 2px;
-            padding: 9px 11px;
-            border-bottom: 1px solid var(--border-subtle);
-            cursor: pointer;
-        }
-
-        .suggestion:last-child {
-            border-bottom: 0;
-        }
-
-        .suggestion.active,
-        .suggestion:hover {
-            background: var(--surface-hover);
-        }
-
-        .suggestion.active {
-            box-shadow: inset 2px 0 0 var(--focus);
-        }
-
-        .suggestion-usage {
-            color: var(--fg);
-            font-size: 12px;
-            font-weight: 650;
-            overflow-wrap: anywhere;
-        }
-
-        .suggestion-description {
-            color: var(--muted);
-            font-size: 11px;
-            line-height: 1.35;
-        }
-
-        .composer-row {
-            display: grid;
-            grid-template-rows: auto auto;
-            gap: 7px;
-            padding: 8px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-xl);
-            background: color-mix(in srgb, var(--input-bg) 92%, var(--app-bg));
-            box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 2%, transparent);
-        }
-
-        .composer-row:focus-within {
-            border-color: color-mix(in srgb, var(--focus) 70%, var(--border));
-            background: color-mix(in srgb, var(--input-bg) 96%, var(--app-bg));
-            box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 12%, transparent);
-        }
-
-        .chat-input {
-            width: 100%;
-            min-height: 34px;
-            max-height: 110px;
-            padding: 6px 8px 2px;
-            resize: none;
-            border: 0;
-            outline: none;
-            color: var(--input-fg);
-            background: transparent;
-            line-height: 1.45;
-            overflow-y: auto;
-        }
-
-        .chat-input:focus,
-        .chat-input:focus-visible {
-            outline: none;
-            outline-offset: 0;
-            box-shadow: none;
-        }
-
-        .chat-input::placeholder {
-            color: color-mix(in srgb, var(--vscode-input-placeholderForeground, var(--muted)) 88%, transparent);
-        }
-
-        .composer-toolbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: var(--space-2);
-            min-width: 0;
-        }
-
-        .toolbar-left,
-        .toolbar-right,
-        .status-cluster {
-            display: flex;
-            align-items: center;
-            gap: var(--space-2);
-            min-width: 0;
-        }
-
-        .toolbar-left {
-            flex: 0 1 auto;
-            flex-wrap: nowrap;
-            overflow: hidden;
-        }
-
-        .toolbar-right {
-            flex: 0 0 auto;
-            justify-content: flex-end;
-        }
-
-        .status-pill,
-        .model-pill,
-        .profile-select,
-        .ghost-button,
-        .danger-button,
-        .icon-button {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: var(--space-2);
-            min-height: 27px;
-            border: 1px solid transparent;
-            border-radius: var(--radius-sm);
-            padding: 4px 8px;
-            color: var(--fg);
-            background: transparent;
-            white-space: nowrap;
-        }
-
-        .profile-select {
-            min-width: 72px;
-            max-width: 132px;
-            color: color-mix(in srgb, var(--warning) 88%, var(--fg));
-            background: color-mix(in srgb, var(--warning) 8%, transparent);
-            font-weight: 650;
-            outline: none;
-            cursor: pointer;
-        }
-
-        .icon-button,
-        .composer .primary-button {
-            width: 29px;
-            min-width: 29px;
-            height: 29px;
-            padding: 0;
-            border-radius: 999px;
-            font-size: 16px;
-            line-height: 1;
-        }
-
-        .model-pill {
-            max-width: 210px;
-            min-width: 0;
-            border-color: color-mix(in srgb, var(--border-subtle) 70%, transparent);
-            background: color-mix(in srgb, var(--surface-2) 52%, transparent);
-            cursor: pointer;
-        }
-
-        .model-pill span {
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .status-pill {
-            margin-left: 0;
-            color: var(--muted);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 10px;
-        }
-
-        .context-meter {
-            flex: 0 0 auto;
-            padding: 3px 7px;
-            border-radius: 999px;
-            color: var(--muted);
-            background: color-mix(in srgb, var(--surface-2) 70%, transparent);
-            font-family: var(--vscode-editor-font-family, Consolas, monospace);
-            font-size: 10px;
-            white-space: nowrap;
-        }
-
-        .context-meter.context-meter-warn {
-            color: var(--warning);
-            background: color-mix(in srgb, var(--warning) 14%, transparent);
-        }
-
-        .ghost-button:hover,
-        .model-pill:hover,
-        .profile-select:hover,
-        .icon-button:hover {
-            border-color: color-mix(in srgb, var(--fg) 12%, transparent);
-            background: var(--surface-hover);
-        }
-
-        .access-pill {
-            color: var(--warning);
-            font-weight: 650;
-        }
-
-        .danger-button {
-            color: var(--danger);
-        }
-
-        .danger-button:hover {
-            background: color-mix(in srgb, var(--danger) 14%, transparent);
-        }
-
-        .primary-button {
-            min-height: 32px;
-            border-radius: var(--radius-sm);
-            padding: 0 12px;
-            color: var(--button-fg);
-            font-weight: 650;
-            background: var(--button-bg);
-        }
-
-        .primary-button:not(:disabled):hover {
-            background: var(--button-hover);
-        }
-
-        .composer .primary-button {
-            color: var(--button-fg);
-            background: var(--button-bg);
-        }
-
-        .composer .primary-button:not(:disabled):hover {
-            transform: translateY(-1px);
-            background: var(--button-hover);
-        }
-
-        .composer .primary-button.stop-mode {
-            color: var(--vscode-button-secondaryForeground, var(--fg));
-            background: color-mix(in srgb, var(--danger) 28%, var(--surface-2));
-            border-color: color-mix(in srgb, var(--danger) 42%, transparent);
-            font-size: 12px;
-        }
-
-        .composer .primary-button.stop-mode:not(:disabled):hover {
-            background: color-mix(in srgb, var(--danger) 38%, var(--surface-2));
-        }
-
-        .toolbar-right #stop-button {
-            display: none;
-        }
-
-        .modal-backdrop {
-            position: fixed;
-            inset: 0;
-            z-index: 20;
-            display: grid;
-            place-items: center;
-            padding: 18px;
-            background: rgba(0, 0, 0, 0.54);
-        }
-
-        .modal {
-            width: min(580px, 100%);
-            max-height: min(720px, 92vh);
-            display: grid;
-            gap: 13px;
-            padding: 15px;
-            overflow: hidden;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-lg);
-            background: color-mix(in srgb, var(--surface-1) 98%, #000000 2%);
-            box-shadow: var(--shadow-overlay);
-        }
-
-        .modal h2 {
-            margin: 0;
-            color: var(--fg);
-            font-size: 16px;
-            font-weight: 650;
-        }
-
-        .modal-description {
-            margin: 0;
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1.45;
-            overflow-wrap: anywhere;
-        }
-
-        .modal-options {
-            display: grid;
-            gap: var(--space-2);
-            max-height: 390px;
-            overflow-y: auto;
-        }
-
-        .modal-option {
-            display: grid;
-            gap: 3px;
-            padding: 10px 11px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            color: var(--fg);
-            text-align: left;
-            background: color-mix(in srgb, var(--surface-2) 82%, transparent);
-        }
-
-        .modal-option:hover,
-        .modal-option.active {
-            border-color: color-mix(in srgb, var(--focus) 50%, var(--border-subtle));
-            background: var(--surface-hover);
-        }
-
-        .modal-option.active {
-            box-shadow: inset 2px 0 0 var(--focus);
-        }
-
-        .modal-option strong {
-            font-size: 13px;
-            overflow-wrap: anywhere;
-        }
-
-        .modal-option span {
-            color: var(--muted);
-            font-size: 10px;
-            letter-spacing: 0.35px;
-            text-transform: uppercase;
-        }
-
-        .modal-countdown {
-            margin-right: auto;
-            color: var(--muted);
-            font-size: 12px;
-            line-height: 1.4;
-        }
-
-        .modal-input {
-            width: 100%;
-            min-height: 40px;
-            padding: 9px 10px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            outline: none;
-            color: var(--input-fg);
-            background: var(--input-bg);
-        }
-
-        .modal-input:focus {
-            border-color: var(--focus);
-            box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 12%, transparent);
-        }
-
-        .plugin-panel {
-            display: grid;
-            gap: 14px;
-            max-height: 60vh;
-            overflow-y: auto;
-        }
-
-        .plugin-section {
-            display: grid;
-            gap: var(--space-2);
-        }
-
-        .plugin-form {
-            display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: var(--space-2);
-            align-items: center;
-        }
-
-        .plugin-row {
-            display: flex;
-            gap: var(--space-3);
-            align-items: stretch;
-        }
-
-        .plugin-row .modal-option {
-            flex: 1 1 auto;
-        }
-
-        .plugin-check {
-            display: flex;
-            gap: var(--space-2);
-            align-items: center;
-            color: var(--muted);
-            font-size: 11px;
-        }
-
-        .modal-actions {
-            display: flex;
-            justify-content: flex-end;
-            gap: var(--space-3);
-        }
-
-        .agent-menu {
-            position: fixed;
-            z-index: 30;
-            display: grid;
-            gap: 2px;
-            min-width: 230px;
-            max-width: min(340px, 90vw);
-            padding: 7px;
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-lg);
-            background: color-mix(in srgb, var(--surface-1) 98%, #000000 2%);
-            box-shadow: var(--shadow-overlay);
-        }
-
-        .agent-menu-header {
-            padding: 8px 10px 4px;
-            color: var(--muted);
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.45px;
-            text-transform: uppercase;
-        }
-
-        .agent-menu-item {
-            display: flex;
-            align-items: center;
-            gap: var(--space-3);
-            width: 100%;
-            padding: 7px 10px;
-            border-radius: var(--radius-sm);
-            color: var(--fg);
-            text-align: left;
-            background: transparent;
-            font-size: 12px;
-        }
-
-        .agent-menu-item:hover {
-            background: var(--surface-hover);
-        }
-
-        .agent-menu-check {
-            flex: 0 0 auto;
-            width: 14px;
-            color: var(--focus);
-            text-align: center;
-        }
-
-        .agent-menu-label {
-            flex: 1 1 auto;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .agent-menu-sep {
-            height: 1px;
-            margin: 5px 6px;
-            background: var(--border-subtle);
-        }
-
-        .agent-menu-models {
-            max-height: 220px;
-            overflow-y: auto;
-        }
-
-        @media (max-width: 760px) {
-            .chat-header {
-                min-height: 40px;
-                padding: 7px 12px 6px;
-            }
-
-            .chat-section-title {
-                max-width: 52vw;
-            }
-
-            .messages {
-                padding: 12px;
-            }
-
-            .message-card,
-            .message-card.assistant,
-            .message-card.reasoning,
-            .message-card.tool,
-            .message-card.metrics {
-                max-width: 100%;
-            }
-
-            .message-card.user {
-                max-width: 92%;
-            }
-
-            .side-pane {
-                grid-template-columns: 1fr;
-                max-height: 230px;
-                overflow-y: auto;
-                padding: 0 12px 8px;
-            }
-
-            .settings-page {
-                padding: 12px;
-            }
-
-            .settings-shell {
-                gap: 12px;
-            }
-
-            .settings-hero {
-                grid-template-columns: minmax(0, 1fr);
-                padding: 14px;
-            }
-
-            .settings-hero-actions {
-                justify-content: flex-start;
-            }
-
-            .settings-groups {
-                grid-template-columns: minmax(0, 1fr);
-                gap: 10px;
-            }
-
-            .settings-group,
-            .settings-group.wide {
-                grid-column: auto;
-                padding: 10px;
-            }
-
-            .settings-action {
-                grid-template-columns: 28px minmax(0, 1fr) auto 10px;
-                min-height: 42px;
-                padding: 7px 8px;
-            }
-
-            .settings-action::before {
-                width: 26px;
-                height: 26px;
-            }
-
-            .settings-action-value {
-                max-width: 30vw;
-                justify-self: end;
-                text-align: right;
-            }
-
-            .composer {
-                padding: 8px 12px 12px;
-            }
-
-            .suggestions {
-                left: 12px;
-                right: 12px;
-            }
-
-            .composer-toolbar {
-                align-items: center;
-                flex-wrap: nowrap;
-            }
-
-            .toolbar-left,
-            .toolbar-right {
-                width: auto;
-                flex-wrap: nowrap;
-            }
-
-            .profile-select {
-                min-width: 64px;
-                max-width: 92px;
-            }
-
-            .model-pill {
-                max-width: 128px;
-            }
-
-            .status-pill,
-            .context-meter {
-                display: none;
-            }
-        }
+/* StemCode chat view.
+ * Every color comes from VS Code theme tokens so the view follows light, dark, and high-contrast themes.
+ */
+
+:root {
+    --fg: var(--vscode-foreground);
+    --muted: var(--vscode-descriptionForeground);
+    --bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+    --editor-bg: var(--vscode-editor-background);
+    --input-bg: var(--vscode-input-background);
+    --input-fg: var(--vscode-input-foreground);
+    --input-border: var(--vscode-input-border, var(--vscode-widget-border, transparent));
+    --border: var(--vscode-widget-border, var(--vscode-panel-border, rgba(128, 128, 128, 0.35)));
+    --border-subtle: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.22));
+    --focus: var(--vscode-focusBorder);
+    --link: var(--vscode-textLink-foreground);
+    --link-active: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+    --button-bg: var(--vscode-button-background);
+    --button-fg: var(--vscode-button-foreground);
+    --button-hover: var(--vscode-button-hoverBackground);
+    --button2-bg: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.2));
+    --button2-fg: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    --button2-hover: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.3));
+    --hover: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.18));
+    --list-hover: var(--vscode-list-hoverBackground, rgba(128, 128, 128, 0.12));
+    --list-active-bg: var(--vscode-list-activeSelectionBackground);
+    --list-active-fg: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+    --badge-bg: var(--vscode-badge-background);
+    --badge-fg: var(--vscode-badge-foreground);
+    --code-bg: var(--vscode-textCodeBlock-background, rgba(128, 128, 128, 0.12));
+    --inline-code-fg: var(--vscode-textPreformat-foreground, var(--vscode-foreground));
+    --error: var(--vscode-errorForeground, #f14c4c);
+    --warning: var(--vscode-editorWarning-foreground, #cca700);
+    --info: var(--vscode-editorInfo-foreground, #3794ff);
+    --success: var(--vscode-testing-iconPassed, #73c991);
+    --added: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
+    --removed: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
+    --modified: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+    --diff-added-bg: var(--vscode-diffEditor-insertedLineBackground, rgba(155, 185, 85, 0.15));
+    --diff-removed-bg: var(--vscode-diffEditor-removedLineBackground, rgba(255, 0, 0, 0.12));
+    --shadow: var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+    --mono: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Consolas, monospace);
+    --mono-size: var(--vscode-editor-font-size, 12px);
+    --font: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+    --font-size: var(--vscode-font-size, 13px);
+    --radius: 6px;
+    --radius-lg: 8px;
+    --gutter: 14px;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: var(--font-size);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+    color: inherit;
+}
+
+button {
+    cursor: pointer;
+}
+
+button:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+:focus-visible {
+    outline: 1px solid var(--focus);
+    outline-offset: -1px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+kbd {
+    display: inline-block;
+    min-width: 16px;
+    padding: 0 4px;
+    border: 1px solid var(--vscode-keybindingLabel-border, var(--border));
+    border-bottom-color: var(--vscode-keybindingLabel-bottomBorder, var(--border));
+    border-radius: 3px;
+    background: var(--vscode-keybindingLabel-background, rgba(128, 128, 128, 0.17));
+    color: var(--vscode-keybindingLabel-foreground, var(--fg));
+    font-family: var(--font);
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+}
+
+/* ---- Icons ------------------------------------------------------------------------------- */
+
+.icon-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+}
+
+.icon {
+    display: block;
+    width: 16px;
+    height: 16px;
+}
+
+.spin {
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .spin {
+        animation-duration: 2.4s;
+    }
+}
+
+/* ---- App shell --------------------------------------------------------------------------- */
+
+.app {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    min-width: 0;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 4px 8px 4px var(--gutter);
+    border-bottom: 1px solid var(--border-subtle);
+    flex: none;
+}
+
+.topbar-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.session-title {
+    display: block;
+    overflow: hidden;
+    color: var(--fg);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--fg);
+}
+
+.icon-button:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.icon-button.active {
+    background: var(--hover);
+    color: var(--link);
+}
+
+.link-button {
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    color: var(--link);
+    text-decoration: none;
+}
+
+.link-button:hover {
+    color: var(--link-active);
+    text-decoration: underline;
+}
+
+/* ---- Status banner ----------------------------------------------------------------------- */
+
+.status-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 8px var(--gutter) 0;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--vscode-editorWidget-background, var(--input-bg));
+    font-size: 12px;
+    flex: none;
+}
+
+.status-banner.tone-error {
+    border-color: var(--vscode-inputValidation-errorBorder, var(--error));
+    background: var(--vscode-inputValidation-errorBackground, var(--vscode-editorWidget-background));
+}
+
+.status-banner.tone-warning {
+    border-color: var(--vscode-inputValidation-warningBorder, var(--warning));
+}
+
+.status-banner-icon {
+    display: inline-flex;
+    margin-top: 1px;
+}
+
+.tone-error .status-banner-icon {
+    color: var(--error);
+}
+
+.tone-warning .status-banner-icon {
+    color: var(--warning);
+}
+
+.tone-info .status-banner-icon {
+    color: var(--info);
+}
+
+.status-banner-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.status-banner-actions {
+    display: inline-flex;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+/* ---- Transcript -------------------------------------------------------------------------- */
+
+.transcript {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 12px var(--gutter) 18px;
+    scroll-padding-bottom: 24px;
+    outline: none;
+}
+
+.transcript > * + * {
+    margin-top: 12px;
+}
+
+/* Empty state */
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 420px;
+    margin: 0 auto;
+    padding: 9vh 4px 16px;
+    text-align: center;
+}
+
+.empty-logo {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 12px;
+    border-radius: 10px;
+    opacity: 0.95;
+}
+
+.empty-title {
+    margin: 0 0 6px;
+    font-size: 17px;
+    font-weight: 600;
+}
+
+.empty-hint {
+    margin: 0 0 18px;
+    color: var(--muted);
+}
+
+.starter-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+}
+
+.starter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg);
+    text-align: left;
+}
+
+.starter:hover {
+    border-color: var(--border);
+    background: var(--list-hover);
+}
+
+.starter-icon {
+    display: inline-flex;
+    color: var(--muted);
+}
+
+.empty-keys {
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.empty-keys .dot {
+    margin: 0 4px;
+}
+
+/* Messages */
+
+.message-card {
+    position: relative;
+    min-width: 0;
+}
+
+.message-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.message-card.user {
+    margin-top: 18px;
+    padding: 8px 12px;
+    border: 1px solid var(--input-border);
+    border-radius: var(--radius-lg);
+    background: var(--input-bg);
+    color: var(--input-fg);
+}
+
+.message-card.user:first-child,
+.empty-state + .message-card.user {
+    margin-top: 0;
+}
+
+.message-card.user .message-text {
+    white-space: pre-wrap;
+}
+
+.message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+a.attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 1px 6px 1px 4px;
+    border-radius: 4px;
+    background: var(--code-bg);
+    color: var(--muted);
+    font-size: 11px;
+    text-decoration: none;
+}
+
+a.attachment-chip:hover {
+    color: var(--fg);
+}
+
+.attachment-chip .icon-wrap {
+    width: 14px;
+    height: 14px;
+}
+
+.message-actions {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    display: flex;
+    gap: 2px;
+    padding: 1px;
+    border-radius: 5px;
+    background: var(--bg);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+}
+
+.message-card.user .message-actions {
+    background: var(--input-bg);
+}
+
+.message-card.assistant .message-actions {
+    top: auto;
+    right: auto;
+    bottom: -22px;
+    left: -4px;
+    background: transparent;
+}
+
+.message-card:hover .message-actions,
+.message-card:focus-within .message-actions {
+    opacity: 1;
+}
+
+.message-card.streaming .message-actions {
+    display: none;
+}
+
+.message-card.assistant {
+    padding-bottom: 6px;
+}
+
+.message-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+}
+
+.message-action:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.message-action.copied,
+.code-action.copied,
+.vscode-code-copy-button.copied,
+.diff-copy-button.copied {
+    color: var(--success);
+}
+
+/* System notices */
+
+.message-card.system {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 10px;
+    border-left: 2px solid var(--border);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    background: var(--code-bg);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.message-card.system .message-text {
+    flex: 1;
+    white-space: pre-wrap;
+}
+
+.notice-icon {
+    margin-top: 1px;
+}
+
+.message-card.system.notice-error {
+    border-left-color: var(--error);
+    color: var(--fg);
+}
+
+.notice-error .notice-icon {
+    color: var(--error);
+}
+
+.message-card.system.notice-warning {
+    border-left-color: var(--warning);
+}
+
+.notice-warning .notice-icon {
+    color: var(--warning);
+}
+
+.message-card.system.notice-success {
+    border-left-color: var(--success);
+}
+
+.notice-success .notice-icon {
+    color: var(--success);
+}
+
+.turn-footer {
+    margin-top: 6px !important;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: right;
+    opacity: 0.85;
+}
+
+/* Progress */
+
+.progress-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.progress-icon {
+    color: var(--link);
+}
+
+.progress-label {
+    color: var(--fg);
+}
+
+.progress-elapsed {
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-hint {
+    margin-left: auto;
+    font-size: 11px;
+    opacity: 0.75;
+}
+
+/* ---- Markdown ---------------------------------------------------------------------------- */
+
+.markdown-rendered > :first-child {
+    margin-top: 0;
+}
+
+.markdown-rendered > :last-child {
+    margin-bottom: 0;
+}
+
+.markdown-rendered p,
+.markdown-rendered ul,
+.markdown-rendered ol,
+.markdown-rendered blockquote,
+.markdown-rendered .markdown-table-wrap,
+.markdown-rendered .markdown-code-block {
+    margin: 0 0 10px;
+}
+
+.markdown-rendered p {
+    white-space: pre-wrap;
+}
+
+.markdown-rendered h1,
+.markdown-rendered h2,
+.markdown-rendered h3,
+.markdown-rendered h4,
+.markdown-rendered h5,
+.markdown-rendered h6 {
+    margin: 16px 0 8px;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.markdown-rendered h1 {
+    font-size: 1.35em;
+}
+
+.markdown-rendered h2 {
+    font-size: 1.2em;
+}
+
+.markdown-rendered h3 {
+    font-size: 1.08em;
+}
+
+.markdown-rendered h4,
+.markdown-rendered h5,
+.markdown-rendered h6 {
+    font-size: 1em;
+}
+
+.markdown-rendered ul,
+.markdown-rendered ol {
+    padding-left: 20px;
+}
+
+.markdown-rendered li + li {
+    margin-top: 3px;
+}
+
+.markdown-rendered blockquote {
+    padding: 2px 0 2px 12px;
+    border-left: 3px solid var(--vscode-textBlockQuote-border, var(--border));
+    color: var(--muted);
+}
+
+.markdown-rendered hr {
+    height: 1px;
+    margin: 14px 0;
+    border: 0;
+    background: var(--border-subtle);
+}
+
+.markdown-rendered a {
+    color: var(--link);
+    text-decoration: none;
+}
+
+.markdown-rendered a:hover {
+    color: var(--link-active);
+    text-decoration: underline;
+}
+
+.markdown-rendered code,
+.thinking-markdown code {
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--code-bg);
+    color: var(--inline-code-fg);
+    font-family: var(--mono);
+    font-size: 0.92em;
+}
+
+.markdown-table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.markdown-table-wrap table {
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.markdown-table-wrap th,
+.markdown-table-wrap td {
+    padding: 4px 10px;
+    border: 1px solid var(--border-subtle);
+    text-align: left;
+    vertical-align: top;
+}
+
+.markdown-table-wrap th {
+    background: var(--code-bg);
+    font-weight: 600;
+}
+
+/* Fenced code blocks */
+
+.markdown-code-block {
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--editor-bg);
+}
+
+.code-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 26px;
+    padding: 0 4px 0 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--code-bg);
+}
+
+.code-block-language {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: lowercase;
+}
+
+.code-block-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.code-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+}
+
+.code-action:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.markdown-code-block pre {
+    margin: 0;
+    padding: 10px 12px;
+    overflow-x: auto;
+    background: transparent;
+}
+
+.markdown-code-block pre code {
+    display: block;
+    padding: 0;
+    background: transparent;
+    color: var(--vscode-editor-foreground, var(--fg));
+    font-family: var(--mono);
+    font-size: var(--mono-size);
+    line-height: 1.5;
+    white-space: pre;
+}
+
+/* File links */
+
+a.file-link {
+    color: var(--link);
+    font-family: var(--mono);
+    font-size: 0.95em;
+    text-decoration: none;
+    overflow-wrap: anywhere;
+}
+
+a.file-link:hover {
+    color: var(--link-active);
+    text-decoration: underline;
+}
+
+/* ---- Inline disclosures (tool calls, thinking) ------------------------------------------ */
+
+.message-card.tool,
+.message-card.reasoning {
+    margin-top: 4px;
+}
+
+.message-card.tool + .message-card.tool {
+    margin-top: 2px;
+}
+
+.inline-call-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    min-height: 24px;
+    padding: 2px 6px;
+    border-radius: 5px;
+    color: var(--muted);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+}
+
+.inline-call-summary::-webkit-details-marker {
+    display: none;
+}
+
+.inline-call-summary:hover {
+    background: var(--list-hover);
+    color: var(--fg);
+}
+
+.inline-call-status {
+    width: 14px;
+    height: 14px;
+}
+
+.inline-call-status .icon {
+    width: 14px;
+    height: 14px;
+}
+
+.status-check {
+    color: var(--success);
+}
+
+.status-error {
+    color: var(--error);
+}
+
+.status-spinner {
+    color: var(--link);
+}
+
+.inline-call-icon {
+    opacity: 0.8;
+}
+
+.inline-call-title {
+    flex: none;
+    color: var(--fg);
+    font-weight: 600;
+}
+
+.inline-call-target {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.92em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+a.inline-call-target {
+    color: var(--link);
+}
+
+.inline-call-stats,
+.changed-file-stats,
+.ws-summary-stats {
+    display: inline-flex;
+    gap: 5px;
+    flex: none;
+    font-family: var(--mono);
+    font-size: 11px;
+}
+
+.stat-added {
+    color: var(--added);
+}
+
+.stat-removed {
+    color: var(--removed);
+}
+
+.inline-call-meta {
+    flex: none;
+    font-size: 11px;
+}
+
+.inline-call-chevron {
+    margin-left: auto;
+    opacity: 0;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.inline-call-summary:hover .inline-call-chevron,
+details[open] > .inline-call-summary .inline-call-chevron {
+    opacity: 0.8;
+}
+
+details[open] > .inline-call-summary .inline-call-chevron {
+    transform: rotate(90deg);
+}
+
+.inline-call-content {
+    margin: 4px 0 2px 13px;
+    padding-left: 12px;
+    border-left: 1px solid var(--border-subtle);
+}
+
+.message-card.tool.failed .inline-call-title,
+.message-card.tool.error .inline-call-title {
+    color: var(--error);
+}
+
+.thinking-details .inline-call-title {
+    color: var(--muted);
+    font-weight: 500;
+    font-style: italic;
+}
+
+.thinking-markdown {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.tool-message {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.tool-pending {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.tool-arguments > summary,
+details.tool-arguments > summary {
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.tool-arguments pre,
+details > pre {
+    max-height: 260px;
+    margin: 4px 0 0;
+    padding: 8px 10px;
+    overflow: auto;
+    border-radius: var(--radius);
+    background: var(--code-bg);
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+/* Tool output / read-file code blocks */
+
+.vscode-code-block,
+.diff-view {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+    background: var(--editor-bg);
+}
+
+.vscode-code-header,
+.diff-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 26px;
+    padding: 0 4px 0 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--code-bg);
+    font-size: 11px;
+}
+
+.vscode-code-header-main,
+.diff-header-main {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vscode-code-title {
+    color: var(--muted);
+}
+
+.vscode-code-actions,
+.diff-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    color: var(--muted);
+}
+
+.vscode-code-copy-button,
+.diff-copy-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+}
+
+.vscode-code-copy-button:hover,
+.diff-copy-button:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.diff-stat {
+    font-family: var(--mono);
+}
+
+.vscode-code-body,
+.diff-body {
+    max-height: 360px;
+    margin: 0;
+    padding: 4px 0;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: var(--mono-size);
+    line-height: 1.5;
+}
+
+.vscode-code-line,
+.diff-line {
+    display: flex;
+    min-width: max-content;
+    padding-right: 10px;
+}
+
+.vscode-code-line-number,
+.diff-line-number {
+    flex: none;
+    width: 42px;
+    padding-right: 10px;
+    color: var(--vscode-editorLineNumber-foreground, var(--muted));
+    text-align: right;
+    user-select: none;
+}
+
+.vscode-code-line.no-line-number {
+    padding-left: 10px;
+}
+
+.vscode-code-line-content,
+.diff-line-code {
+    white-space: pre;
+}
+
+.tool-output .vscode-code-line-content {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.tool-output .vscode-code-line {
+    min-width: 0;
+}
+
+.diff-line-sign {
+    flex: none;
+    width: 16px;
+    color: var(--muted);
+    user-select: none;
+}
+
+.diff-line.diff-add {
+    background: var(--diff-added-bg);
+}
+
+.diff-line.diff-add .diff-line-sign {
+    color: var(--added);
+}
+
+.diff-line.diff-del {
+    background: var(--diff-removed-bg);
+}
+
+.diff-line.diff-del .diff-line-sign {
+    color: var(--removed);
+}
+
+.diff-line.diff-meta {
+    color: var(--muted);
+    background: var(--code-bg);
+}
+
+.show-more-button {
+    display: block;
+    width: 100%;
+    padding: 4px;
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+    background: var(--code-bg);
+    color: var(--link);
+    font-size: 11px;
+}
+
+.show-more-button:hover {
+    background: var(--list-hover);
+}
+
+/* Syntax colors use the debug token palette, which every theme defines. */
+.syntax-keyword { color: var(--vscode-debugTokenExpression-name, #569cd6); }
+.syntax-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+.syntax-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+.syntax-constant { color: var(--vscode-debugTokenExpression-boolean, #4e94ce); }
+.syntax-comment { color: var(--vscode-descriptionForeground); font-style: italic; }
+.syntax-function { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+.syntax-property { color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe); }
+.syntax-muted { color: var(--muted); }
+
+/* ---- Inline permission cards ------------------------------------------------------------- */
+
+.message-card.permission {
+    padding: 10px 12px;
+    border: 1px solid var(--focus);
+    border-radius: var(--radius-lg);
+    background: var(--vscode-editorWidget-background, var(--input-bg));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus) 25%, transparent);
+}
+
+.message-card.permission.resolved {
+    padding: 6px 10px;
+    border-color: var(--border-subtle);
+    background: transparent;
+    box-shadow: none;
+}
+
+.permission-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.permission-icon {
+    color: var(--warning);
+}
+
+.resolved .permission-header {
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.permission-description {
+    max-height: 220px;
+    margin-top: 6px;
+    overflow: auto;
+    color: var(--fg);
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.resolved .permission-description {
+    max-height: 60px;
+    color: var(--muted);
+}
+
+.permission-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.permission-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 26px;
+    padding: 3px 10px 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--button2-bg);
+    color: var(--button2-fg);
+}
+
+.permission-option:hover {
+    background: var(--button2-hover);
+}
+
+.permission-option.default {
+    border-color: var(--button-bg);
+    background: var(--button-bg);
+    color: var(--button-fg);
+}
+
+.permission-option.default:hover {
+    background: var(--button-hover);
+}
+
+.permission-option.subtle {
+    padding: 3px 10px;
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
+}
+
+.permission-option.subtle:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.permission-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 3px;
+    border-radius: 3px;
+    background: rgba(128, 128, 128, 0.25);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.permission-option-kind {
+    opacity: 0.75;
+    font-size: 11px;
+}
+
+.permission-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.resolved .permission-footer {
+    margin-top: 4px;
+}
+
+.outcome-approved .permission-footer {
+    color: var(--success);
+}
+
+.outcome-rejected .permission-footer,
+.outcome-cancelled .permission-footer {
+    color: var(--error);
+}
+
+/* ---- Settings ---------------------------------------------------------------------------- */
+
+.settings-page {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px var(--gutter) 24px;
+}
+
+.settings-shell {
+    max-width: 680px;
+    margin: 0 auto;
+}
+
+.settings-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.settings-header .icon-button .icon {
+    transform: rotate(180deg);
+}
+
+.settings-header h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.settings-summary {
+    color: var(--muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.settings-group {
+    margin-bottom: 18px;
+}
+
+.settings-group-header h2 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.settings-group-header p {
+    margin: 2px 0 6px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.settings-list {
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius);
+}
+
+.settings-action {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-bottom: 1px solid var(--border-subtle);
+    background: transparent;
+    color: var(--fg);
+    text-align: left;
+}
+
+.settings-action:last-child {
+    border-bottom: 0;
+}
+
+.settings-action:hover:not(:disabled) {
+    background: var(--list-hover);
+}
+
+.settings-action-icon {
+    display: inline-flex;
+    color: var(--muted);
+}
+
+.settings-action-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.settings-action-title {
+    font-weight: 500;
+}
+
+.settings-action-description {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.settings-action-value {
+    max-width: 40%;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-action-chevron {
+    display: inline-flex;
+    color: var(--muted);
+    opacity: 0.7;
+}
+
+/* ---- Jump to latest ---------------------------------------------------------------------- */
+
+.jump-to-latest {
+    position: absolute;
+    left: 50%;
+    bottom: 150px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--vscode-editorWidget-background, var(--bg));
+    color: var(--fg);
+    box-shadow: 0 2px 8px var(--shadow);
+    transform: translateX(-50%);
+}
+
+.jump-to-latest:hover {
+    background: var(--list-hover);
+}
+
+/* ---- Composer area ----------------------------------------------------------------------- */
+
+.composer-area {
+    flex: none;
+    padding: 0 var(--gutter) 10px;
+}
+
+/* Working set strip (plan / agents / changed files) */
+
+.working-set {
+    margin-bottom: -1px;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    border-bottom: 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--vscode-editorWidget-background, var(--input-bg));
+    margin-left: 6px;
+    margin-right: 6px;
+}
+
+.working-set-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    min-height: 26px;
+    padding: 3px 8px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: left;
+}
+
+.working-set-toggle:hover {
+    color: var(--fg);
+}
+
+.working-set-chevron {
+    display: inline-flex;
+    transition: transform 0.12s ease;
+}
+
+.working-set.expanded .working-set-chevron {
+    transform: rotate(90deg);
+}
+
+.working-set-summary {
+    display: flex;
+    flex: 1;
+    flex-wrap: wrap;
+    gap: 2px 12px;
+    min-width: 0;
+}
+
+.ws-summary-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.ws-summary-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.working-set-body {
+    max-height: 38vh;
+    overflow-y: auto;
+    padding: 0 8px 6px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.ws-section {
+    padding-top: 6px;
+}
+
+.ws-section-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.ws-count {
+    font-family: var(--mono);
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.plan-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 2px 0;
+    font-size: 12px;
+}
+
+.plan-dot {
+    margin-top: 1px;
+    color: var(--muted);
+}
+
+.plan-item.in_progress .plan-dot {
+    color: var(--link);
+}
+
+.plan-item.completed .plan-dot {
+    color: var(--success);
+}
+
+.plan-item.completed .plan-content {
+    color: var(--muted);
+    text-decoration: line-through;
+}
+
+.plan-item.in_progress .plan-content {
+    font-weight: 600;
+}
+
+.plan-content {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.changed-file-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.changed-file-row:hover {
+    background: var(--list-hover);
+}
+
+.changed-file-badge {
+    flex: none;
+    width: 14px;
+    color: var(--modified);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+}
+
+.changed-file-action-created,
+.changed-file-action-added {
+    color: var(--added);
+}
+
+.changed-file-action-deleted {
+    color: var(--removed);
+}
+
+a.changed-file-name {
+    flex: none;
+    max-width: 55%;
+    overflow: hidden;
+    font-family: var(--font);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.changed-file-dir {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-thread-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.agent-thread-item {
+    display: block;
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg);
+    font-size: 12px;
+    text-align: left;
+}
+
+.agent-thread-item:hover {
+    background: var(--list-hover);
+}
+
+.agent-thread-item.active {
+    border-color: var(--border-subtle);
+}
+
+.agent-thread-topline {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.agent-thread-name {
+    font-weight: 600;
+}
+
+.agent-thread-status,
+.agent-thread-meta {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.agent-thread-task {
+    overflow: hidden;
+    color: var(--muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-thread-output {
+    max-height: 120px;
+    margin-top: 4px;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: pre-wrap;
+}
+
+/* Prompt queue */
+
+.prompt-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 4px;
+}
+
+.prompt-queue-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 4px 3px 8px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.prompt-queue-badge {
+    flex: none;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--badge-bg);
+    color: var(--badge-fg);
+    font-size: 10px;
+}
+
+.prompt-queue-text {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.prompt-queue-remove {
+    display: inline-flex;
+    padding: 2px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+}
+
+.prompt-queue-remove:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+/* Composer box */
+
+.composer {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--input-border);
+    border-radius: var(--radius-lg);
+    background: var(--input-bg);
+    color: var(--input-fg);
+}
+
+.composer:focus-within {
+    border-color: var(--focus);
+}
+
+.composer-context {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 8px 0;
+}
+
+.chip-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+}
+
+.chip-button:hover {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.context-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    height: 22px;
+    padding: 0 4px 0 5px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg);
+    font-size: 11px;
+}
+
+.context-chip:hover {
+    background: var(--hover);
+}
+
+.context-chip .icon-wrap,
+.chip-button .icon-wrap {
+    width: 14px;
+    height: 14px;
+}
+
+.context-chip .icon,
+.chip-button .icon {
+    width: 14px;
+    height: 14px;
+}
+
+.context-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.context-chip-toggle {
+    display: inline-flex;
+    color: var(--muted);
+}
+
+.context-chip.disabled {
+    border-style: dashed;
+    color: var(--muted);
+}
+
+.context-chip.disabled .context-chip-label {
+    text-decoration: line-through;
+}
+
+.chat-input {
+    display: block;
+    width: 100%;
+    min-height: 40px;
+    max-height: 40vh;
+    padding: 6px 10px 2px;
+    overflow-y: hidden;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--input-fg);
+    line-height: 1.45;
+    resize: none;
+}
+
+.chat-input::placeholder {
+    color: var(--vscode-input-placeholderForeground, var(--muted));
+}
+
+.chat-input:focus-visible {
+    outline: none;
+}
+
+.composer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 2px 6px 6px 6px;
+}
+
+.toolbar-left,
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.toolbar-left {
+    flex: 1;
+}
+
+.pill-select,
+.pill-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    max-width: 100%;
+    height: 22px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.pill-select {
+    flex: none;
+    max-width: 96px;
+    padding-right: 2px;
+    text-overflow: ellipsis;
+}
+
+.pill-select option {
+    background: var(--vscode-dropdown-background, var(--input-bg));
+    color: var(--vscode-dropdown-foreground, var(--fg));
+}
+
+.pill-button {
+    flex: 0 1 auto;
+}
+
+.pill-select:hover:not(:disabled),
+.pill-button:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--fg);
+}
+
+.pill-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pill-chevron .icon,
+.pill-chevron {
+    width: 12px;
+    height: 12px;
+}
+
+.status-text {
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.context-meter {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.context-ring {
+    transform: rotate(-90deg);
+}
+
+.ring-bg,
+.ring-fg {
+    fill: none;
+    stroke-width: 2.5;
+}
+
+.ring-bg {
+    stroke: var(--border);
+}
+
+.ring-fg {
+    stroke: var(--muted);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 0.3s ease;
+}
+
+.context-meter-warn {
+    color: var(--warning);
+}
+
+.context-meter-warn .ring-fg {
+    stroke: var(--warning);
+}
+
+.context-meter-danger {
+    color: var(--error);
+}
+
+.context-meter-danger .ring-fg {
+    stroke: var(--error);
+}
+
+.send-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 5px;
+    background: var(--button-bg);
+    color: var(--button-fg);
+    flex: none;
+}
+
+.send-button:hover:not(:disabled) {
+    background: var(--button-hover);
+}
+
+.send-button:disabled {
+    background: var(--button2-bg);
+    color: var(--muted);
+    opacity: 0.7;
+}
+
+.send-button.stop-mode {
+    background: var(--button2-bg);
+    color: var(--fg);
+}
+
+.send-button.stop-mode:hover:not(:disabled) {
+    background: var(--button2-hover);
+}
+
+.composer-hint {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 10.5px;
+    text-align: center;
+    opacity: 0.8;
+}
+
+.composer-hint kbd {
+    font-size: 10px;
+    line-height: 14px;
+}
+
+/* Suggestions popup (slash commands, @files) */
+
+.suggestions {
+    position: absolute;
+    left: -1px;
+    right: -1px;
+    bottom: calc(100% + 4px);
+    z-index: 20;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--vscode-editorSuggestWidget-border, var(--border));
+    border-radius: var(--radius);
+    background: var(--vscode-editorSuggestWidget-background, var(--vscode-editorWidget-background, var(--input-bg)));
+    box-shadow: 0 4px 16px var(--shadow);
+}
+
+.suggestion {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.suggestion.active {
+    background: var(--vscode-editorSuggestWidget-selectedBackground, var(--list-active-bg));
+    color: var(--vscode-editorSuggestWidget-selectedForeground, var(--list-active-fg));
+}
+
+.suggestion-icon {
+    color: var(--muted);
+}
+
+.suggestion.active .suggestion-icon {
+    color: inherit;
+}
+
+.suggestion-usage {
+    flex: none;
+    max-width: 60%;
+    overflow: hidden;
+    font-family: var(--mono);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suggestion-description {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.suggestion.active .suggestion-description {
+    color: inherit;
+    opacity: 0.8;
+}
+
+/* ---- Popup menu (model / reasoning) ------------------------------------------------------ */
+
+.popup-menu {
+    position: fixed;
+    z-index: 40;
+    overflow-y: auto;
+    padding: 4px;
+    border: 1px solid var(--vscode-menu-border, var(--border));
+    border-radius: var(--radius);
+    background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+    color: var(--vscode-menu-foreground, var(--fg));
+    box-shadow: 0 4px 16px var(--shadow);
+}
+
+.agent-menu-header {
+    padding: 6px 8px 2px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.agent-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 3px 8px 3px 4px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font-size: 12px;
+    text-align: left;
+}
+
+.agent-menu-item:hover,
+.agent-menu-item:focus-visible {
+    background: var(--vscode-menu-selectionBackground, var(--list-active-bg));
+    color: var(--vscode-menu-selectionForeground, var(--list-active-fg));
+    outline: none;
+}
+
+.agent-menu-check {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    flex: none;
+}
+
+.agent-menu-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-menu-description {
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.agent-menu-sep {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--vscode-menu-separatorBackground, var(--border-subtle));
+}
+
+/* ---- Modal ------------------------------------------------------------------------------- */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 10vh 12px 12px;
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.modal {
+    display: flex;
+    flex-direction: column;
+    width: min(520px, 100%);
+    max-height: 80vh;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--vscode-editorWidget-background, var(--bg));
+    box-shadow: 0 8px 28px var(--shadow);
+}
+
+.modal h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.modal-description {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: pre-wrap;
+}
+
+.modal-body {
+    min-height: 0;
+    margin-top: 10px;
+    overflow-y: auto;
+}
+
+.modal-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.modal-countdown {
+    margin-right: auto;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.modal-options {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.modal-option {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg);
+    text-align: left;
+}
+
+button.modal-option:hover {
+    background: var(--list-hover);
+}
+
+.modal-option.active {
+    border-color: var(--focus);
+}
+
+.modal-option strong {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.modal-option span {
+    flex: none;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+.modal-input {
+    display: block;
+    width: 100%;
+    height: 26px;
+    margin: 4px 0;
+    padding: 2px 8px;
+    border: 1px solid var(--input-border);
+    border-radius: 4px;
+    background: var(--input-bg);
+    color: var(--input-fg);
+}
+
+.modal-input:focus {
+    border-color: var(--focus);
+    outline: none;
+}
+
+.primary-button,
+.ghost-button,
+.danger-button {
+    min-height: 26px;
+    padding: 3px 12px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.primary-button {
+    background: var(--button-bg);
+    color: var(--button-fg);
+}
+
+.primary-button:hover:not(:disabled) {
+    background: var(--button-hover);
+}
+
+.ghost-button {
+    background: var(--button2-bg);
+    color: var(--button2-fg);
+}
+
+.ghost-button:hover:not(:disabled) {
+    background: var(--button2-hover);
+}
+
+.danger-button {
+    border-color: var(--error);
+    background: transparent;
+    color: var(--error);
+}
+
+.danger-button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--error) 14%, transparent);
+}
+
+.empty-panel {
+    padding: 8px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.context-label {
+    margin: 10px 0 4px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.plugin-section + .plugin-section {
+    margin-top: 6px;
+}
+
+.plugin-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.plugin-row .modal-option {
+    flex: 1;
+    min-width: 0;
+}
+
+.plugin-form {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.plugin-check {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 4px 0 8px;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+/* ---- Toast ------------------------------------------------------------------------------- */
+
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 120px;
+    z-index: 60;
+    max-width: calc(100% - 32px);
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--vscode-notifications-background, var(--vscode-editorWidget-background));
+    color: var(--vscode-notifications-foreground, var(--fg));
+    box-shadow: 0 4px 16px var(--shadow);
+    font-size: 12px;
+    transform: translateX(-50%);
+}
+
+/* ---- High contrast ----------------------------------------------------------------------- */
+
+body.vscode-high-contrast .message-card.user,
+body.vscode-high-contrast .composer,
+body.vscode-high-contrast .markdown-code-block,
+body.vscode-high-contrast .vscode-code-block,
+body.vscode-high-contrast .diff-view {
+    border-color: var(--vscode-contrastBorder, var(--border));
+}
+
+body.vscode-high-contrast .inline-call-summary:hover,
+body.vscode-high-contrast .starter:hover,
+body.vscode-high-contrast .settings-action:hover {
+    outline: 1px dashed var(--vscode-contrastActiveBorder, var(--focus));
+}
+
+/* ---- Narrow sidebars --------------------------------------------------------------------- */
+
+@media (max-width: 300px) {
+    :root {
+        --gutter: 8px;
+    }
+
+    .composer-hint,
+    .progress-hint,
+    .context-meter-label {
+        display: none;
+    }
+
+    .pill-select {
+        max-width: 70px;
+    }
+}

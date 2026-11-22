@@ -16,6 +16,10 @@
   "exclude": [
     "node_modules",
     ".vscode-test",
+    "test-fixtures",
     "src/webview/main.ts"
+  ],
+  "include": [
+    "src"
   ]
 }

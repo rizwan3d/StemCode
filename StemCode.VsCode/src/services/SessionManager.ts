@@ -94,6 +94,19 @@ export class SessionManager extends EventEmitter {
         }
     }
 
+    /** Restarts the CLI process; the 'running' status transition re-initializes the ACP session. */
+    public async restart(): Promise<void> {
+        if (this.processManager.getProcess()) {
+            await this.processManager.restart();
+        } else {
+            await this.processManager.start();
+        }
+
+        if (!this.acpClient && this.processManager.getProcess()) {
+            this.initializeSession();
+        }
+    }
+
     public async ensureSessionReady(): Promise<void> {
         const client = await this.getReadyClient();
         await this.ensureSession(client);

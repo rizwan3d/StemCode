@@ -1,8 +1,108 @@
 import * as vscode from 'vscode';
 
+type SettingsRow = {
+    icon: string;
+    title: string;
+    description: string;
+    value?: string;
+    valueId?: string;
+    action?: string;
+    command?: string;
+};
+
+type SettingsGroup = {
+    title: string;
+    hint: string;
+    rows: SettingsRow[];
+};
+
+const SETTINGS_GROUPS: SettingsGroup[] = [
+    {
+        title: 'Session',
+        hint: 'Model, profile, reasoning, and saved chats.',
+        rows: [
+            { icon: 'sparkle', title: 'Model', description: 'Choose the active model for this session.', valueId: 'settings-model-value', action: 'model' },
+            { icon: 'agent', title: 'Profile', description: 'Switch build, plan, review, or subagent profile.', valueId: 'settings-profile-value', command: '/setting profile' },
+            { icon: 'brain', title: 'Thinking', description: 'Set provider reasoning effort for later prompts.', valueId: 'settings-thinking-value', command: '/setting thinking' },
+            { icon: 'info', title: 'Summary', description: 'Provider, model, profile, thinking, and session details.', value: 'Open', command: '/setting summary' },
+            { icon: 'history', title: 'Sessions', description: 'Browse, resume, fork, or export saved sessions.', value: 'Browse', action: 'sessions' }
+        ]
+    },
+    {
+        title: 'Provider',
+        hint: 'Switch providers or repair credentials.',
+        rows: [
+            { icon: 'globe', title: 'Provider', description: 'Switch the saved provider for this session.', valueId: 'settings-provider-value', command: '/setting provider' },
+            { icon: 'shield', title: 'Onboarding', description: 'Add or repair provider credentials.', value: 'Set up', command: '/setting onboarding' }
+        ]
+    },
+    {
+        title: 'Workspace',
+        hint: 'Project files, permissions, budget, tools, terminals, and skills.',
+        rows: [
+            { icon: 'folder', title: 'Workspace Files', description: 'Create or review .stemcode project files.', value: 'Init', command: '/setting workspace' },
+            { icon: 'output', title: 'Budget', description: 'Configure local or cloud budget controls.', value: 'Open', command: '/setting budget' },
+            { icon: 'shield', title: 'Permissions', description: 'Edit modes, sandbox, and session overrides.', value: 'Policy', command: '/setting permissions' },
+            { icon: 'list', title: 'Rules', description: 'Inspect effective tool permission rules.', value: 'View', command: '/setting rules' },
+            { icon: 'tool', title: 'Tools', description: 'MCP servers, custom tools, and dynamic tool status.', value: 'View', command: '/setting tools' },
+            { icon: 'terminal', title: 'Background Terminals', description: 'List running terminals and stop them.', value: 'View', command: '/terminals' },
+            { icon: 'add', title: 'Skills', description: 'Browse marketplaces and install or remove skills.', value: 'Manage', action: 'plugins' }
+        ]
+    },
+    {
+        title: 'Extension',
+        hint: 'Native VS Code settings and diagnostics.',
+        rows: [
+            { icon: 'gear', title: 'VS Code Extension Settings', description: 'Command, args, working directory, auto-start, and log level.', value: 'Open', action: 'vscodeSettings' },
+            { icon: 'output', title: 'Extension Logs', description: 'Open the StemCode output channel.', value: 'Open', action: 'openLogs' },
+            { icon: 'refresh', title: 'Restart StemCode', description: 'Restart the StemCode ACP process.', value: 'Restart', action: 'restartProcess' }
+        ]
+    }
+];
+
+function escapeHtml(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function renderSettingsGroups(): string {
+    return SETTINGS_GROUPS.map(group => `
+                    <section class="settings-group">
+                        <header class="settings-group-header">
+                            <h2>${escapeHtml(group.title)}</h2>
+                            <p>${escapeHtml(group.hint)}</p>
+                        </header>
+                        <div class="settings-list">${group.rows.map(row => {
+        const dataAttrs = [
+            row.action ? `data-action="${escapeHtml(row.action)}"` : '',
+            row.command ? `data-command="${escapeHtml(row.command)}"` : ''
+        ].filter(Boolean).join(' ');
+        const value = row.valueId
+            ? `<span id="${escapeHtml(row.valueId)}" class="settings-action-value">-</span>`
+            : `<span class="settings-action-value">${escapeHtml(row.value ?? '')}</span>`;
+        return `
+                            <button type="button" class="settings-action" ${dataAttrs}>
+                                <span class="settings-action-icon" data-ico="${escapeHtml(row.icon)}"></span>
+                                <span class="settings-action-main">
+                                    <span class="settings-action-title">${escapeHtml(row.title)}</span>
+                                    <span class="settings-action-description">${escapeHtml(row.description)}</span>
+                                </span>
+                                ${value}
+                                <span class="settings-action-chevron" data-ico="chevronRight"></span>
+                            </button>`;
+    }).join('')}
+                        </div>
+                    </section>`).join('');
+}
+
 export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vscode.Uri, nonce: string) {
     const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'chat.css'));
     const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview.js'));
+    const logoUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'resources', 'logo.png'));
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -10,260 +110,142 @@ export function getChatWebviewContent(webview: vscode.Webview, extensionUri: vsc
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none';">
+          content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:; font-src ${webview.cspSource}; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none';">
     <title>StemCode</title>
     <link href="${styleUri}" rel="stylesheet">
 </head>
 <body>
-    <div class="workbench">
-        <main class="main-grid">
-            <section class="chat-pane">
-                <header class="chat-header">
-                    <div class="chat-header-copy">
-                        <span class="chat-kicker">StemCode</span>
-                        <span id="section-title" class="chat-section-title">No active section</span>
-                    </div>
-                    <div class="chat-header-actions">
-                        <button id="sessions-button" class="icon-button top-action" title="Sections" aria-label="Sections">&#9776;</button>
-                        <button id="settings-button" class="icon-button top-action" title="Settings" aria-label="Settings">&#9881;</button>
+    <div class="app" id="app">
+        <header class="topbar">
+            <div class="topbar-title">
+                <span id="section-title" class="session-title" title="Current session">New chat</span>
+            </div>
+            <div class="topbar-actions">
+                <button type="button" id="new-chat-button" class="icon-button" title="New chat" aria-label="New chat" data-ico="add"></button>
+                <button type="button" id="sessions-button" class="icon-button" title="Session history" aria-label="Session history" data-ico="history"></button>
+                <button type="button" id="settings-button" class="icon-button" title="Settings" aria-label="Settings" data-ico="gear"></button>
+            </div>
+        </header>
+
+        <div id="status-banner" class="status-banner hidden" role="status" aria-live="polite">
+            <span id="status-banner-icon" class="status-banner-icon"></span>
+            <span id="status-banner-text" class="status-banner-text"></span>
+            <span class="status-banner-actions">
+                <button type="button" id="status-retry-button" class="link-button">Retry</button>
+                <button type="button" id="status-logs-button" class="link-button">Logs</button>
+            </span>
+        </div>
+
+        <main id="messages" class="transcript" role="log" aria-live="polite" aria-relevant="additions" tabindex="0">
+            <div id="empty-state" class="empty-state">
+                <img class="empty-logo" src="${logoUri}" alt="" width="44" height="44">
+                <h1 class="empty-title">What should we build?</h1>
+                <p class="empty-hint">StemCode reads your workspace, edits files, runs tools, and asks before doing anything risky.</p>
+                <div class="starter-list" id="starter-list">
+                    <button type="button" class="starter" data-prompt="Give me a high-level overview of this codebase: structure, key modules, and how they fit together.">
+                        <span class="starter-icon" data-ico="search"></span><span>Explain this codebase</span>
+                    </button>
+                    <button type="button" class="starter" data-prompt="Find bugs and risky code in the active file and suggest fixes." data-needs-editor="true">
+                        <span class="starter-icon" data-ico="warning"></span><span>Find bugs in the current file</span>
+                    </button>
+                    <button type="button" class="starter" data-prompt="Write unit tests for the active file, following the project's existing test conventions." data-needs-editor="true">
+                        <span class="starter-icon" data-ico="check"></span><span>Write tests for the current file</span>
+                    </button>
+                    <button type="button" class="starter" data-command="stemcode.reviewGitDiff">
+                        <span class="starter-icon" data-ico="edit"></span><span>Review my uncommitted changes</span>
+                    </button>
+                </div>
+                <div class="empty-keys"><kbd>/</kbd> commands <span class="dot">·</span> <kbd>@</kbd> files <span class="dot">·</span> <kbd>Shift</kbd>+<kbd>Enter</kbd> new line</div>
+            </div>
+        </main>
+
+        <section id="settings-page" class="settings-page hidden" aria-label="StemCode settings">
+            <div class="settings-shell">
+                <header class="settings-header">
+                    <button type="button" id="settings-close-button" class="icon-button" title="Back to chat" aria-label="Back to chat" data-ico="chevronRight"></button>
+                    <div>
+                        <h1>Settings</h1>
+                        <div id="settings-summary" class="settings-summary">No active session.</div>
                     </div>
                 </header>
-                <div id="messages" class="messages">
-                    <div id="empty-state" class="empty-state">
-                        <div class="empty-title">StemCode</div>
-                        <div class="empty-hint">A compact coding agent for edits, files, tools, and focused workspace help.</div>
-                        <div class="empty-keys"><kbd>/</kbd> commands<span class="empty-dot">·</span><kbd>@</kbd> files<span class="empty-dot">·</span><kbd>Shift</kbd>+<kbd>Enter</kbd> newline</div>
-                    </div>
-                </div>
-                <section id="settings-page" class="settings-page hidden" aria-label="StemCode settings">
-                    <div class="settings-shell">
-                        <div class="settings-hero">
-                            <div class="settings-header">
-                                <div class="settings-kicker">Control center</div>
-                                <div class="settings-title">
-                                    <h1>Settings</h1>
-                                    <div id="settings-summary" class="settings-summary">No active session.</div>
-                                </div>
-                                <div class="settings-quick" aria-label="Settings categories">
-                                    <span class="settings-chip">Session</span>
-                                    <span class="settings-chip">Provider</span>
-                                    <span class="settings-chip">Workspace</span>
-                                    <span class="settings-chip">Extension</span>
-                                </div>
-                            </div>
-                            <div class="settings-hero-actions">
-                                <button id="settings-close-button" class="ghost-button" title="Back to chat" aria-label="Back to chat">Chat</button>
-                            </div>
-                        </div>
-                        <div class="settings-groups">
-                            <section class="settings-group">
-                                <div class="settings-group-header">
-                                    <div>
-                                        <h2>Session</h2>
-                                        <p class="settings-group-hint">Model, profile, reasoning, and saved chats.</p>
-                                    </div>
-                                    <span class="settings-group-count">5</span>
-                                </div>
-                                <button class="settings-action" data-icon="M" data-action="model">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Model</span>
-                                        <span class="settings-action-description">Choose active model for this session.</span>
-                                    </span>
-                                    <span id="settings-model-value" class="settings-action-value">-</span>
-                                </button>
-                                <button class="settings-action" data-icon="P" data-command="/setting profile">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Profile</span>
-                                        <span class="settings-action-description">Switch build, plan, review, or subagent profile.</span>
-                                    </span>
-                                    <span id="settings-profile-value" class="settings-action-value">-</span>
-                                </button>
-                                <button class="settings-action" data-icon="T" data-command="/setting thinking">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Thinking</span>
-                                        <span class="settings-action-description">Set provider reasoning effort for later prompts.</span>
-                                    </span>
-                                    <span id="settings-thinking-value" class="settings-action-value">-</span>
-                                </button>
-                                <button class="settings-action" data-icon="I" data-command="/setting summary">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Summary</span>
-                                        <span class="settings-action-description">Show provider, model, profile, thinking, and session details.</span>
-                                    </span>
-                                    <span class="settings-action-value">open</span>
-                                </button>
-                                <button class="settings-action" data-icon="S" data-action="sessions">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Sessions</span>
-                                        <span class="settings-action-description">Browse, resume, fork, or export saved sessions.</span>
-                                    </span>
-                                    <span class="settings-action-value">browse</span>
-                                </button>
-                            </section>
-                            <section class="settings-group">
-                                <div class="settings-group-header">
-                                    <div>
-                                        <h2>Provider</h2>
-                                        <p class="settings-group-hint">Switch providers or repair credentials.</p>
-                                    </div>
-                                    <span class="settings-group-count">2</span>
-                                </div>
-                                <button class="settings-action" data-icon="P" data-command="/setting provider">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Provider</span>
-                                        <span class="settings-action-description">Switch saved provider for this session.</span>
-                                    </span>
-                                    <span id="settings-provider-value" class="settings-action-value">-</span>
-                                </button>
-                                <button class="settings-action" data-icon="K" data-command="/setting onboarding">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Onboarding</span>
-                                        <span class="settings-action-description">Add or repair provider credentials.</span>
-                                    </span>
-                                    <span class="settings-action-value">setup</span>
-                                </button>
-                            </section>
-                            <section class="settings-group wide">
-                                <div class="settings-group-header">
-                                    <div>
-                                        <h2>Workspace</h2>
-                                        <p class="settings-group-hint">Project files, permissions, budget, tools, terminals, and plugins.</p>
-                                    </div>
-                                    <span class="settings-group-count">7</span>
-                                </div>
-                                <button class="settings-action" data-icon="W" data-command="/setting workspace">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Workspace Files</span>
-                                        <span class="settings-action-description">Create or review .stemcode project files.</span>
-                                    </span>
-                                    <span class="settings-action-value">init</span>
-                                </button>
-                                <button class="settings-action" data-icon="$" data-command="/setting budget">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Budget</span>
-                                        <span class="settings-action-description">Configure local or cloud budget controls.</span>
-                                    </span>
-                                    <span class="settings-action-value">open</span>
-                                </button>
-                                <button class="settings-action" data-icon="L" data-command="/setting permissions">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Permissions</span>
-                                        <span class="settings-action-description">Edit modes, sandbox, and session overrides.</span>
-                                    </span>
-                                    <span class="settings-action-value">policy</span>
-                                </button>
-                                <button class="settings-action" data-icon="R" data-command="/setting rules">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Rules</span>
-                                        <span class="settings-action-description">Inspect effective tool permission rules.</span>
-                                    </span>
-                                    <span class="settings-action-value">view</span>
-                                </button>
-                                <button class="settings-action" data-icon="T" data-command="/setting tools">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Tools</span>
-                                        <span class="settings-action-description">Show MCP servers, custom tools, and dynamic tool status.</span>
-                                    </span>
-                                    <span class="settings-action-value">view</span>
-                                </button>
-                                <button class="settings-action" data-icon=">_" data-command="/terminals">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Background Terminals</span>
-                                        <span class="settings-action-description">List running terminals and stop them with /terminals stop.</span>
-                                    </span>
-                                    <span class="settings-action-value">view</span>
-                                </button>
-                                <button class="settings-action" data-icon="+" data-action="plugins">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">Skills</span>
-                                        <span class="settings-action-description">Browse marketplaces and install or remove skills.</span>
-                                    </span>
-                                    <span class="settings-action-value">manage</span>
-                                </button>
-                            </section>
-                            <section class="settings-group">
-                                <div class="settings-group-header">
-                                    <div>
-                                        <h2>Extension</h2>
-                                        <p class="settings-group-hint">Open the native VS Code extension settings.</p>
-                                    </div>
-                                    <span class="settings-group-count">1</span>
-                                </div>
-                                <button class="settings-action" data-icon="VS" data-action="vscodeSettings">
-                                    <span class="settings-action-main">
-                                        <span class="settings-action-title">VS Code Extension Settings</span>
-                                        <span class="settings-action-description">Edit command, args, working directory, auto-start, and log level.</span>
-                                    </span>
-                                    <span class="settings-action-value">vscode</span>
-                                </button>
-                            </section>
-                        </div>
-                    </div>
-                </section>
-                <aside id="activity-pane" class="side-pane">
-                    <section class="section section-scroll">
-                        <div class="section-header">
-                            <h2>Plan</h2>
-                            <span id="plan-count" class="section-count">0 steps</span>
-                        </div>
+                ${renderSettingsGroups()}
+            </div>
+        </section>
+
+        <button type="button" id="jump-to-latest" class="jump-to-latest hidden" title="Scroll to latest" aria-label="Scroll to latest" data-ico="arrowDown"></button>
+
+        <footer class="composer-area">
+            <div id="working-set" class="working-set hidden">
+                <button type="button" id="working-set-toggle" class="working-set-toggle" aria-expanded="false">
+                    <span class="working-set-chevron" data-ico="chevronRight"></span>
+                    <span id="working-set-summary" class="working-set-summary"></span>
+                </button>
+                <div id="working-set-body" class="working-set-body hidden">
+                    <section id="plan-section" class="ws-section hidden">
+                        <div class="ws-section-header"><span>Plan</span><span id="plan-count" class="ws-count"></span></div>
                         <div id="plan-list" class="plan-list"></div>
                     </section>
-                    <section class="section section-scroll">
-                        <div class="section-header">
-                            <h2>Agents</h2>
-                            <span id="agent-count" class="section-count">0 threads</span>
-                        </div>
+                    <section id="agents-section" class="ws-section hidden">
+                        <div class="ws-section-header"><span>Subagents</span><span id="agent-count" class="ws-count"></span></div>
                         <div id="agent-thread-list" class="agent-thread-list"></div>
                     </section>
-                    <section class="section section-scroll">
-                        <div class="section-header">
-                            <h2>Changed files</h2>
-                            <span id="changed-files-count" class="section-count">0 files</span>
-                        </div>
+                    <section id="files-section" class="ws-section hidden">
+                        <div class="ws-section-header"><span>Changed files</span><span id="changed-files-count" class="ws-count"></span></div>
                         <div id="changed-files-list" class="changed-files-list"></div>
                     </section>
-                </aside>
-                <div class="composer">
-                    <div id="prompt-queue" class="prompt-queue hidden"></div>
-                    <div id="suggestions" class="suggestions hidden"></div>
-                    <div class="composer-row">
-                        <textarea id="chat-input" class="chat-input" rows="1" placeholder="Message StemCode, type / for commands, or @ for files"></textarea>
-                        <div class="composer-toolbar">
-                            <div class="toolbar-left">
-                                <button id="add-context-button" class="icon-button" title="Read workspace file" aria-label="Read workspace file">+</button>
-                                <select id="profile-select" class="profile-select" title="Profile" aria-label="Profile"></select>
-                                <button id="model-button" class="model-pill" title="Choose model" aria-label="Choose model"><span id="model-button-label">Model</span></button>
-                                <div class="status-pill" title="Process status">
-                                    <span id="status-text">Stopped</span>
-                                </div>
-                                <span id="context-meter" class="context-meter" title="Context usage" hidden></span>
-                            </div>
-                            <div class="toolbar-right">
-                                <button id="stop-button" class="danger-button" disabled>Stop</button>
-                                <button id="send-button" class="primary-button" title="Send message" aria-label="Send message">&#8593;</button>
-                            </div>
-                        </div>
+                </div>
+            </div>
+
+            <div id="prompt-queue" class="prompt-queue hidden" aria-label="Queued prompts"></div>
+
+            <div class="composer" id="composer">
+                <div id="suggestions" class="suggestions hidden" role="listbox" aria-label="Suggestions"></div>
+                <div class="composer-context" id="composer-context">
+                    <button type="button" id="mention-button" class="chip-button" title="Mention a file (@)" aria-label="Mention a file" data-ico="mention"></button>
+                    <button type="button" id="editor-context-chip" class="context-chip hidden" aria-pressed="true" title="Include the active editor as context">
+                        <span class="context-chip-icon" data-ico="file"></span>
+                        <span id="editor-context-label" class="context-chip-label"></span>
+                        <span id="editor-context-toggle" class="context-chip-toggle" data-ico="eye"></span>
+                    </button>
+                </div>
+                <textarea id="chat-input" class="chat-input" rows="1" placeholder="Ask StemCode to build, fix, or explain…" aria-label="Message StemCode"></textarea>
+                <div class="composer-toolbar">
+                    <div class="toolbar-left">
+                        <select id="profile-select" class="pill-select" title="Agent profile" aria-label="Agent profile"></select>
+                        <button type="button" id="model-button" class="pill-button" title="Model and reasoning" aria-label="Model and reasoning" aria-haspopup="menu">
+                            <span id="model-button-label" class="pill-label">Model</span>
+                            <span class="pill-chevron" data-ico="chevronDown"></span>
+                        </button>
+                    </div>
+                    <div class="toolbar-right">
+                        <span id="status-text" class="status-text" aria-live="polite"></span>
+                        <span id="context-meter" class="context-meter" title="Context usage" hidden>
+                            <svg class="context-ring" viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle class="ring-bg" cx="10" cy="10" r="8"/><circle id="context-ring-fg" class="ring-fg" cx="10" cy="10" r="8" stroke-dasharray="50.27" stroke-dashoffset="50.27"/></svg>
+                            <span id="context-meter-label" class="context-meter-label"></span>
+                        </span>
+                        <button type="button" id="send-button" class="send-button" title="Send (Enter)" aria-label="Send message" data-ico="send"></button>
                     </div>
                 </div>
-            </section>
-        </main>
+            </div>
+            <div class="composer-hint" id="composer-hint"><kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line · <kbd>Esc</kbd> stop · <kbd>↑</kbd> history</div>
+        </footer>
     </div>
 
-    <div id="agent-menu" class="agent-menu hidden" role="menu"></div>
+    <div id="agent-menu" class="popup-menu hidden" role="menu"></div>
 
     <div id="modal-backdrop" class="modal-backdrop hidden">
-        <div class="modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
             <h2 id="modal-title"></h2>
             <p id="modal-description" class="modal-description"></p>
-            <div id="modal-body"></div>
+            <div id="modal-body" class="modal-body"></div>
             <div id="modal-actions" class="modal-actions"></div>
         </div>
     </div>
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
     <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
 }
-
 
 export function getNonce(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';

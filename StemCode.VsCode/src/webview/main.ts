@@ -1,5 +1,6 @@
 import { buildDiffModel } from './diffModel';
 import { CHAT_COMMANDS } from './chatCommands';
+import { ICONS, iconElement, setIconContent } from './icons';
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void; getState(): unknown; setState(state: unknown): void };
 
@@ -36,15 +37,35 @@ const commandSuggestions = CHAT_COMMANDS;
         const settingsProfileValue = document.getElementById('settings-profile-value');
         const settingsThinkingValue = document.getElementById('settings-thinking-value');
         const settingsProviderValue = document.getElementById('settings-provider-value');
-        const inputField = document.getElementById('chat-input');
-        const addContextButton = document.getElementById('add-context-button');
+        const inputField = document.getElementById('chat-input') as HTMLTextAreaElement;
+        const mentionButton = document.getElementById('mention-button');
+        const newChatButton = document.getElementById('new-chat-button');
         const settingsButton = document.getElementById('settings-button');
         const sessionsButton = document.getElementById('sessions-button');
-        const sendButton = document.getElementById('send-button');
-        const stopButton = document.getElementById('stop-button');
-        const modelButton = document.getElementById('model-button');
+        const sendButton = document.getElementById('send-button') as HTMLButtonElement;
+        const modelButton = document.getElementById('model-button') as HTMLButtonElement;
         const modelButtonLabel = document.getElementById('model-button-label');
         const agentMenu = document.getElementById('agent-menu');
+        const composerArea = document.querySelector('.composer-area') as HTMLElement;
+        const jumpToLatestButton = document.getElementById('jump-to-latest');
+        const statusBanner = document.getElementById('status-banner');
+        const statusBannerIcon = document.getElementById('status-banner-icon');
+        const statusBannerText = document.getElementById('status-banner-text');
+        const statusRetryButton = document.getElementById('status-retry-button');
+        const statusLogsButton = document.getElementById('status-logs-button');
+        const editorContextChip = document.getElementById('editor-context-chip');
+        const editorContextLabel = document.getElementById('editor-context-label');
+        const editorContextToggle = document.getElementById('editor-context-toggle');
+        const toastDiv = document.getElementById('toast');
+        const workingSet = document.getElementById('working-set');
+        const workingSetToggle = document.getElementById('working-set-toggle');
+        const workingSetSummary = document.getElementById('working-set-summary');
+        const workingSetBody = document.getElementById('working-set-body');
+        const planSection = document.getElementById('plan-section');
+        const agentsSection = document.getElementById('agents-section');
+        const filesSection = document.getElementById('files-section');
+        const contextRing = document.getElementById('context-ring-fg');
+        const contextMeterLabel = document.getElementById('context-meter-label');
         const REASONING_LEVELS = [
             { label: 'None', value: 'none' },
             { label: 'Minimal', value: 'minimal' },
@@ -54,15 +75,13 @@ const commandSuggestions = CHAT_COMMANDS;
             { label: 'Extra High', value: 'xhigh' },
             { label: 'Max', value: 'max' }
         ];
-        const profileSelect = document.getElementById('profile-select');
+        const profileSelect = document.getElementById('profile-select') as HTMLSelectElement;
         const sectionTitle = document.getElementById('section-title');
         const statusText = document.getElementById('status-text');
-        const statusPill = statusText ? statusText.closest('.status-pill') : null;
         const contextMeter = document.getElementById('context-meter');
         const suggestionsDiv = document.getElementById('suggestions');
         const promptQueueDiv = document.getElementById('prompt-queue');
         const promptQueue = [];
-        const sidePane = document.getElementById('activity-pane');
         const planList = document.getElementById('plan-list');
         const planCount = document.getElementById('plan-count');
         const changedFilesList = document.getElementById('changed-files-list');
@@ -75,10 +94,11 @@ const commandSuggestions = CHAT_COMMANDS;
         const modalBody = document.getElementById('modal-body');
         const modalActions = document.getElementById('modal-actions');
 
+        const persistedState = readPersistedState();
         let sessionInfo = null;
         let workingDirectory = '';
         let processStatus = 'stopped';
-        let promptState = { isRunning: false, isCancelling: false };
+        let promptState = { isRunning: false, isCancelling: false, input: '', lastStopReason: '' };
         let visibleSuggestions = [];
         let activeSuggestionIndex = 0;
         let fileMentionQuery = null;
@@ -89,10 +109,23 @@ const commandSuggestions = CHAT_COMMANDS;
         let activeModalRequest = null;
         let activeAutoSelectTimer = null;
         let progressIndicator = null;
+        let progressTimer = null;
+        let turnStartedAt = 0;
         let hasPlanActivity = false;
         let hasChangedFiles = false;
         let activeAgentThreadId = '';
+        let stickToBottom = true;
+        let workingSetExpanded = false;
+        let activeEditor = null;
+        let includeEditorContext = persistedState.includeEditorContext !== false;
+        const promptHistory: string[] = Array.isArray(persistedState.promptHistory) ? persistedState.promptHistory.slice(-50) : [];
+        let historyIndex = -1;
+        let historyDraft = '';
+        const pendingRenders = new Map();
+        let renderFrame = 0;
+        let toastTimer = null;
         const queuedClientRequests = [];
+        const inlinePermissionCards = new Map();
         const toolCalls = new Map();
         const toolMessageElements = new Map();
         const agentThreads = new Map();
@@ -104,43 +137,213 @@ const commandSuggestions = CHAT_COMMANDS;
             { name: 'explore', mode: 'subagent', description: 'Read-only subagent profile' }
         ];
 
+        hydrateIcons(document);
+
+        function hydrateIcons(root) {
+            root.querySelectorAll('[data-ico]').forEach(element => {
+                const name = element.getAttribute('data-ico');
+                if (ICONS[name] && !element.querySelector('svg')) {
+                    element.insertBefore(iconElement(name), element.firstChild);
+                }
+            });
+        }
+
+        function readPersistedState(): { promptHistory?: string[]; includeEditorContext?: boolean } {
+            try {
+                const state = api.getState();
+                return state && typeof state === 'object' ? state : {};
+            } catch {
+                return {};
+            }
+        }
+
+        function persistState() {
+            try {
+                api.setState({ promptHistory: promptHistory.slice(-50), includeEditorContext });
+            } catch {
+                // Best effort only.
+            }
+        }
+
+        function showToast(text) {
+            toastDiv.textContent = text;
+            toastDiv.classList.remove('hidden');
+            if (toastTimer) {
+                clearTimeout(toastTimer);
+            }
+            toastTimer = setTimeout(() => toastDiv.classList.add('hidden'), 1600);
+        }
+
+        // ---- Scrolling -------------------------------------------------------------------------
+        // Only follow new output while the user is at (or near) the bottom of the transcript.
+        function isNearBottom() {
+            return messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 48;
+        }
+
+        function scrollToBottom(force?: boolean) {
+            if (force) {
+                stickToBottom = true;
+            }
+            if (stickToBottom) {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+            updateJumpToLatest();
+        }
+
+        function updateJumpToLatest() {
+            const show = activeView === 'chat' && !stickToBottom && messagesDiv.scrollHeight > messagesDiv.clientHeight + 48;
+            jumpToLatestButton.classList.toggle('hidden', !show);
+        }
+
+        messagesDiv.addEventListener('scroll', () => {
+            stickToBottom = isNearBottom();
+            updateJumpToLatest();
+        }, { passive: true });
+
+        jumpToLatestButton.addEventListener('click', () => {
+            scrollToBottom(true);
+            inputField.focus();
+        });
+
+        // ---- Streaming render throttle --------------------------------------------------------
+        // Markdown re-rendering on every token is O(n^2); coalesce into one render per frame.
+        function scheduleRender(key, render) {
+            pendingRenders.set(key, render);
+            if (renderFrame) {
+                return;
+            }
+            const raf = typeof window.requestAnimationFrame === 'function'
+                ? window.requestAnimationFrame.bind(window)
+                : (callback) => setTimeout(callback, 16);
+            renderFrame = raf(flushRenders);
+        }
+
+        function flushRenders() {
+            renderFrame = 0;
+            const renders = Array.from(pendingRenders.values());
+            pendingRenders.clear();
+            renders.forEach(render => render());
+            moveProgressIndicatorToEnd();
+            scrollToBottom();
+        }
+
+        function flushPendingRendersNow() {
+            if (pendingRenders.size > 0) {
+                flushRenders();
+            }
+        }
+
         function post(command) {
             api.postMessage(command);
         }
 
-        function appendMessage(text, role) {
+        function appendMessage(text, role, attachments?: string[]) {
             if (typeof text !== 'string') {
                 return null;
             }
 
             emptyState.hidden = true;
             const article = document.createElement('article');
-            article.className = 'message-card ' + role;
+            const variant = role === 'system' ? classifySystemMessage(text) : '';
+            article.className = 'message-card ' + role + (variant ? ' notice-' + variant : '');
 
-            const label = document.createElement('div');
-            label.className = 'message-label';
-            label.textContent = role === 'user'
-                ? 'You'
-                : role === 'system'
-                    ? 'System'
-                    : role === 'tool'
-                        ? 'Tool'
-                        : role === 'reasoning'
-                            ? 'Thinking'
-                            : 'StemCode';
-            article.appendChild(label);
+            if (role === 'system') {
+                const icon = iconElement(variant === 'error' ? 'error' : variant === 'warning' ? 'warning' : variant === 'success' ? 'check' : 'info', 'notice-icon');
+                article.appendChild(icon);
+            }
 
             const body = document.createElement('div');
             body.className = 'message-text';
             renderMessageText(body, text, role);
             article.appendChild(body);
 
+            if (role === 'user' && Array.isArray(attachments) && attachments.length > 0) {
+                const list = document.createElement('div');
+                list.className = 'message-attachments';
+                attachments.forEach(attachment => {
+                    const label = String(attachment || '');
+                    const match = /^(.*?)(?::(\d+)(?:-\d+)?)?$/.exec(label);
+                    const link = createFileReferenceLink(label, match ? match[1] : label, match && match[2] ? Number(match[2]) : undefined);
+                    link.className = 'attachment-chip';
+                    link.insertBefore(iconElement('file'), link.firstChild);
+                    list.appendChild(link);
+                });
+                article.appendChild(list);
+            }
+
+            if (role === 'user' || role === 'assistant') {
+                article.appendChild(createMessageActions(article, role));
+            }
+
             article.dataset.text = text;
             messagesDiv.appendChild(article);
+            if (role === 'user') {
+                scrollToBottom(true);
+            }
             moveProgressIndicatorToEnd();
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            scrollToBottom();
             updateStatusRail();
             return article;
+        }
+
+        function classifySystemMessage(text) {
+            const value = String(text || '').trimStart();
+            if (/^(error|failed|unable|cannot|could not)\b/i.test(value)) {
+                return 'error';
+            }
+            if (/^(warning|permission denied|cancelled)\b/i.test(value)) {
+                return 'warning';
+            }
+            if (/^(started|resumed|permission granted|done|screen cleared)\b/i.test(value)) {
+                return 'success';
+            }
+            return '';
+        }
+
+        function createMessageActions(article, role) {
+            const actions = document.createElement('div');
+            actions.className = 'message-actions';
+
+            const copy = document.createElement('button');
+            copy.type = 'button';
+            copy.className = 'message-action';
+            copy.title = 'Copy';
+            copy.setAttribute('aria-label', 'Copy message');
+            setIconContent(copy, 'copy');
+            copy.addEventListener('click', () => {
+                copyTextToClipboard(article.dataset.text || '');
+                flashCopied(copy);
+            });
+            actions.appendChild(copy);
+
+            if (role === 'user') {
+                const edit = document.createElement('button');
+                edit.type = 'button';
+                edit.className = 'message-action';
+                edit.title = 'Edit and resend';
+                edit.setAttribute('aria-label', 'Edit and resend');
+                setIconContent(edit, 'edit');
+                edit.addEventListener('click', () => {
+                    inputField.value = article.dataset.text || '';
+                    showChatPage();
+                    autoResizeInput();
+                    inputField.focus();
+                    inputField.setSelectionRange(inputField.value.length, inputField.value.length);
+                    updateComposerState();
+                });
+                actions.appendChild(edit);
+            }
+
+            return actions;
+        }
+
+        function flashCopied(button) {
+            setIconContent(button, 'check');
+            button.classList.add('copied');
+            setTimeout(() => {
+                setIconContent(button, 'copy');
+                button.classList.remove('copied');
+            }, 1200);
         }
 
         const fileReferencePattern = /(^|[\s("'<>\[])([A-Za-z]:[\\/][^\s"'<>|]+|(?:\.{1,2}[\\/])?(?:(?:[^\s"'<>:|\\/]+)[\\/])+[^\s"'<>:|\\/]+\.[A-Za-z][A-Za-z0-9]{0,15}|[^\s"'<>:|\\/]+\.[A-Za-z][A-Za-z0-9]{0,15})(?::(\d{1,7})(?::(\d{1,5}))?)?/g;
@@ -184,6 +387,19 @@ const commandSuggestions = CHAT_COMMANDS;
                     const block = readMarkdownCodeFence(lines, index, fence);
                     container.appendChild(createMarkdownCodeBlock(block.content, block.language));
                     index = block.nextIndex;
+                    continue;
+                }
+
+                if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+                    container.appendChild(document.createElement('hr'));
+                    index += 1;
+                    continue;
+                }
+
+                if (isMarkdownTableStart(lines, index)) {
+                    const table = readMarkdownTable(lines, index);
+                    container.appendChild(table.element);
+                    index = table.nextIndex;
                     continue;
                 }
 
@@ -232,7 +448,7 @@ const commandSuggestions = CHAT_COMMANDS;
                     if (!current || current.trim().length === 0) {
                         break;
                     }
-                    if (getMarkdownFence(current) || /^(#{1,6})\s+/.test(current) || /^\s*>\s?/.test(current) || getMarkdownListInfo(current)) {
+                    if (getMarkdownFence(current) || /^(#{1,6})\s+/.test(current) || /^\s*>\s?/.test(current) || getMarkdownListInfo(current) || isMarkdownTableStart(lines, index)) {
                         break;
                     }
                     paragraph.push(current);
@@ -284,16 +500,131 @@ const commandSuggestions = CHAT_COMMANDS;
             };
         }
 
-        function createMarkdownCodeBlock(content, language) {
-            const pre = document.createElement('pre');
-            pre.className = 'markdown-code-block';
-            if (language) {
-                pre.dataset.language = language;
+        function isMarkdownTableStart(lines, index) {
+            const header = String(lines[index] || '');
+            const separator = String(lines[index + 1] || '');
+            return header.includes('|') &&
+                /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(separator) &&
+                separator.includes('-');
+        }
+
+        function splitMarkdownTableRow(line) {
+            let value = String(line || '').trim();
+            if (value.startsWith('|')) {
+                value = value.slice(1);
             }
-            const code = document.createElement('code');
-            code.textContent = String(content || '');
-            pre.appendChild(code);
-            return pre;
+            if (value.endsWith('|') && !value.endsWith('\\|')) {
+                value = value.slice(0, -1);
+            }
+            return value.split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, '|'));
+        }
+
+        function readMarkdownTable(lines, startIndex) {
+            const headers = splitMarkdownTableRow(lines[startIndex]);
+            const alignments = splitMarkdownTableRow(lines[startIndex + 1]).map(cell => {
+                const left = cell.startsWith(':');
+                const right = cell.endsWith(':');
+                return left && right ? 'center' : right ? 'right' : left ? 'left' : '';
+            });
+
+            const wrap = document.createElement('div');
+            wrap.className = 'markdown-table-wrap';
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            const headRow = document.createElement('tr');
+            headers.forEach((cell, column) => {
+                const th = document.createElement('th');
+                if (alignments[column]) {
+                    th.style.textAlign = alignments[column];
+                }
+                appendMarkdownInline(th, cell);
+                headRow.appendChild(th);
+            });
+            thead.appendChild(headRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            let index = startIndex + 2;
+            while (index < lines.length && String(lines[index] || '').includes('|') && String(lines[index]).trim().length > 0) {
+                const row = document.createElement('tr');
+                const cells = splitMarkdownTableRow(lines[index]);
+                headers.forEach((_, column) => {
+                    const td = document.createElement('td');
+                    if (alignments[column]) {
+                        td.style.textAlign = alignments[column];
+                    }
+                    appendMarkdownInline(td, cells[column] || '');
+                    row.appendChild(td);
+                });
+                tbody.appendChild(row);
+                index += 1;
+            }
+            table.appendChild(tbody);
+            wrap.appendChild(table);
+            return { element: wrap, nextIndex: index };
+        }
+
+        function createMarkdownCodeBlock(content, language) {
+            const code = String(content || '');
+            const wrap = document.createElement('div');
+            wrap.className = 'markdown-code-block';
+            if (language) {
+                wrap.dataset.language = language;
+            }
+
+            const header = document.createElement('div');
+            header.className = 'code-block-header';
+            const lang = document.createElement('span');
+            lang.className = 'code-block-language';
+            lang.textContent = language || 'text';
+            header.appendChild(lang);
+
+            const actions = document.createElement('div');
+            actions.className = 'code-block-actions';
+            actions.appendChild(createCodeAction('copy', 'Copy', button => {
+                copyTextToClipboard(code);
+                flashCopied(button);
+            }));
+            actions.appendChild(createCodeAction('insert', 'Insert at cursor', () => {
+                post({ command: 'insertCode', text: code });
+            }));
+            actions.appendChild(createCodeAction('newFile', 'Open in new editor', () => {
+                post({ command: 'openInEditor', text: code, language: normalizeLanguageName(language) });
+            }));
+            header.appendChild(actions);
+            wrap.appendChild(header);
+
+            const pre = document.createElement('pre');
+            const codeElement = document.createElement('code');
+            const normalizedLanguage = normalizeLanguageName(language);
+            if (normalizedLanguage && normalizedLanguage !== 'text' && code.length < 40000) {
+                splitCodeLines(code).forEach((line, index, all) => {
+                    appendSyntaxHighlightedLine(codeElement, line, normalizedLanguage);
+                    if (index < all.length - 1) {
+                        codeElement.appendChild(document.createTextNode('\n'));
+                    }
+                });
+            } else {
+                codeElement.textContent = code;
+            }
+            pre.appendChild(codeElement);
+            wrap.appendChild(pre);
+            return wrap;
+        }
+
+        function createCodeAction(icon, title, onClick) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'code-action';
+            button.title = title;
+            button.setAttribute('aria-label', title);
+            setIconContent(button, icon);
+            button.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                onClick(button);
+            });
+            return button;
         }
 
         function getMarkdownListInfo(line) {
@@ -464,8 +795,27 @@ const commandSuggestions = CHAT_COMMANDS;
                 return false;
             }
 
-            return candidate.includes('.') || candidate.includes('/') || candidate.includes('\\');
+            const hasSeparator = candidate.includes('/') || candidate.includes('\\');
+            if (!hasSeparator) {
+                // Bare names ("e.g", "Node.js", "v1.x") are only links when they carry a real source extension.
+                const extension = candidate.split('.').pop().toLowerCase();
+                if (/^(node|next|nuxt|vue|react|express|three|d3|chart|moment|ember|backbone|alpine|solid|nest|deno|bun)\.js$/i.test(candidate)) {
+                    return false;
+                }
+                return candidate.indexOf('.') > 0 && KNOWN_FILE_EXTENSIONS.has(extension);
+            }
+
+            return candidate.includes('.') || hasSeparator;
         }
+
+        const KNOWN_FILE_EXTENSIONS = new Set([
+            'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'md', 'mdx', 'txt', 'yml', 'yaml', 'toml', 'ini',
+            'cfg', 'conf', 'env', 'xml', 'html', 'htm', 'css', 'scss', 'less', 'svg', 'py', 'pyi', 'rb', 'go', 'rs',
+            'java', 'kt', 'kts', 'swift', 'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'cs', 'csproj', 'sln', 'slnx', 'props',
+            'targets', 'fs', 'fsproj', 'vb', 'php', 'sh', 'bash', 'zsh', 'ps1', 'psm1', 'bat', 'cmd', 'sql', 'graphql',
+            'proto', 'lock', 'gradle', 'dart', 'lua', 'r', 'scala', 'vue', 'svelte', 'astro', 'razor', 'cshtml',
+            'xaml', 'axaml', 'resx', 'config', 'editorconfig', 'gitignore', 'dockerfile', 'tf', 'hcl', 'log', 'csv', 'ipynb'
+        ]);
 
         function createFileReferenceLink(displayText, filePath, line?: number, column?: number) {
             const link = document.createElement('a');
@@ -498,6 +848,8 @@ const commandSuggestions = CHAT_COMMANDS;
                     ? 'reasoning'
                     : 'assistant';
             if (role === 'user') {
+                activeAssistantMessage = null;
+                activeReasoningMessage = null;
                 appendMessage(chunk.text, 'user');
                 return;
             }
@@ -507,9 +859,13 @@ const commandSuggestions = CHAT_COMMANDS;
                 return;
             }
 
+            if (activeReasoningMessage) {
+                finalizeReasoning(activeReasoningMessage);
+            }
             activeReasoningMessage = null;
             if (!activeAssistantMessage) {
                 activeAssistantMessage = appendMessage('', 'assistant');
+                activeAssistantMessage.classList.add('streaming');
             }
 
             if (!activeAssistantMessage) {
@@ -517,19 +873,21 @@ const commandSuggestions = CHAT_COMMANDS;
             }
 
             emptyState.hidden = true;
-            const body = activeAssistantMessage.querySelector('.message-text');
-            const currentText = activeAssistantMessage.dataset.text || '';
-            const nextText = currentText + chunk.text;
-            activeAssistantMessage.dataset.text = nextText;
-            renderMarkdownText(body, nextText);
-            moveProgressIndicatorToEnd();
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            updateStatusRail();
+            const article = activeAssistantMessage;
+            article.dataset.text = (article.dataset.text || '') + chunk.text;
+            scheduleRender(article, () => {
+                const body = article.querySelector('.message-text');
+                if (body) {
+                    renderMarkdownText(body, article.dataset.text || '');
+                }
+            });
+            setProgressLabel('Writing');
         }
 
         function appendReasoningChunk(text) {
             if (!activeReasoningMessage) {
                 activeReasoningMessage = appendMessage('', 'reasoning');
+                activeReasoningMessage.classList.add('streaming');
             }
 
             if (!activeReasoningMessage) {
@@ -537,21 +895,66 @@ const commandSuggestions = CHAT_COMMANDS;
             }
 
             emptyState.hidden = true;
-            const body = activeReasoningMessage.querySelector('.message-text');
+            const article = activeReasoningMessage;
+            article.dataset.text = (article.dataset.text || '') + text;
+            scheduleRender(article, () => renderReasoning(article));
+            setProgressLabel('Thinking');
+        }
+
+        function renderReasoning(article) {
+            const body = article.querySelector('.message-text');
             if (!body) {
                 return;
             }
 
             const previousDetails = body.querySelector('.thinking-details');
             const shouldOpen = previousDetails ? previousDetails.open : false;
-            const currentText = activeReasoningMessage.dataset.text || '';
-            const nextText = currentText + text;
-            activeReasoningMessage.dataset.text = nextText;
             body.textContent = '';
-            body.appendChild(createReasoningDetails(nextText, shouldOpen));
-            moveProgressIndicatorToEnd();
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            updateStatusRail();
+            body.appendChild(createReasoningDetails(article.dataset.text || '', shouldOpen, article.classList.contains('streaming')));
+        }
+
+        function finalizeReasoning(article) {
+            if (!article || !article.classList.contains('streaming')) {
+                return;
+            }
+            article.classList.remove('streaming');
+            pendingRenders.delete(article);
+            renderReasoning(article);
+        }
+
+        function finalizeStreamingMessages() {
+            flushPendingRendersNow();
+            if (activeReasoningMessage) {
+                finalizeReasoning(activeReasoningMessage);
+            }
+            messagesDiv.querySelectorAll('.message-card.streaming').forEach(article => {
+                article.classList.remove('streaming');
+                if (article.classList.contains('reasoning')) {
+                    renderReasoning(article);
+                }
+            });
+            activeAssistantMessage = null;
+            activeReasoningMessage = null;
+        }
+
+        function buildPromptPayload(text) {
+            const payload: { command: string; text: string; editorContext?: unknown } = { command: 'sendMessage', text };
+            if (includeEditorContext && activeEditor && !isSlashCommandText(text)) {
+                payload.editorContext = activeEditor;
+            }
+            return payload;
+        }
+
+        function rememberPrompt(text) {
+            if (promptHistory[promptHistory.length - 1] !== text) {
+                promptHistory.push(text);
+                while (promptHistory.length > 50) {
+                    promptHistory.shift();
+                }
+                persistState();
+            }
+            historyIndex = -1;
+            historyDraft = '';
         }
 
         function sendCurrentInput() {
@@ -560,36 +963,46 @@ const commandSuggestions = CHAT_COMMANDS;
                 return;
             }
 
+            rememberPrompt(text);
+
             // Busy? queue it; the queue drains automatically when the turn ends.
             if (promptState.isRunning) {
-                promptQueue.push(text);
+                promptQueue.push(buildPromptPayload(text));
                 renderPromptQueue();
             } else {
-                post({ command: 'sendMessage', text });
+                post(buildPromptPayload(text));
             }
 
             inputField.value = '';
+            autoResizeInput();
             hideSuggestions();
             updateComposerState();
+            scrollToBottom(true);
         }
 
         function renderPromptQueue() {
             promptQueueDiv.textContent = '';
             promptQueueDiv.classList.toggle('hidden', promptQueue.length === 0);
-            promptQueue.forEach((text, index) => {
+            promptQueue.forEach((payload, index) => {
                 const item = document.createElement('div');
                 item.className = 'prompt-queue-item';
 
+                const badge = document.createElement('span');
+                badge.className = 'prompt-queue-badge';
+                badge.textContent = index === 0 ? 'Next' : 'Queued';
+                item.appendChild(badge);
+
                 const label = document.createElement('span');
                 label.className = 'prompt-queue-text';
-                label.textContent = text;
-                label.title = text;
+                label.textContent = payload.text;
+                label.title = payload.text;
 
                 const remove = document.createElement('button');
+                remove.type = 'button';
                 remove.className = 'prompt-queue-remove';
-                remove.textContent = '×';
                 remove.title = 'Remove from queue';
                 remove.setAttribute('aria-label', 'Remove from queue');
+                setIconContent(remove, 'close');
                 remove.addEventListener('click', () => {
                     promptQueue.splice(index, 1);
                     renderPromptQueue();
@@ -608,11 +1021,11 @@ const commandSuggestions = CHAT_COMMANDS;
 
             const next = promptQueue.shift();
             renderPromptQueue();
-            post({ command: 'sendMessage', text: next });
+            post(next);
         }
 
         function handleSendButtonClick() {
-            if (promptState.isRunning === true) {
+            if (promptState.isRunning === true && inputField.value.trim().length === 0) {
                 if (promptState.isCancelling !== true) {
                     post({ command: 'cancelPrompt' });
                 }
@@ -622,27 +1035,135 @@ const commandSuggestions = CHAT_COMMANDS;
             sendCurrentInput();
         }
 
-        sendButton.addEventListener('click', handleSendButtonClick);
-        addContextButton.addEventListener('click', () => {
-            inputField.value = '/read ';
+        function autoResizeInput() {
+            inputField.style.height = 'auto';
+            const max = Math.max(120, Math.floor(window.innerHeight * 0.4));
+            const next = Math.min(inputField.scrollHeight, max);
+            inputField.style.height = next + 'px';
+            inputField.style.overflowY = inputField.scrollHeight > max ? 'auto' : 'hidden';
+        }
+
+        function setComposerText(text) {
+            inputField.value = text;
+            autoResizeInput();
             inputField.focus();
             inputField.setSelectionRange(inputField.value.length, inputField.value.length);
             updateSuggestions();
             updateComposerState();
+        }
+
+        function recallHistory(direction) {
+            if (promptHistory.length === 0) {
+                return false;
+            }
+
+            if (historyIndex === -1) {
+                if (direction > 0) {
+                    return false;
+                }
+                historyDraft = inputField.value;
+                historyIndex = promptHistory.length - 1;
+            } else {
+                historyIndex += direction;
+            }
+
+            if (historyIndex >= promptHistory.length) {
+                historyIndex = -1;
+                setComposerText(historyDraft);
+                return true;
+            }
+
+            historyIndex = Math.max(0, historyIndex);
+            setComposerText(promptHistory[historyIndex]);
+            return true;
+        }
+
+        function renderEditorContextChip() {
+            if (!activeEditor || !activeEditor.relativePath) {
+                editorContextChip.classList.add('hidden');
+                return;
+            }
+
+            editorContextChip.classList.remove('hidden');
+            const name = String(activeEditor.relativePath).split('/').pop();
+            const range = activeEditor.selection
+                ? ':' + activeEditor.selection.startLine + (activeEditor.selection.endLine !== activeEditor.selection.startLine ? '-' + activeEditor.selection.endLine : '')
+                : '';
+            editorContextLabel.textContent = name + range;
+            editorContextChip.classList.toggle('disabled', !includeEditorContext);
+            editorContextChip.setAttribute('aria-pressed', includeEditorContext ? 'true' : 'false');
+            editorContextChip.title = (includeEditorContext ? 'Included as context: ' : 'Not included (click to include): ') +
+                activeEditor.relativePath + range;
+            editorContextToggle.textContent = '';
+            editorContextToggle.appendChild(iconElement(includeEditorContext ? 'eye' : 'eyeOff'));
+        }
+
+        sendButton.addEventListener('click', handleSendButtonClick);
+        mentionButton.addEventListener('click', () => {
+            const caret = typeof inputField.selectionStart === 'number' ? inputField.selectionStart : inputField.value.length;
+            const before = inputField.value.slice(0, caret);
+            const needsSpace = before.length > 0 && !/\s$/.test(before);
+            const insert = (needsSpace ? ' ' : '') + '@';
+            inputField.value = before + insert + inputField.value.slice(caret);
+            inputField.focus();
+            inputField.setSelectionRange(caret + insert.length, caret + insert.length);
+            autoResizeInput();
+            updateSuggestions();
+            updateComposerState();
+        });
+        newChatButton.addEventListener('click', () => {
+            if (promptState.isRunning) {
+                showToast('Stop the current response before starting a new chat.');
+                return;
+            }
+            post({ command: 'newChat' });
         });
         settingsButton.addEventListener('click', toggleSettingsPage);
         sessionsButton.addEventListener('click', () => post({ command: 'listSessions' }));
         settingsCloseButton.addEventListener('click', showChatPage);
+        statusRetryButton.addEventListener('click', () => post({ command: 'restartProcess' }));
+        statusLogsButton.addEventListener('click', () => post({ command: 'openLogs' }));
+        editorContextChip.addEventListener('click', () => {
+            includeEditorContext = !includeEditorContext;
+            persistState();
+            renderEditorContextChip();
+        });
+        workingSetToggle.addEventListener('click', () => {
+            workingSetExpanded = !workingSetExpanded;
+            updateActivityVisibility();
+        });
         settingsPage.querySelectorAll('.settings-action').forEach(button => {
             button.addEventListener('click', () => runSettingsAction(button));
+        });
+        document.querySelectorAll('#starter-list .starter').forEach((button: HTMLElement) => {
+            button.addEventListener('click', () => {
+                const vscodeCommand = button.dataset.command;
+                if (vscodeCommand) {
+                    post({ command: 'runVsCodeCommand', id: vscodeCommand });
+                    return;
+                }
+                const prompt = button.dataset.prompt || '';
+                if (!prompt) {
+                    return;
+                }
+                if (button.dataset.needsEditor === 'true' && !activeEditor) {
+                    showToast('Open a file in the editor first.');
+                    return;
+                }
+                inputField.value = prompt;
+                sendCurrentInput();
+            });
         });
         modelButton.addEventListener('click', toggleAgentMenu);
         profileSelect.addEventListener('change', () => {
             post({ command: 'changeProfile', profileName: profileSelect.value || '' });
         });
-        stopButton.addEventListener('click', () => post({ command: 'cancelPrompt' }));
 
         inputField.addEventListener('keydown', (event) => {
+            if (event.isComposing) {
+                return;
+            }
+
             if (visibleSuggestions.length > 0) {
                 if (event.key === 'ArrowDown') {
                     event.preventDefault();
@@ -658,23 +1179,53 @@ const commandSuggestions = CHAT_COMMANDS;
                     return;
                 }
 
-                if (event.key === 'Tab') {
+                if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
                     event.preventDefault();
-                    applySuggestion(visibleSuggestions[activeSuggestionIndex]);
+                    const suggestion = visibleSuggestions[activeSuggestionIndex];
+                    if (event.key === 'Enter' && !suggestion.mention && suggestion.insertText.trim() === inputField.value.trim()) {
+                        hideSuggestions();
+                        sendCurrentInput();
+                        return;
+                    }
+                    applySuggestion(suggestion);
                     return;
                 }
 
                 if (event.key === 'Escape') {
+                    event.preventDefault();
                     hideSuggestions();
                     return;
                 }
             }
 
-            if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') &&
-                inputField.value.trim().length === 0 &&
-                agentThreads.size > 0) {
+            if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp') && agentThreads.size > 0) {
                 event.preventDefault();
                 switchAgentThread(event.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+
+            if (event.key === 'ArrowUp' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey &&
+                (inputField.value.length === 0 || historyIndex !== -1) && inputField.selectionStart === inputField.selectionEnd &&
+                inputField.value.lastIndexOf('\n', inputField.selectionStart - 1) === -1) {
+                if (recallHistory(-1)) {
+                    event.preventDefault();
+                }
+                return;
+            }
+
+            if (event.key === 'ArrowDown' && historyIndex !== -1 && !event.shiftKey &&
+                inputField.value.indexOf('\n', inputField.selectionEnd) === -1) {
+                if (recallHistory(1)) {
+                    event.preventDefault();
+                }
+                return;
+            }
+
+            if (event.key === 'Escape') {
+                if (promptState.isRunning && !promptState.isCancelling) {
+                    event.preventDefault();
+                    post({ command: 'cancelPrompt' });
+                }
                 return;
             }
 
@@ -685,32 +1236,103 @@ const commandSuggestions = CHAT_COMMANDS;
         });
 
         inputField.addEventListener('input', () => {
+            if (historyIndex !== -1 && inputField.value !== promptHistory[historyIndex]) {
+                historyIndex = -1;
+            }
+            autoResizeInput();
             updateSuggestions();
             updateComposerState();
         });
         inputField.addEventListener('blur', () => setTimeout(hideSuggestions, 150));
+        window.addEventListener('resize', () => {
+            autoResizeInput();
+            if (!agentMenu.classList.contains('hidden')) {
+                positionAgentMenu();
+            }
+            updateJumpToLatest();
+        });
+
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape') {
+                if (!agentMenu.classList.contains('hidden')) {
+                    event.preventDefault();
+                    closeAgentMenu();
+                    modelButton.focus();
+                    return;
+                }
+                if (!modalBackdrop.classList.contains('hidden')) {
+                    event.preventDefault();
+                    if (activeModalRequest) {
+                        if (activeModalRequest.allowCancellation !== false) {
+                            cancelActiveRequest();
+                        }
+                    } else {
+                        closeModal();
+                    }
+                    return;
+                }
+                if (activeView === 'settings') {
+                    event.preventDefault();
+                    showChatPage();
+                    return;
+                }
+                if (promptState.isRunning && !promptState.isCancelling && document.activeElement !== inputField) {
+                    event.preventDefault();
+                    post({ command: 'cancelPrompt' });
+                }
+                return;
+            }
+
+            // Type anywhere to focus the composer (like a terminal-style agent).
+            const target = event.target as HTMLElement;
+            const typingTarget = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+            if (!typingTarget && activeView === 'chat' && modalBackdrop.classList.contains('hidden') &&
+                event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !/^[0-9]$/.test(event.key)) {
+                inputField.focus();
+            }
+        });
+
+        modalBackdrop.addEventListener('mousedown', event => {
+            if (event.target === modalBackdrop && !activeModalRequest) {
+                closeModal();
+            }
+        });
 
         window.addEventListener('message', event => {
             const message = event.data;
+            if (!message || typeof message.command !== 'string') {
+                return;
+            }
             if (message.command === 'appendMessage') {
-                appendMessage(message.text, message.role);
+                if (message.role !== 'metrics') {
+                    flushPendingRendersNow();
+                }
+                if (message.role === 'metrics') {
+                    appendTurnFooter(message.text);
+                } else {
+                    appendMessage(message.text, message.role, message.attachments);
+                }
             } else if (message.command === 'appendMessageChunk') {
                 appendMessageChunk(message.chunk);
             } else if (message.command === 'clearMessages') {
+                pendingRenders.clear();
                 messagesDiv.textContent = '';
                 messagesDiv.appendChild(emptyState);
                 emptyState.hidden = false;
                 activeAssistantMessage = null;
                 activeReasoningMessage = null;
                 progressIndicator = null;
+                inlinePermissionCards.clear();
                 toolCalls.clear();
                 toolMessageElements.clear();
                 agentThreads.clear();
                 activeAgentThreadId = '';
+                stickToBottom = true;
                 renderPlan(null);
                 renderFileEditsSummary(null);
                 renderAgentThreads();
                 updateStatusRail();
+                updateJumpToLatest();
             } else if (message.command === 'setSessionInfo') {
                 sessionInfo = message.sessionInfo;
                 workingDirectory = message.workingDirectory || '';
@@ -719,19 +1341,21 @@ const commandSuggestions = CHAT_COMMANDS;
             } else if (message.command === 'setProcessStatus') {
                 processStatus = message.status;
                 updateStatusRail();
+                updateComposerState();
             } else if (message.command === 'setPromptState') {
                 const wasRunning = promptState.isRunning;
                 promptState = message.promptState || { isRunning: false, isCancelling: false };
                 if (promptState.isRunning && !wasRunning) {
-                    activeAssistantMessage = null;
-                    activeReasoningMessage = null;
+                    finalizeStreamingMessages();
+                    turnStartedAt = Date.now();
                 }
-                if (!promptState.isRunning && wasRunning && promptState.lastStopReason === 'cancelled') {
-                    appendMessage('Cancelled.', 'system');
-                }
-                if (!promptState.isRunning) {
-                    activeAssistantMessage = null;
-                    activeReasoningMessage = null;
+                if (!promptState.isRunning && wasRunning) {
+                    finalizeStreamingMessages();
+                    if (promptState.lastStopReason === 'cancelled') {
+                        appendMessage('Cancelled.', 'system');
+                    } else if (promptState.error) {
+                        appendMessage('Error: ' + promptState.error, 'system');
+                    }
                 }
                 updateStatusRail();
                 updateComposerState();
@@ -739,6 +1363,7 @@ const commandSuggestions = CHAT_COMMANDS;
                     drainPromptQueue();
                 }
             } else if (message.command === 'setToolCall') {
+                flushPendingRendersNow();
                 setToolCall(message.toolCall);
             } else if (message.command === 'clearToolCalls') {
                 toolCalls.clear();
@@ -752,18 +1377,23 @@ const commandSuggestions = CHAT_COMMANDS;
             } else if (message.command === 'setFileEditsSummary') {
                 renderFileEditsSummary(message.summary);
             } else if (message.command === 'showClientRequest') {
+                flushPendingRendersNow();
                 showClientRequest(message.request);
             } else if (message.command === 'resolveClientRequest') {
                 clearClientRequest(message.requestId);
             } else if (message.command === 'prefillComposer') {
-                inputField.value = message.text || '';
+                showChatPage();
+                setComposerText(message.text || '');
+            } else if (message.command === 'focusInput') {
                 showChatPage();
                 inputField.focus();
-                inputField.setSelectionRange(inputField.value.length, inputField.value.length);
-                updateSuggestions();
-                updateComposerState();
             } else if (message.command === 'showSettings') {
                 showSettingsPage();
+            } else if (message.command === 'activeEditor') {
+                activeEditor = message.editor && message.editor.relativePath ? message.editor : null;
+                renderEditorContextChip();
+            } else if (message.command === 'toast') {
+                showToast(String(message.text || ''));
             } else if (message.command === 'sessionList') {
                 showSessionBrowser(message.sessions || [], message.currentSessionId || '');
             } else if (message.command === 'pluginState') {
@@ -778,6 +1408,19 @@ const commandSuggestions = CHAT_COMMANDS;
             }
         });
 
+        function appendTurnFooter(text) {
+            const value = String(text || '').trim();
+            if (!value) {
+                return;
+            }
+            const footer = document.createElement('div');
+            footer.className = 'turn-footer';
+            footer.textContent = value.split(' / ').join(' · ');
+            messagesDiv.appendChild(footer);
+            moveProgressIndicatorToEnd();
+            scrollToBottom();
+        }
+
         function toggleSettingsPage() {
             if (activeView === 'settings') {
                 showChatPage();
@@ -789,7 +1432,9 @@ const commandSuggestions = CHAT_COMMANDS;
 
         function showSettingsPage() {
             activeView = 'settings';
+            closeAgentMenu();
             messagesDiv.classList.add('hidden');
+            composerArea.classList.add('hidden');
             settingsPage.classList.remove('hidden');
             settingsButton.classList.add('active');
             settingsButton.title = 'Back to chat';
@@ -797,32 +1442,50 @@ const commandSuggestions = CHAT_COMMANDS;
             hideSuggestions();
             renderSettingsSummary();
             updateActivityVisibility();
+            updateJumpToLatest();
         }
 
         function showChatPage() {
+            const wasSettings = activeView === 'settings';
             activeView = 'chat';
             settingsPage.classList.add('hidden');
             messagesDiv.classList.remove('hidden');
+            composerArea.classList.remove('hidden');
             settingsButton.classList.remove('active');
             settingsButton.title = 'Settings';
             settingsButton.setAttribute('aria-label', 'Settings');
             updateActivityVisibility();
+            if (wasSettings) {
+                scrollToBottom();
+            }
+            updateJumpToLatest();
             inputField.focus();
         }
 
         function runSettingsAction(button) {
-            if (promptState.isRunning === true) {
-                return;
-            }
-
             const action = button.dataset.action || '';
-            if (action === 'model') {
-                showModelPicker();
-                return;
-            }
-
             if (action === 'vscodeSettings') {
                 post({ command: 'openVsCodeSettings' });
+                return;
+            }
+
+            if (action === 'openLogs') {
+                post({ command: 'openLogs' });
+                return;
+            }
+
+            if (action === 'restartProcess') {
+                post({ command: 'restartProcess' });
+                return;
+            }
+
+            if (promptState.isRunning === true) {
+                showToast('Wait for the current response to finish.');
+                return;
+            }
+
+            if (action === 'model') {
+                showModelPicker();
                 return;
             }
 
@@ -838,21 +1501,45 @@ const commandSuggestions = CHAT_COMMANDS;
 
             const commandText = button.dataset.command || '';
             if (commandText) {
+                showChatPage();
                 post({ command: 'runSessionCommand', text: commandText });
             }
         }
 
         function updateStatusRail() {
             const running = promptState.isRunning === true;
-            const statusLabel = formatStatusText(running);
-            stopButton.disabled = true;
-            stopButton.hidden = true;
-            statusText.textContent = statusLabel;
-            if (statusPill) {
-                statusPill.hidden = statusLabel.length === 0;
-            }
+            statusText.textContent = running ? (promptState.isCancelling ? 'Stopping…' : '') : '';
+            renderStatusBanner();
             updateProgressIndicator();
             updateSettingsActionState();
+        }
+
+        function renderStatusBanner() {
+            let tone = '';
+            let text = '';
+            let showRetry = false;
+            if (processStatus === 'starting') {
+                tone = 'info';
+                text = 'Starting StemCode…';
+            } else if (processStatus === 'error') {
+                tone = 'error';
+                text = 'StemCode failed to start. Check that the CLI is installed and the "stemcode.command" setting is correct.';
+                showRetry = true;
+            } else if (processStatus === 'stopped' && sessionInfo === null && messagesDiv.querySelector('.message-card')) {
+                tone = 'warning';
+                text = 'StemCode is not running.';
+                showRetry = true;
+            }
+
+            statusBanner.classList.toggle('hidden', !text);
+            statusBanner.className = 'status-banner' + (text ? ' tone-' + tone : ' hidden');
+            statusBannerText.textContent = text;
+            statusBannerIcon.textContent = '';
+            if (text) {
+                statusBannerIcon.appendChild(iconElement(tone === 'info' ? 'spinner' : tone === 'error' ? 'error' : 'warning'));
+            }
+            statusRetryButton.hidden = !showRetry;
+            statusLogsButton.hidden = tone === 'info' || !text;
         }
 
         function formatStatusText(running) {
@@ -886,41 +1573,76 @@ const commandSuggestions = CHAT_COMMANDS;
                     progressIndicator.remove();
                     progressIndicator = null;
                 }
+                if (progressTimer) {
+                    clearInterval(progressTimer);
+                    progressTimer = null;
+                }
                 return;
             }
 
             if (!progressIndicator) {
                 progressIndicator = createProgressIndicator();
+                setProgressLabel(promptState.isCancelling ? 'Stopping' : 'Working');
+                progressTimer = setInterval(updateProgressElapsed, 1000);
+            }
+            if (promptState.isCancelling) {
+                setProgressLabel('Stopping');
             }
 
             moveProgressIndicatorToEnd();
         }
 
         function createProgressIndicator() {
-            const indicator = document.createElement('article');
-            indicator.className = 'message-card assistant progress-indicator';
-            indicator.dataset.text = '';
+            const indicator = document.createElement('div');
+            indicator.className = 'progress-indicator';
             indicator.setAttribute('role', 'status');
             indicator.setAttribute('aria-live', 'polite');
+            indicator.appendChild(iconElement('spinner', 'progress-icon'));
 
             const label = document.createElement('span');
-            label.textContent = 'Thinking';
+            label.className = 'progress-label';
             indicator.appendChild(label);
 
-            const dots = document.createElement('span');
-            dots.className = 'progress-dots';
-            for (let index = 0; index < 3; index += 1) {
-                const dot = document.createElement('span');
-                dot.textContent = '.';
-                dots.appendChild(dot);
-            }
+            const elapsed = document.createElement('span');
+            elapsed.className = 'progress-elapsed';
+            indicator.appendChild(elapsed);
 
-            indicator.appendChild(dots);
+            const hint = document.createElement('span');
+            hint.className = 'progress-hint';
+            hint.textContent = 'Esc to stop';
+            indicator.appendChild(hint);
             return indicator;
         }
 
+        function setProgressLabel(text) {
+            if (!progressIndicator) {
+                return;
+            }
+            const label = progressIndicator.querySelector('.progress-label');
+            if (label && label.textContent !== text + '…') {
+                label.textContent = text + '…';
+            }
+            updateProgressElapsed();
+        }
+
+        function updateProgressElapsed() {
+            if (!progressIndicator) {
+                return;
+            }
+            const elapsed = progressIndicator.querySelector('.progress-elapsed');
+            const seconds = turnStartedAt ? Math.floor((Date.now() - turnStartedAt) / 1000) : 0;
+            elapsed.textContent = seconds > 0 ? formatElapsed(seconds) : '';
+        }
+
+        function formatElapsed(seconds) {
+            if (seconds < 60) {
+                return seconds + 's';
+            }
+            return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
+        }
+
         function moveProgressIndicatorToEnd() {
-            if (progressIndicator) {
+            if (progressIndicator && messagesDiv.lastChild !== progressIndicator) {
                 messagesDiv.appendChild(progressIndicator);
             }
         }
@@ -933,19 +1655,25 @@ const commandSuggestions = CHAT_COMMANDS;
             const running = promptState.isRunning === true;
             const cancelling = promptState.isCancelling === true;
             const hasText = inputField.value.trim().length > 0;
+            const stopMode = running && !hasText;
             inputField.disabled = false; // keep editable so prompts can be queued while busy
-            // While running the button stops the turn; Enter queues. Idle: needs text to send.
-            sendButton.disabled = running ? cancelling : !hasText;
-            sendButton.classList.toggle('stop-mode', running);
-            sendButton.textContent = running ? '■' : '↑';
-            sendButton.title = running
-                ? cancelling ? 'Stopping response' : 'Stop response'
-                : 'Send message';
-            sendButton.setAttribute('aria-label', running
-                ? cancelling ? 'Stopping response' : 'Stop response'
-                : 'Send message');
-            stopButton.disabled = true;
-            stopButton.hidden = true;
+            sendButton.disabled = stopMode ? cancelling : !hasText;
+            sendButton.classList.toggle('stop-mode', stopMode);
+            const mode = stopMode ? 'stop' : running ? 'queue' : 'send';
+            if (sendButton.dataset.mode !== mode) {
+                sendButton.dataset.mode = mode;
+                setIconContent(sendButton, stopMode ? 'stop' : 'send');
+            }
+            const label = stopMode
+                ? cancelling ? 'Stopping response' : 'Stop response (Esc)'
+                : running ? 'Queue message (Enter)' : 'Send message (Enter)';
+            sendButton.title = label;
+            sendButton.setAttribute('aria-label', label);
+            inputField.placeholder = running
+                ? 'Queue a follow-up…'
+                : processStatus === 'error'
+                    ? 'StemCode is not running — use Retry above'
+                    : 'Ask StemCode to build, fix, or explain…';
             modelButton.disabled = running || !sessionInfo;
             profileSelect.disabled = running;
             updateSettingsActionState();
@@ -956,7 +1684,9 @@ const commandSuggestions = CHAT_COMMANDS;
                 ? sessionInfo.availableModelIds
                 : [];
 
-            sectionTitle.textContent = sessionInfo && sessionInfo.sectionTitle ? sessionInfo.sectionTitle : 'No active section';
+            const title = sessionInfo && sessionInfo.sectionTitle ? sessionInfo.sectionTitle : 'New chat';
+            sectionTitle.textContent = title;
+            sectionTitle.title = title;
             renderProfileSelect();
             renderModelSelect(models);
             renderSettingsSummary();
@@ -968,21 +1698,26 @@ const commandSuggestions = CHAT_COMMANDS;
 
         function renderContextMeter() {
             const used = sessionInfo && sessionInfo.sectionEstimatedContextTokens;
-            const window = sessionInfo && sessionInfo.activeModelContextWindowTokens;
+            const windowTokens = sessionInfo && sessionInfo.activeModelContextWindowTokens;
             if (!used) {
                 contextMeter.hidden = true;
                 return;
             }
 
             contextMeter.hidden = false;
-            if (window) {
-                const pct = Math.min(100, Math.round((used / window) * 100));
-                contextMeter.textContent = formatTokens(used) + ' / ' + formatTokens(window) + ' (' + pct + '%)';
-                contextMeter.classList.toggle('context-meter-warn', pct >= 80);
-                contextMeter.title = 'Context: ' + formatNumber(used) + ' of ' + formatNumber(window) + ' tokens';
+            const circumference = 50.27;
+            if (windowTokens) {
+                const pct = Math.min(100, Math.round((used / windowTokens) * 100));
+                contextRing.setAttribute('stroke-dashoffset', String(circumference * (1 - pct / 100)));
+                contextMeterLabel.textContent = pct + '%';
+                contextMeter.classList.toggle('context-meter-warn', pct >= 80 && pct < 95);
+                contextMeter.classList.toggle('context-meter-danger', pct >= 95);
+                contextMeter.title = 'Context: ' + formatNumber(used) + ' of ' + formatNumber(windowTokens) + ' tokens (' + pct + '%)' +
+                    (pct >= 80 ? ' — consider /compact' : '');
             } else {
-                contextMeter.textContent = formatTokens(used) + ' ctx';
-                contextMeter.classList.remove('context-meter-warn');
+                contextRing.setAttribute('stroke-dashoffset', String(circumference));
+                contextMeterLabel.textContent = formatTokens(used);
+                contextMeter.classList.remove('context-meter-warn', 'context-meter-danger');
                 contextMeter.title = 'Context: ' + formatNumber(used) + ' tokens';
             }
         }
@@ -1088,14 +1823,27 @@ const commandSuggestions = CHAT_COMMANDS;
             }
             renderAgentMenu();
             agentMenu.classList.remove('hidden');
-            const rect = modelButton.getBoundingClientRect();
-            agentMenu.style.left = Math.max(8, rect.left) + 'px';
-            agentMenu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+            modelButton.setAttribute('aria-expanded', 'true');
+            positionAgentMenu();
+            const checked = agentMenu.querySelector('.agent-menu-item.checked') as HTMLElement || agentMenu.querySelector('.agent-menu-item') as HTMLElement;
+            if (checked) {
+                checked.focus();
+            }
             setTimeout(() => document.addEventListener('mousedown', handleAgentMenuOutside), 0);
+        }
+
+        function positionAgentMenu() {
+            const rect = modelButton.getBoundingClientRect();
+            const width = Math.min(280, window.innerWidth - 16);
+            agentMenu.style.width = width + 'px';
+            agentMenu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)) + 'px';
+            agentMenu.style.bottom = (window.innerHeight - rect.top + 6) + 'px';
+            agentMenu.style.maxHeight = Math.max(160, rect.top - 16) + 'px';
         }
 
         function closeAgentMenu() {
             agentMenu.classList.add('hidden');
+            modelButton.setAttribute('aria-expanded', 'false');
             document.removeEventListener('mousedown', handleAgentMenuOutside);
         }
 
@@ -1105,6 +1853,20 @@ const commandSuggestions = CHAT_COMMANDS;
             }
         }
 
+        agentMenu.addEventListener('keydown', event => {
+            const items = Array.from(agentMenu.querySelectorAll('.agent-menu-item')) as HTMLElement[];
+            const index = items.indexOf(document.activeElement as HTMLElement);
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const next = items[(index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+                if (next) {
+                    next.focus();
+                }
+            } else if (event.key === 'Tab') {
+                closeAgentMenu();
+            }
+        });
+
         function addMenuHeader(text) {
             const header = document.createElement('div');
             header.className = 'agent-menu-header';
@@ -1112,21 +1874,34 @@ const commandSuggestions = CHAT_COMMANDS;
             agentMenu.appendChild(header);
         }
 
-        function addMenuItem(label, checked, onClick) {
+        function addMenuItem(label, checked, onClick, description?: string) {
             const item = document.createElement('button');
-            item.className = 'agent-menu-item';
+            item.type = 'button';
+            item.className = 'agent-menu-item' + (checked ? ' checked' : '');
             item.setAttribute('role', 'menuitemradio');
+            item.setAttribute('aria-checked', checked ? 'true' : 'false');
             const check = document.createElement('span');
             check.className = 'agent-menu-check';
-            check.textContent = checked ? '✓' : '';
+            if (checked) {
+                check.appendChild(iconElement('check'));
+            }
             const text = document.createElement('span');
             text.className = 'agent-menu-label';
             text.textContent = label;
             item.appendChild(check);
             item.appendChild(text);
+            if (description) {
+                const desc = document.createElement('span');
+                desc.className = 'agent-menu-description';
+                desc.textContent = description;
+                item.appendChild(desc);
+            }
             item.addEventListener('click', () => {
                 closeAgentMenu();
-                onClick();
+                inputField.focus();
+                if (!checked) {
+                    onClick();
+                }
             });
             return item;
         }
@@ -1183,67 +1958,41 @@ const commandSuggestions = CHAT_COMMANDS;
             return new Intl.NumberFormat('en-US').format(value);
         }
 
+        let planEntries = [];
+        let changedFiles = [];
+
         function renderPlan(plan) {
             const entries = plan && Array.isArray(plan.entries) ? plan.entries : [];
+            planEntries = entries;
             hasPlanActivity = entries.length > 0;
-            updateActivityVisibility();
             planList.textContent = '';
-            planCount.textContent = entries.length + (entries.length === 1 ? ' step' : ' steps');
-
-            if (entries.length === 0) {
-                return;
-            }
+            const done = entries.filter(entry => normalizeClass(entry.status) === 'completed').length;
+            planCount.textContent = entries.length > 0 ? done + ' / ' + entries.length : '';
 
             entries.forEach(entry => {
+                const status = normalizeClass(entry.status || 'pending');
                 const item = document.createElement('div');
-                item.className = 'plan-item ' + normalizeClass(entry.status);
+                item.className = 'plan-item ' + status;
+                item.appendChild(iconElement(
+                    status === 'completed' ? 'circleCheck' : status === 'in_progress' ? 'circleDot' : 'circle',
+                    'plan-dot'));
 
-                const dot = document.createElement('div');
-                dot.className = 'plan-dot';
-                item.appendChild(dot);
-
-                const content = document.createElement('div');
                 const text = document.createElement('div');
                 text.className = 'plan-content';
                 text.textContent = entry.content;
-                content.appendChild(text);
-
-                const status = document.createElement('div');
-                status.className = 'plan-status';
-                status.textContent = entry.status || 'pending';
-                content.appendChild(status);
-
-                item.appendChild(content);
+                text.title = (entry.status || 'pending') + ': ' + entry.content;
+                item.appendChild(text);
                 planList.appendChild(item);
             });
+
+            updateActivityVisibility();
         }
 
         function renderFileEditsSummary(summary) {
             const files = summary && Array.isArray(summary.files) ? summary.files : [];
+            changedFiles = files;
             hasChangedFiles = files.length > 0;
-            updateActivityVisibility();
-            if (!changedFilesList) {
-                return;
-            }
             changedFilesList.textContent = '';
-            changedFilesCount.textContent = files.length + (files.length === 1 ? ' file' : ' files');
-            if (files.length === 0) {
-                return;
-            }
-
-            const table = document.createElement('table');
-            table.className = 'changed-files-table';
-
-            const head = document.createElement('tr');
-            ['Action', '+', '-', 'File'].forEach((label, index) => {
-                const th = document.createElement('th');
-                th.textContent = label;
-                if (index === 1 || index === 2) {
-                    th.className = 'changed-file-num';
-                }
-                head.appendChild(th);
-            });
-            table.appendChild(head);
 
             let totalAdded = 0;
             let totalRemoved = 0;
@@ -1253,49 +2002,45 @@ const commandSuggestions = CHAT_COMMANDS;
                 totalAdded += added;
                 totalRemoved += removed;
 
-                const row = document.createElement('tr');
+                const row = document.createElement('div');
+                row.className = 'changed-file-row';
+                const action = String(file.action || 'Edited');
+                const badge = document.createElement('span');
+                badge.className = 'changed-file-badge changed-file-action-' + normalizeClass(action);
+                badge.textContent = action.charAt(0).toUpperCase();
+                badge.title = action;
+                row.appendChild(badge);
 
-                const action = file.action || 'Edited';
-                const actionCell = document.createElement('td');
-                actionCell.className = 'changed-file-action changed-file-action-' + action.toLowerCase();
-                actionCell.textContent = action;
-                row.appendChild(actionCell);
+                const display = String(file.displayPath || file.absolutePath || '');
+                const parts = display.split(/[\\/]/);
+                const name = parts.pop() || display;
+                const link = createFileReferenceLink(name, file.absolutePath || display);
+                link.classList.add('changed-file-name');
+                link.title = 'Open ' + display;
+                row.appendChild(link);
 
-                const addedCell = document.createElement('td');
-                addedCell.className = 'changed-file-num changed-file-added';
-                addedCell.textContent = '+' + added;
-                row.appendChild(addedCell);
+                const dir = document.createElement('span');
+                dir.className = 'changed-file-dir';
+                dir.textContent = parts.join('/');
+                row.appendChild(dir);
 
-                const removedCell = document.createElement('td');
-                removedCell.className = 'changed-file-num changed-file-removed';
-                removedCell.textContent = '-' + removed;
-                row.appendChild(removedCell);
+                const stats = document.createElement('span');
+                stats.className = 'changed-file-stats';
+                const add = document.createElement('span');
+                add.className = 'stat-added';
+                add.textContent = '+' + added;
+                const del = document.createElement('span');
+                del.className = 'stat-removed';
+                del.textContent = '−' + removed;
+                stats.appendChild(add);
+                stats.appendChild(del);
+                row.appendChild(stats);
 
-                const fileCell = document.createElement('td');
-                fileCell.className = 'changed-file-name';
-                fileCell.appendChild(createFileReferenceLink(file.displayPath, file.absolutePath || file.displayPath));
-                row.appendChild(fileCell);
-
-                table.appendChild(row);
+                changedFilesList.appendChild(row);
             });
 
-            const totalRow = document.createElement('tr');
-            totalRow.className = 'changed-files-total';
-            const totalLabel = document.createElement('td');
-            totalLabel.textContent = 'Total';
-            totalRow.appendChild(totalLabel);
-            const totalAddedCell = document.createElement('td');
-            totalAddedCell.className = 'changed-file-num changed-file-added';
-            totalAddedCell.textContent = '+' + totalAdded;
-            totalRow.appendChild(totalAddedCell);
-            const totalRemovedCell = document.createElement('td');
-            totalRemovedCell.className = 'changed-file-num changed-file-removed';
-            totalRemovedCell.textContent = '-' + totalRemoved;
-            totalRow.appendChild(totalRemovedCell);
-            totalRow.appendChild(document.createElement('td'));
-            table.appendChild(totalRow);
-
-            changedFilesList.appendChild(table);
+            changedFilesCount.textContent = files.length > 0 ? '+' + totalAdded + ' −' + totalRemoved : '';
+            updateActivityVisibility();
         }
 
         function setToolCall(toolCall) {
@@ -1329,7 +2074,11 @@ const commandSuggestions = CHAT_COMMANDS;
                 return;
             }
 
+            if (activeReasoningMessage) {
+                finalizeReasoning(activeReasoningMessage);
+            }
             activeReasoningMessage = null;
+            activeAssistantMessage = null;
             let article = toolMessageElements.get(call.toolCallId);
             if (!article) {
                 article = appendMessage('', 'tool');
@@ -1349,8 +2098,14 @@ const commandSuggestions = CHAT_COMMANDS;
             article.dataset.text = text;
             body.textContent = '';
             body.appendChild(createToolMessageView(call, shouldOpen, diffModel));
+            const status = normalizeClass(call.status || 'pending');
+            if (status === 'pending' || status === 'in_progress') {
+                setProgressLabel(describeToolProgress(getToolCallPresentation(call, diffModel)));
+            } else if (!Array.from(toolCalls.values()).some(other => /^(pending|in_progress)$/.test(normalizeClass(other.status || 'pending')))) {
+                setProgressLabel('Working');
+            }
             moveProgressIndicatorToEnd();
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            scrollToBottom();
         }
 
         function formatToolMessage(call) {
@@ -1380,11 +2135,11 @@ const commandSuggestions = CHAT_COMMANDS;
             return lines.join('\n');
         }
 
-        function createReasoningDetails(text, open) {
+        function createReasoningDetails(text, open, streaming?: boolean) {
             const view = createInlineDisclosure({
-                title: 'Thinking',
+                title: streaming ? 'Thinking…' : 'Thought process',
                 meta: text ? summarizeLineCount(text) : '',
-                icon: '◌',
+                icon: streaming ? 'spinner' : 'brain',
                 className: 'thinking-details',
                 open
             });
@@ -1396,11 +2151,42 @@ const commandSuggestions = CHAT_COMMANDS;
             return view.details;
         }
 
+        const PROGRESS_VERBS = {
+            Read: 'Reading', Search: 'Searching', Edit: 'Editing', Write: 'Writing', Create: 'Creating', Delete: 'Deleting',
+            Move: 'Moving', Run: 'Running', Fetch: 'Fetching', List: 'Listing', Think: 'Thinking', Agent: 'Delegating'
+        };
+
+        function describeToolProgress(presentation) {
+            const verb = PROGRESS_VERBS[presentation.title];
+            if (!verb) {
+                return 'Working';
+            }
+            const target = String(presentation.target || '').split('\n')[0];
+            const short = target.length > 48 ? target.slice(0, 47) + '…' : target;
+            return short ? verb + ' ' + short : verb;
+        }
+
+        function getToolStatusIcon(status) {
+            const normalized = normalizeClass(status || 'pending');
+            if (normalized === 'completed' || normalized === 'success' || normalized === 'succeeded') {
+                return 'check';
+            }
+            if (normalized === 'failed' || normalized === 'error' || normalized === 'rejected' || normalized === 'cancelled') {
+                return 'error';
+            }
+            return 'spinner';
+        }
+
         function createToolMessageView(call, open, diffModel) {
             const presentation = getToolCallPresentation(call, diffModel);
+            const totals = diffModel.length > 0 ? countDiffTotals(diffModel) : null;
             const view = createInlineDisclosure({
                 title: presentation.title,
-                meta: presentation.meta,
+                target: presentation.target,
+                targetPath: presentation.targetPath,
+                stats: totals,
+                statusIcon: getToolStatusIcon(call.status),
+                status: call.status,
                 icon: presentation.icon,
                 className: 'tool-call-details',
                 open
@@ -1416,25 +2202,18 @@ const commandSuggestions = CHAT_COMMANDS;
                     container.appendChild(createVsCodeToolOutputBlock(call, extraOutput));
                 }
             } else {
-                if (call.kind) {
-                    const kind = document.createElement('div');
-                    kind.className = 'tool-message-kind';
-                    kind.textContent = call.kind;
-                    kind.title = call.kind;
-                    container.appendChild(kind);
-                }
-
                 if (output) {
                     container.appendChild(createToolOutputView(call, output));
                 } else {
                     const pending = document.createElement('div');
                     pending.className = 'tool-pending';
-                    pending.textContent = 'Waiting for output...';
+                    const status = normalizeClass(call.status || 'pending');
+                    pending.textContent = status === 'pending' || status === 'in_progress' ? 'Running…' : 'No output.';
                     container.appendChild(pending);
                 }
 
                 if (typeof call.rawInput !== 'undefined') {
-                    const details = createDetails('Arguments', formatPayload(call.rawInput), false);
+                    const details = createDetails('Input', formatPayload(call.rawInput), false);
                     details.className = 'tool-arguments';
                     container.appendChild(details);
                 }
@@ -1750,11 +2529,12 @@ const commandSuggestions = CHAT_COMMANDS;
             copyButton.className = 'vscode-code-copy-button';
             copyButton.title = options && options.copyTitle ? String(options.copyTitle) : 'Copy output';
             copyButton.setAttribute('aria-label', copyButton.title);
-            copyButton.textContent = '⧉';
+            setIconContent(copyButton, 'copy');
             copyButton.addEventListener('click', event => {
                 event.preventDefault();
                 event.stopPropagation();
                 copyTextToClipboard(content);
+                flashCopied(copyButton);
             });
             actions.appendChild(copyButton);
             header.appendChild(actions);
@@ -1762,7 +2542,7 @@ const commandSuggestions = CHAT_COMMANDS;
 
             const pre = document.createElement('pre');
             pre.className = 'vscode-code-body';
-            lines.forEach((line, index) => {
+            const renderCodeRow = (line, index) => {
                 const row = document.createElement('div');
                 row.className = showLineNumbers ? 'vscode-code-line' : 'vscode-code-line no-line-number';
 
@@ -1785,9 +2565,34 @@ const commandSuggestions = CHAT_COMMANDS;
                 row.appendChild(code);
 
                 pre.appendChild(row);
-            });
-            wrap.appendChild(pre);
+            };
+            appendCappedRows(wrap, pre, lines, renderCodeRow);
             return wrap;
+        }
+
+        const MAX_INITIAL_ROWS = 300;
+
+        // Renders up to MAX_INITIAL_ROWS rows, then a "show more" button that renders the rest on demand.
+        function appendCappedRows(wrap, pre, items, renderRow) {
+            const initial = Math.min(items.length, MAX_INITIAL_ROWS);
+            for (let index = 0; index < initial; index += 1) {
+                renderRow(items[index], index);
+            }
+            wrap.appendChild(pre);
+            if (items.length > initial) {
+                const more = document.createElement('button');
+                more.type = 'button';
+                more.className = 'show-more-button';
+                more.textContent = 'Show ' + (items.length - initial) + ' more lines';
+                more.addEventListener('click', event => {
+                    event.preventDefault();
+                    for (let index = initial; index < items.length; index += 1) {
+                        renderRow(items[index], index);
+                    }
+                    more.remove();
+                });
+                wrap.appendChild(more);
+            }
         }
 
         function appendToolOutputLine(container, line) {
@@ -2346,51 +3151,83 @@ const commandSuggestions = CHAT_COMMANDS;
 
         function getToolCallPresentation(call, diffModel) {
             const title = String((call && call.title) || '').trim();
-            const kind = String((call && call.kind) || '').trim();
-            const haystack = (title + ' ' + kind + ' ' + formatPayload((call && call.rawInput) || '')).toLowerCase();
+            const kind = String((call && call.kind) || '').trim().toLowerCase();
+            const titleKind = (title + ' ' + kind).toLowerCase();
+            const rawInput = call && call.rawInput && typeof call.rawInput === 'object' ? call.rawInput : null;
             const count = diffModel.length;
+            const filePath = count === 1 ? diffModel[0].path : inferToolFilePath(call);
+            const command = rawInput ? firstStringValue(rawInput, ['command', 'cmd', 'script', 'commandLine']) : '';
+            const query = rawInput ? firstStringValue(rawInput, ['pattern', 'query', 'regex', 'glob', 'search']) : '';
+            const url = rawInput ? firstStringValue(rawInput, ['url', 'uri', 'href']) : '';
+            const fileTarget = filePath ? { target: shortenPath(filePath), targetPath: filePath } : { target: '', targetPath: '' };
 
             if (count > 0) {
                 const totals = countDiffTotals(diffModel);
-                if (/patch|apply_patch|apply patch/.test(haystack)) {
-                    return { title: 'Applied patch', meta: '', icon: '✎' };
+                const many = count > 1 ? { target: count + ' files', targetPath: '' } : fileTarget;
+                if (totals.added > 0 && totals.removed === 0 && !/patch|update|edit|replace/.test(titleKind)) {
+                    return Object.assign({ title: count === 1 ? 'Create' : 'Create', icon: 'newFile' }, many);
                 }
-                if (totals.added > 0 && totals.removed === 0) {
-                    return { title: count === 1 ? 'Created file' : 'Created files', meta: '', icon: '' };
+                if (totals.removed > 0 && totals.added === 0 && /delete|remove/.test(titleKind)) {
+                    return Object.assign({ title: 'Delete', icon: 'edit' }, many);
                 }
-                if (totals.removed > 0 && totals.added === 0) {
-                    return { title: count === 1 ? 'Deleted file' : 'Deleted files', meta: '', icon: '✎' };
-                }
-                return { title: count === 1 ? 'Edited a file' : 'Edited files', meta: '', icon: '✎' };
+                return Object.assign({ title: 'Edit', icon: 'edit' }, many);
             }
 
-            if (/create|write|new file|add file/.test(haystack)) {
-                return { title: 'Created file', meta: call.status || 'pending', icon: '' };
+            if (kind === 'execute' || (command && /terminal|shell|bash|powershell|exec|run|command/.test(titleKind))) {
+                return { title: 'Run', icon: 'terminal', target: command || title, targetPath: '' };
             }
-            if (/edit|replace|patch|update/.test(haystack)) {
-                return { title: 'Edited a file', meta: call.status || 'pending', icon: '✎' };
+            if (kind === 'search' || /search|grep|glob|find|ripgrep/.test(titleKind)) {
+                return { title: 'Search', icon: 'search', target: query || title, targetPath: '' };
             }
-            if (/read|open/.test(haystack)) {
-                return { title: 'Read file', meta: call.status || 'pending', icon: '' };
+            if (kind === 'fetch' || url) {
+                return { title: 'Fetch', icon: 'globe', target: url || title, targetPath: '' };
             }
-            if (/list|ls|tree/.test(haystack)) {
-                return { title: 'Listed files', meta: call.status || 'pending', icon: '' };
+            if (kind === 'delete' || /delete|remove/.test(titleKind)) {
+                return Object.assign({ title: 'Delete', icon: 'edit' }, fileTarget.target ? fileTarget : { target: title, targetPath: '' });
             }
-            if (/search|grep|find/.test(haystack)) {
-                return { title: 'Searched files', meta: call.status || 'pending', icon: '' };
+            if (kind === 'move' || /\b(move|rename)\b/.test(titleKind)) {
+                return Object.assign({ title: 'Move', icon: 'file' }, fileTarget.target ? fileTarget : { target: title, targetPath: '' });
+            }
+            if (kind === 'edit' || /write|create|edit|replace|patch|update/.test(titleKind)) {
+                return Object.assign({ title: /create|write|new/.test(titleKind) ? 'Write' : 'Edit', icon: 'edit' }, fileTarget.target ? fileTarget : { target: title, targetPath: '' });
+            }
+            if (isListToolCall(call)) {
+                return Object.assign({ title: 'List', icon: 'folder' }, fileTarget.target ? fileTarget : { target: title, targetPath: '' });
+            }
+            if (kind === 'read' || isReadFileToolCall(call) || /\bread\b|\bopen\b/.test(titleKind)) {
+                return Object.assign({ title: 'Read', icon: 'file' }, fileTarget.target ? fileTarget : { target: title, targetPath: '' });
+            }
+            if (kind === 'think') {
+                return { title: 'Think', icon: 'brain', target: title, targetPath: '' };
+            }
+            if (rawInput && typeof rawInput.agent === 'string') {
+                return { title: 'Agent', icon: 'agent', target: '@' + rawInput.agent + (typeof rawInput.task === 'string' ? ' — ' + rawInput.task : ''), targetPath: '' };
             }
 
-            return { title: title || (call && call.toolCallId) || 'Tool call', meta: call.status || 'pending', icon: '◇' };
+            return { title: title || (call && call.toolCallId) || 'Tool', icon: 'tool', target: '', targetPath: '' };
+        }
+
+        function shortenPath(value) {
+            const normalized = String(value || '').replace(/\\/g, '/');
+            const root = String(workingDirectory || '').replace(/\\/g, '/').replace(/\/+$/, '');
+            if (root && normalized.toLowerCase().startsWith(root.toLowerCase() + '/')) {
+                return normalized.slice(root.length + 1);
+            }
+            return normalized;
         }
 
         function shouldOpenToolCallByDefault(call, diffModel) {
-            if (diffModel.length > 0) {
+            const status = normalizeClass((call && call.status) || '');
+            if (status === 'failed' || status === 'error') {
                 return true;
             }
 
-            const title = String((call && call.title) || '').toLowerCase();
-            const kind = String((call && call.kind) || '').toLowerCase();
-            return /create|write|edit|replace|patch|delete|remove/.test(title + ' ' + kind) || isReadFileToolCall(call);
+            if (diffModel.length > 0) {
+                const lineCount = diffModel.reduce((total, file) => total + file.lines.length, 0);
+                return lineCount <= 400;
+            }
+
+            return false;
         }
 
         function countDiffTotals(files) {
@@ -2424,16 +3261,46 @@ const commandSuggestions = CHAT_COMMANDS;
             const summary = document.createElement('summary');
             summary.className = 'inline-call-summary';
 
-            const icon = document.createElement('span');
-            icon.className = 'inline-call-icon';
-            icon.textContent = options.icon || '›';
-            summary.appendChild(icon);
+            if (options.statusIcon) {
+                const status = iconElement(options.statusIcon, 'inline-call-status status-' + options.statusIcon);
+                status.title = String(options.status || '');
+                summary.appendChild(status);
+            }
+
+            summary.appendChild(iconElement(ICONS[options.icon] ? options.icon : 'tool', 'inline-call-icon'));
 
             const title = document.createElement('span');
             title.className = 'inline-call-title';
             title.textContent = options.title || 'Details';
-            title.title = options.title || 'Details';
             summary.appendChild(title);
+
+            if (options.target) {
+                if (options.targetPath) {
+                    const link = createFileReferenceLink(options.target, options.targetPath);
+                    link.classList.add('inline-call-target');
+                    summary.appendChild(link);
+                } else {
+                    const target = document.createElement('span');
+                    target.className = 'inline-call-target';
+                    target.textContent = String(options.target).split('\n')[0];
+                    target.title = String(options.target);
+                    summary.appendChild(target);
+                }
+            }
+
+            if (options.stats) {
+                const stats = document.createElement('span');
+                stats.className = 'inline-call-stats';
+                const add = document.createElement('span');
+                add.className = 'stat-added';
+                add.textContent = '+' + options.stats.added;
+                const del = document.createElement('span');
+                del.className = 'stat-removed';
+                del.textContent = '−' + options.stats.removed;
+                stats.appendChild(add);
+                stats.appendChild(del);
+                summary.appendChild(stats);
+            }
 
             if (options.meta) {
                 const meta = document.createElement('span');
@@ -2442,10 +3309,7 @@ const commandSuggestions = CHAT_COMMANDS;
                 summary.appendChild(meta);
             }
 
-            const chevron = document.createElement('span');
-            chevron.className = 'inline-call-chevron';
-            chevron.textContent = '⌄';
-            summary.appendChild(chevron);
+            summary.appendChild(iconElement('chevronRight', 'inline-call-chevron'));
             details.appendChild(summary);
 
             const content = document.createElement('div');
@@ -2487,18 +3351,19 @@ const commandSuggestions = CHAT_COMMANDS;
             actions.className = 'diff-header-actions';
             const stat = document.createElement('span');
             stat.className = 'diff-stat';
-            stat.textContent = '+' + added + ' -' + removed;
+            stat.textContent = '+' + added + ' −' + removed;
             actions.appendChild(stat);
             const copyButton = document.createElement('button');
             copyButton.type = 'button';
             copyButton.className = 'diff-copy-button';
             copyButton.title = 'Copy diff';
             copyButton.setAttribute('aria-label', 'Copy diff');
-            copyButton.textContent = '⧉';
+            setIconContent(copyButton, 'copy');
             copyButton.addEventListener('click', event => {
                 event.preventDefault();
                 event.stopPropagation();
                 copyTextToClipboard(formatDiffForCopy(file));
+                flashCopied(copyButton);
             });
             actions.appendChild(copyButton);
             header.appendChild(actions);
@@ -2507,7 +3372,7 @@ const commandSuggestions = CHAT_COMMANDS;
             const pre = document.createElement('pre');
             pre.className = 'diff-body';
             const state = createDiffLineNumberState();
-            file.lines.forEach(line => {
+            const renderDiffRow = line => {
                 const row = document.createElement('div');
                 row.className = 'diff-line diff-' + line.type;
 
@@ -2527,8 +3392,8 @@ const commandSuggestions = CHAT_COMMANDS;
                 row.appendChild(code);
 
                 pre.appendChild(row);
-            });
-            wrap.appendChild(pre);
+            };
+            appendCappedRows(wrap, pre, file.lines, renderDiffRow);
             return wrap;
         }
 
@@ -2624,9 +3489,58 @@ const commandSuggestions = CHAT_COMMANDS;
         }
 
         function updateActivityVisibility() {
-            sidePane.classList.toggle(
-                'visible',
-                activeView === 'chat' && (hasPlanActivity || agentThreads.size > 0 || hasChangedFiles));
+            const hasAgents = agentThreads.size > 0;
+            const visible = activeView === 'chat' && (hasPlanActivity || hasAgents || hasChangedFiles);
+            workingSet.classList.toggle('hidden', !visible);
+            if (!visible) {
+                return;
+            }
+
+            planSection.classList.toggle('hidden', !hasPlanActivity);
+            agentsSection.classList.toggle('hidden', !hasAgents);
+            filesSection.classList.toggle('hidden', !hasChangedFiles);
+            workingSetBody.classList.toggle('hidden', !workingSetExpanded);
+            workingSet.classList.toggle('expanded', workingSetExpanded);
+            workingSetToggle.setAttribute('aria-expanded', workingSetExpanded ? 'true' : 'false');
+
+            workingSetSummary.textContent = '';
+            const parts = [];
+            if (hasPlanActivity) {
+                const done = planEntries.filter(entry => normalizeClass(entry.status) === 'completed').length;
+                const current = planEntries.find(entry => normalizeClass(entry.status) === 'in_progress');
+                parts.push({ icon: 'list', text: 'Plan ' + done + '/' + planEntries.length + (current && !workingSetExpanded ? ' · ' + current.content : '') });
+            }
+            if (hasAgents) {
+                const running = Array.from(agentThreads.values()).filter(thread => /pending|in_progress/.test(normalizeClass(thread.status))).length;
+                parts.push({ icon: 'agent', text: agentThreads.size + (agentThreads.size === 1 ? ' agent' : ' agents') + (running ? ' (' + running + ' running)' : '') });
+            }
+            if (hasChangedFiles) {
+                parts.push({ icon: 'file', text: changedFiles.length + (changedFiles.length === 1 ? ' file changed' : ' files changed'), stats: changedFilesCount.textContent });
+            }
+            parts.forEach(part => {
+                const item = document.createElement('span');
+                item.className = 'ws-summary-item';
+                item.appendChild(iconElement(part.icon));
+                const text = document.createElement('span');
+                text.className = 'ws-summary-text';
+                text.textContent = part.text;
+                item.appendChild(text);
+                if (part.stats) {
+                    const stats = document.createElement('span');
+                    stats.className = 'ws-summary-stats';
+                    const [added, removed] = String(part.stats).split(' ');
+                    const add = document.createElement('span');
+                    add.className = 'stat-added';
+                    add.textContent = added || '';
+                    const del = document.createElement('span');
+                    del.className = 'stat-removed';
+                    del.textContent = removed || '';
+                    stats.appendChild(add);
+                    stats.appendChild(del);
+                    item.appendChild(stats);
+                }
+                workingSetSummary.appendChild(item);
+            });
         }
 
         function trackAgentThreads(call) {
@@ -3250,6 +4164,11 @@ const commandSuggestions = CHAT_COMMANDS;
                 return;
             }
 
+            if (request.kind === 'permission') {
+                showInlinePermission(request);
+                return;
+            }
+
             if (activeModalRequest && activeModalRequest.id === request.id) {
                 return;
             }
@@ -3265,6 +4184,214 @@ const commandSuggestions = CHAT_COMMANDS;
 
             openClientRequest(request);
         }
+
+        // ---- Inline permission cards ----------------------------------------------------------
+        function showInlinePermission(request) {
+            if (inlinePermissionCards.has(request.id)) {
+                return;
+            }
+
+            if (!modalBackdrop.classList.contains('hidden') && !activeModalRequest) {
+                closeModal();
+            }
+            showChatPage();
+            emptyState.hidden = true;
+
+            const requestOptions = Array.isArray(request.options) ? request.options : [];
+            const defaultOptionId = getDefaultOptionId(request, requestOptions);
+            const card = document.createElement('article');
+            card.className = 'message-card permission pending';
+            card.setAttribute('role', 'group');
+            card.setAttribute('aria-label', request.title || 'Permission request');
+
+            const header = document.createElement('div');
+            header.className = 'permission-header';
+            header.appendChild(iconElement('shield', 'permission-icon'));
+            const title = document.createElement('span');
+            title.className = 'permission-title';
+            title.textContent = request.title || 'Permission required';
+            header.appendChild(title);
+            card.appendChild(header);
+
+            if (request.description) {
+                const description = document.createElement('div');
+                description.className = 'permission-description';
+                renderLinkifiedText(description, request.description);
+                card.appendChild(description);
+            }
+
+            const options = document.createElement('div');
+            options.className = 'permission-options';
+            const entry = { request, element: card, timer: null, selected: '' };
+
+            requestOptions.forEach((option, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                const kind = String(option.kind || '');
+                const isReject = kind.startsWith('reject');
+                button.className = 'permission-option' +
+                    (option.optionId === defaultOptionId ? ' default' : '') +
+                    (isReject ? ' reject' : '');
+                button.dataset.optionId = option.optionId;
+
+                if (index < 9) {
+                    const key = document.createElement('span');
+                    key.className = 'permission-key';
+                    key.textContent = String(index + 1);
+                    button.appendChild(key);
+                }
+                const label = document.createElement('span');
+                label.className = 'permission-option-label';
+                label.textContent = option.name || option.optionId;
+                button.appendChild(label);
+                const optionKind = formatOptionKind(option.kind);
+                if (optionKind) {
+                    const kindLabel = document.createElement('span');
+                    kindLabel.className = 'permission-option-kind';
+                    kindLabel.textContent = optionKind;
+                    button.appendChild(kindLabel);
+                }
+
+                button.addEventListener('click', () => {
+                    resolveInlinePermission(request.id, { outcome: 'selected', optionId: option.optionId }, option.name || option.optionId);
+                });
+                options.appendChild(button);
+            });
+
+            if (request.allowCancellation !== false) {
+                const cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.className = 'permission-option subtle';
+                cancel.textContent = 'Cancel';
+                cancel.title = 'Cancel (Esc)';
+                cancel.addEventListener('click', () => resolveInlinePermission(request.id, { outcome: 'cancelled' }, 'Cancelled'));
+                options.appendChild(cancel);
+            }
+
+            card.appendChild(options);
+            const footer = document.createElement('div');
+            footer.className = 'permission-footer';
+            card.appendChild(footer);
+
+            card.addEventListener('keydown', event => {
+                if (/^[1-9]$/.test(event.key)) {
+                    const option = requestOptions[Number(event.key) - 1];
+                    if (option) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        resolveInlinePermission(request.id, { outcome: 'selected', optionId: option.optionId }, option.name || option.optionId);
+                    }
+                } else if (event.key === 'Escape' && request.allowCancellation !== false) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    resolveInlinePermission(request.id, { outcome: 'cancelled' }, 'Cancelled');
+                } else if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+                    const buttons = Array.from(options.querySelectorAll('button')) as HTMLElement[];
+                    const index = buttons.indexOf(document.activeElement as HTMLElement);
+                    const next = buttons[(index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length];
+                    if (next) {
+                        event.preventDefault();
+                        next.focus();
+                    }
+                }
+            });
+
+            inlinePermissionCards.set(request.id, entry);
+            messagesDiv.appendChild(card);
+            moveProgressIndicatorToEnd();
+            scrollToBottom(true);
+
+            if (inputField.value.trim().length === 0) {
+                const focusTarget = options.querySelector('.permission-option.default') as HTMLElement || options.querySelector('button') as HTMLElement;
+                if (focusTarget) {
+                    focusTarget.focus({ preventScroll: true });
+                }
+            }
+
+            startInlineAutoSelect(entry, defaultOptionId, requestOptions, footer);
+        }
+
+        function startInlineAutoSelect(entry, defaultOptionId, options, footer) {
+            const delayMilliseconds = Number(entry.request.autoSelectAfterMilliseconds);
+            if (!defaultOptionId || !Number.isFinite(delayMilliseconds) || delayMilliseconds <= 0) {
+                footer.textContent = '1–' + Math.min(9, options.length) + ' to choose' + (entry.request.allowCancellation !== false ? ' · Esc to cancel' : '');
+                return;
+            }
+
+            const defaultOption = options.find(option => option.optionId === defaultOptionId);
+            const defaultLabel = defaultOption ? (defaultOption.name || defaultOption.optionId) : defaultOptionId;
+            const deadline = Date.now() + delayMilliseconds;
+            const update = () => {
+                if (!inlinePermissionCards.has(entry.request.id) || entry.selected) {
+                    clearInterval(entry.timer);
+                    return;
+                }
+                const remaining = deadline - Date.now();
+                footer.textContent = 'Auto-selecting "' + defaultLabel + '" in ' + Math.max(0, Math.ceil(remaining / 1000)) + 's';
+                if (remaining <= 0) {
+                    resolveInlinePermission(entry.request.id, { outcome: 'selected', optionId: defaultOptionId }, defaultLabel);
+                }
+            };
+            entry.timer = setInterval(update, 250);
+            update();
+        }
+
+        function resolveInlinePermission(requestId, resolution, label) {
+            const entry = inlinePermissionCards.get(requestId);
+            if (!entry || entry.selected) {
+                return;
+            }
+            entry.selected = label || 'Resolved';
+            post({ command: 'resolveClientRequest', requestId, resolution });
+            finalizeInlinePermission(entry, resolution.outcome === 'cancelled' ? 'cancelled' : isRejectOption(entry.request, resolution.optionId) ? 'rejected' : 'approved');
+            inputField.focus();
+        }
+
+        function isRejectOption(request, optionId) {
+            const option = (request.options || []).find(item => item.optionId === optionId);
+            return Boolean(option && String(option.kind || '').startsWith('reject'));
+        }
+
+        function finalizeInlinePermission(entry, outcome) {
+            if (entry.timer) {
+                clearInterval(entry.timer);
+                entry.timer = null;
+            }
+            const card = entry.element;
+            card.classList.remove('pending');
+            card.classList.add('resolved', 'outcome-' + outcome);
+            const options = card.querySelector('.permission-options');
+            const footer = card.querySelector('.permission-footer');
+            if (options) {
+                options.remove();
+            }
+            if (footer) {
+                footer.textContent = '';
+                footer.appendChild(iconElement(outcome === 'approved' ? 'check' : outcome === 'resolved' ? 'info' : 'close'));
+                const text = document.createElement('span');
+                text.textContent = entry.selected || (outcome === 'cancelled' ? 'Cancelled' : 'Resolved');
+                footer.appendChild(text);
+            }
+        }
+
+        document.addEventListener('keydown', event => {
+            if (!/^[1-9]$/.test(event.key) || event.ctrlKey || event.metaKey || event.altKey) {
+                return;
+            }
+            const target = event.target as HTMLElement;
+            if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.tagName === 'SELECT')) {
+                return;
+            }
+            const pending = Array.from(inlinePermissionCards.values()).find(entry => !entry.selected);
+            if (!pending || pending.element.contains(target)) {
+                return;
+            }
+            const option = (pending.request.options || [])[Number(event.key) - 1];
+            if (option) {
+                event.preventDefault();
+                resolveInlinePermission(pending.request.id, { outcome: 'selected', optionId: option.optionId }, option.name || option.optionId);
+            }
+        });
 
         function openClientRequest(request) {
             clearAutoSelectTimer();
@@ -3463,6 +4590,15 @@ const commandSuggestions = CHAT_COMMANDS;
         }
 
         function clearClientRequest(requestId) {
+            const inline = inlinePermissionCards.get(requestId);
+            if (inline) {
+                if (!inline.selected) {
+                    inline.selected = 'Resolved';
+                    finalizeInlinePermission(inline, 'resolved');
+                }
+                return;
+            }
+
             if (!activeModalRequest || activeModalRequest.id !== requestId) {
                 const queuedIndex = queuedClientRequests.findIndex(request => request.id === requestId);
                 if (queuedIndex >= 0) {
@@ -3561,6 +4697,11 @@ const commandSuggestions = CHAT_COMMANDS;
                     }));
             }
 
+            // Once arguments are being typed, stop suggesting so Enter/Tab can't clobber them.
+            if (/\s/.test(value)) {
+                return [];
+            }
+
             const token = value.split(/\s+/, 1)[0].toLowerCase();
             return commandSuggestions
                 .filter(command => command.command.startsWith(token) || command.usage.toLowerCase().startsWith(token))
@@ -3578,10 +4719,23 @@ const commandSuggestions = CHAT_COMMANDS;
             visibleSuggestions.forEach((suggestion, index) => {
                 const item = document.createElement('div');
                 item.className = 'suggestion' + (index === activeSuggestionIndex ? ' active' : '');
+                item.setAttribute('role', 'option');
+                item.setAttribute('aria-selected', index === activeSuggestionIndex ? 'true' : 'false');
                 item.addEventListener('mousedown', event => {
                     event.preventDefault();
                     applySuggestion(suggestion);
                 });
+                item.addEventListener('mousemove', () => {
+                    if (activeSuggestionIndex !== index) {
+                        activeSuggestionIndex = index;
+                        suggestionsDiv.querySelectorAll('.suggestion').forEach((element, elementIndex) => {
+                            element.classList.toggle('active', elementIndex === index);
+                            element.setAttribute('aria-selected', elementIndex === index ? 'true' : 'false');
+                        });
+                    }
+                });
+
+                item.appendChild(iconElement(suggestion.mention ? 'file' : 'slash', 'suggestion-icon'));
 
                 const usage = document.createElement('div');
                 usage.className = 'suggestion-usage';
@@ -3595,6 +4749,11 @@ const commandSuggestions = CHAT_COMMANDS;
 
                 suggestionsDiv.appendChild(item);
             });
+
+            const active = suggestionsDiv.querySelector('.suggestion.active') as HTMLElement;
+            if (active && typeof active.scrollIntoView === 'function') {
+                active.scrollIntoView({ block: 'nearest' });
+            }
         }
 
         function applySuggestion(suggestion) {
@@ -3616,6 +4775,7 @@ const commandSuggestions = CHAT_COMMANDS;
             inputField.value = suggestion.insertText;
             inputField.focus();
             inputField.setSelectionRange(inputField.value.length, inputField.value.length);
+            autoResizeInput();
             updateSuggestions();
             updateComposerState();
         }
@@ -3628,9 +4788,12 @@ const commandSuggestions = CHAT_COMMANDS;
 
         renderContext();
         renderPlan(null);
+        renderFileEditsSummary(null);
         renderAgentThreads();
         renderTools();
+        renderEditorContextChip();
         updateStatusRail();
         updateComposerState();
+        autoResizeInput();
         api.postMessage({ command: 'webviewLog', level: 'info', message: 'Posting ready from main script' });
         post({ command: 'ready' });

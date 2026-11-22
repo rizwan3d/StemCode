@@ -44,15 +44,29 @@ Then open the StemCode view in VS Code or run `StemCode: Open Chat` from the Com
 
 ## Features
 
-- Open StemCode chat inside the VS Code auxiliary bar.
-- Send the current selection or full file as context.
-- Ask StemCode to explain selected code.
-- Review the current file or current Git diff.
-- Prefill planning prompts for code changes.
-- Apply suggested changes from a previous StemCode response.
-- Browse, install, and remove data-only skills from a marketplace panel.
-- Start, stop, and restart the local `stemcode --acp` process.
-- Open extension logs and settings from VS Code commands.
+**Chat that works like a coding agent**
+
+- Streaming answers with rendered Markdown, tables, and syntax-highlighted code blocks. Each code block has **Copy**, **Insert at cursor**, and **Open in new editor** actions.
+- Tool calls appear as compact rows (Read, Search, Edit, Run, ...) with live status: a spinner while running, a check on success, an error mark on failure. Edits expand to an inline diff with `+/-` counts.
+- **Inline approvals:** permission requests show up as cards in the chat. Press `1`–`9` to choose an option, or `Esc` to cancel. Auto-select countdowns are shown on the card.
+- A thinking section that stays collapsed, a live progress line ("Running npm test…") with elapsed time, and per-turn stats.
+- A working-set strip above the input that summarizes plan progress, subagents, and changed files. Click it to expand and open any file.
+
+**Composer**
+
+- Auto-growing input. `Enter` sends, `Shift+Enter` adds a new line, `Esc` stops the response, and `↑`/`↓` move through prompt history (kept across reloads).
+- A **context chip** for the active editor. Your current file or selection is attached to prompts automatically; click the chip to turn this off.
+- `/` command and `@` file suggestions, model / reasoning / thinking menu, profile picker, and a context-usage ring.
+- Messages typed while StemCode is busy are queued and sent when the current turn ends.
+
+**Editor integration**
+
+- Right-click → **StemCode** to explain or send a selection, send or review the current file, or review your Git diff.
+- `Ctrl+Shift+Alt+S` (`Cmd+Shift+Alt+S` on macOS) opens the chat. `Ctrl+Shift+Alt+L` sends the current selection.
+- File paths in answers are clickable and open at the referenced line.
+- A status banner with **Retry** and **Logs** buttons appears if the CLI fails to start.
+- Session history (resume, fork, export), a settings page, a skills marketplace, and process controls (start, stop, restart, logs).
+- Follows your VS Code theme, including light and high-contrast themes.
 
 ## Skills
 
@@ -91,6 +105,15 @@ Install the StemCode CLI, restart your terminal, and make sure `stemcode` is ava
 ### The extension starts but cannot connect
 
 Run `stemcode` once in a terminal and finish provider onboarding. The extension starts StemCode in ACP mode and expects local configuration to already exist.
+
+## Development
+
+```bash
+npm ci
+npm test                 # typecheck, build, lint, then unit + webview (jsdom) tests
+npm run test:integration # runs the extension in a real VS Code against a fake ACP agent
+npm run package:vsix     # build a .vsix
+```
 
 ## License
 

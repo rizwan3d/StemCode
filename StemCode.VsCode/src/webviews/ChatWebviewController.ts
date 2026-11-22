@@ -17,7 +17,11 @@ import {
 } from '../services/SessionManager';
 import { StemCodeProcessStatus } from '../services/StemCodeProcessManager';
 import { getChatWebviewContent, getNonce } from './ChatWebviewContent';
-import type { ChatMessage } from './chatMessages';
+import type { ChatMessage, EditorContextInfo } from './chatMessages';
+import { CapturedEditorContext, formatEditorContextLabel, formatPromptWithEditorContext } from './editorContext';
+
+/** VS Code commands the webview is allowed to trigger directly (starter buttons). */
+const ALLOWED_WEBVIEW_COMMANDS = new Set(['stemcode.reviewGitDiff']);
 
 export class ChatWebviewController {
     private readonly disposables: vscode.Disposable[] = [];
@@ -30,6 +34,7 @@ export class ChatWebviewController {
     private bootstrapTimer: NodeJS.Timeout | null = null;
     private webviewReady = false;
     private bootstrapAttempt = 0;
+    private editorContextTimer: NodeJS.Timeout | null = null;
 
     constructor(
         private readonly webview: vscode.Webview,
@@ -41,18 +46,34 @@ export class ChatWebviewController {
             enableScripts: true,
             localResourceRoots: [
                 vscode.Uri.joinPath(extensionUri, 'media'),
-                vscode.Uri.joinPath(extensionUri, 'dist')
+                vscode.Uri.joinPath(extensionUri, 'dist'),
+                vscode.Uri.joinPath(extensionUri, 'resources')
             ]
         };
         LogService.getInstance().info('Chat webview controller created');
 
         this.registerSessionListeners();
+        this.registerEditorListeners();
 
         this.disposables.push(
             this.webview.onDidReceiveMessage(async (message: ChatMessage) => {
                 LogService.getInstance().info(`Chat webview message received: ${message.command}`);
                 if (message.command === 'sendMessage') {
-                    await this.handleUserMessage(message.text);
+                    await this.handleUserMessage(message.text, message.editorContext);
+                } else if (message.command === 'newChat') {
+                    await this.startNewChatSession();
+                } else if (message.command === 'restartProcess') {
+                    await this.restartProcess();
+                } else if (message.command === 'openLogs') {
+                    LogService.getInstance().show();
+                } else if (message.command === 'insertCode') {
+                    await this.insertCodeIntoEditor(message.text);
+                } else if (message.command === 'openInEditor') {
+                    await this.openCodeInEditor(message.text, message.language);
+                } else if (message.command === 'runVsCodeCommand') {
+                    if (ALLOWED_WEBVIEW_COMMANDS.has(message.id)) {
+                        await vscode.commands.executeCommand(message.id);
+                    }
                 } else if (message.command === 'runSessionCommand') {
                     await this.runSettingsCommand(message.text);
                 } else if (message.command === 'selectModel') {
@@ -92,6 +113,7 @@ export class ChatWebviewController {
                 } else if (message.command === 'ready') {
                     this.webviewReady = true;
                     LogService.getInstance().info('Chat webview reported ready');
+                    this.postActiveEditor();
                     await this.postInitialState();
                     await this.ensureSessionReady();
                 }
@@ -107,6 +129,11 @@ export class ChatWebviewController {
         if (this.bootstrapTimer) {
             clearTimeout(this.bootstrapTimer);
             this.bootstrapTimer = null;
+        }
+
+        if (this.editorContextTimer) {
+            clearTimeout(this.editorContextTimer);
+            this.editorContextTimer = null;
         }
 
         for (const resolve of this.localRequestResolvers.values()) {
@@ -137,6 +164,119 @@ export class ChatWebviewController {
 
     public showSettings() {
         this.webview.postMessage({ command: 'showSettings' });
+    }
+
+    public focusInput() {
+        this.webview.postMessage({ command: 'focusInput' });
+    }
+
+    private registerEditorListeners() {
+        const schedule = () => {
+            if (this.editorContextTimer) {
+                clearTimeout(this.editorContextTimer);
+            }
+            this.editorContextTimer = setTimeout(() => {
+                this.editorContextTimer = null;
+                this.postActiveEditor();
+            }, 150);
+        };
+
+        this.disposables.push(
+            vscode.window.onDidChangeActiveTextEditor(schedule),
+            vscode.window.onDidChangeTextEditorSelection(event => {
+                if (event.textEditor === vscode.window.activeTextEditor) {
+                    schedule();
+                }
+            })
+        );
+    }
+
+    private getContextEditor(): vscode.TextEditor | undefined {
+        const active = vscode.window.activeTextEditor;
+        if (active && isContextEditor(active)) {
+            return active;
+        }
+        return vscode.window.visibleTextEditors.find(isContextEditor);
+    }
+
+    private postActiveEditor() {
+        const editor = this.getContextEditor();
+        let info: EditorContextInfo | null = null;
+        if (editor) {
+            const selection = editor.selection;
+            info = {
+                relativePath: toRelativePath(editor.document.uri),
+                languageId: editor.document.languageId,
+                selection: selection.isEmpty
+                    ? null
+                    : { startLine: selection.start.line + 1, endLine: getSelectionEndLine(selection) }
+            };
+        }
+        void this.postToWebview({ command: 'activeEditor', editor: info }, 'active editor');
+    }
+
+    /** Re-reads the editor at send time so the prompt reflects the current selection, not a stale snapshot. */
+    private captureEditorContext(requested: EditorContextInfo | undefined): CapturedEditorContext | undefined {
+        if (!requested) {
+            return undefined;
+        }
+
+        const editor = this.getContextEditor();
+        if (!editor) {
+            return undefined;
+        }
+
+        const relativePath = toRelativePath(editor.document.uri);
+        const selection = editor.selection;
+        if (selection.isEmpty) {
+            return { relativePath, languageId: editor.document.languageId };
+        }
+
+        return {
+            relativePath,
+            languageId: editor.document.languageId,
+            startLine: selection.start.line + 1,
+            endLine: getSelectionEndLine(selection),
+            selectionText: editor.document.getText(selection)
+        };
+    }
+
+    private async restartProcess() {
+        try {
+            await this.sessionManager.restart();
+            await this.ensureSessionReady();
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to restart StemCode.';
+            LogService.getInstance().error('Restart failed', error);
+            this.postSystemMessage(`Error: ${message}`);
+        }
+    }
+
+    private async insertCodeIntoEditor(text: string) {
+        const editor = this.getContextEditor();
+        if (!editor) {
+            await this.openCodeInEditor(text);
+            return;
+        }
+
+        const applied = await editor.edit(builder => {
+            for (const selection of editor.selections) {
+                builder.replace(selection, text);
+            }
+        });
+        if (applied) {
+            await vscode.window.showTextDocument(editor.document, { viewColumn: editor.viewColumn, preserveFocus: false });
+        } else {
+            void this.postToWebview({ command: 'toast', text: 'Could not insert into the active editor.' }, 'toast');
+        }
+    }
+
+    private async openCodeInEditor(text: string, language?: string) {
+        const document = await vscode.workspace.openTextDocument({
+            content: text,
+            language: language && /^[a-z0-9#+_.-]{1,40}$/i.test(language) ? mapLanguageId(language) : undefined
+        });
+        await vscode.window.showTextDocument(document, { preview: false, viewColumn: vscode.ViewColumn.One });
     }
 
     private registerSessionListeners() {
@@ -256,8 +396,12 @@ export class ChatWebviewController {
         }
     }
 
-    private async handleUserMessage(text: string) {
+    private async handleUserMessage(text: string, editorContext?: EditorContextInfo) {
         const trimmedText = text.trim();
+        if (!trimmedText) {
+            return;
+        }
+
         if (trimmedText === '/clear') {
             this.webview.postMessage({ command: 'clearMessages' });
             this.postSystemMessage('Screen cleared.');
@@ -279,7 +423,8 @@ export class ChatWebviewController {
             return;
         }
 
-        this.postChatMessage(trimmedText, 'user');
+        const context = trimmedText.startsWith('/') ? undefined : this.captureEditorContext(editorContext);
+        this.postChatMessage(trimmedText, 'user', context ? [formatEditorContextLabel(context)] : undefined);
 
         if (trimmedText === '/ls') {
             await this.listWorkspaceFiles();
@@ -292,7 +437,7 @@ export class ChatWebviewController {
         }
 
         try {
-            const result = await this.sessionManager.sendPrompt(trimmedText);
+            const result = await this.sessionManager.sendPrompt(formatPromptWithEditorContext(trimmedText, context));
             if (!trimmedText.startsWith('/')) {
                 this.postTurnMetrics(result?.metrics);
             }
@@ -802,9 +947,10 @@ export class ChatWebviewController {
 
     private postChatMessage(
         text: string,
-        role: 'assistant' | 'system' | 'user' | 'metrics'
+        role: 'assistant' | 'system' | 'user' | 'metrics',
+        attachments?: string[]
     ) {
-        void this.postToWebview({ command: 'appendMessage', text, role }, `chat message '${role}'`);
+        void this.postToWebview({ command: 'appendMessage', text, role, attachments }, `chat message '${role}'`);
     }
 
     private postSystemMessage(text: string) {
@@ -822,7 +968,7 @@ export class ChatWebviewController {
     private async postToWebview(message: unknown, purpose: string): Promise<void> {
         try {
             const delivered = await this.webview.postMessage(message);
-            LogService.getInstance().info(`Posted ${purpose} to chat webview`, { delivered });
+            LogService.getInstance().debug(`Posted ${purpose} to chat webview`, { delivered });
         } catch (error) {
             LogService.getInstance().error(`Failed to post ${purpose} to chat webview`, error);
         }
@@ -834,4 +980,25 @@ function formatTokenCount(value: number): string {
         return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
     }
     return String(Math.round(value));
+}
+
+function isContextEditor(editor: vscode.TextEditor): boolean {
+    const scheme = editor.document.uri.scheme;
+    return scheme === 'file' || scheme === 'vscode-remote';
+}
+
+function toRelativePath(uri: vscode.Uri): string {
+    return vscode.workspace.asRelativePath(uri, false).replace(/\\/g, '/');
+}
+
+/** A selection ending at column 0 of a later line (full-line select) shouldn't count that line. */
+function getSelectionEndLine(selection: vscode.Selection): number {
+    return selection.end.character === 0 && selection.end.line > selection.start.line
+        ? selection.end.line
+        : selection.end.line + 1;
+}
+
+function mapLanguageId(language: string): string {
+    const aliases: Record<string, string> = { shell: 'shellscript', text: 'plaintext' };
+    return aliases[language.toLowerCase()] ?? language.toLowerCase();
 }

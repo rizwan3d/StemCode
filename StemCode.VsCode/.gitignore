@@ -33,3 +33,7 @@ coverage/
 .idea/
 
 dist
+
+# Test artifacts
+.vscode-test/
+test-fixtures/workspace/.vscode/

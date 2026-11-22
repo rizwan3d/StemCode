@@ -17,11 +17,53 @@ export type ChatMessage =
     | ResumeSessionMessage
     | LoadPluginsMessage
     | PluginActionMessage
-    | WebviewLogMessage;
+    | WebviewLogMessage
+    | NewChatMessage
+    | RestartProcessMessage
+    | OpenLogsMessage
+    | InsertCodeMessage
+    | OpenInEditorMessage
+    | RunVsCodeCommandMessage;
+
+/** Active editor snapshot shared with the webview for the context chip. */
+export type EditorContextInfo = {
+    relativePath: string;
+    languageId?: string;
+    selection?: { startLine: number; endLine: number } | null;
+};
 
 type SendMessage = {
     command: 'sendMessage';
     text: string;
+    editorContext?: EditorContextInfo;
+};
+
+type NewChatMessage = {
+    command: 'newChat';
+};
+
+type RestartProcessMessage = {
+    command: 'restartProcess';
+};
+
+type OpenLogsMessage = {
+    command: 'openLogs';
+};
+
+type InsertCodeMessage = {
+    command: 'insertCode';
+    text: string;
+};
+
+type OpenInEditorMessage = {
+    command: 'openInEditor';
+    text: string;
+    language?: string;
+};
+
+type RunVsCodeCommandMessage = {
+    command: 'runVsCodeCommand';
+    id: string;
 };
 
 type RunSessionCommandMessage = {
