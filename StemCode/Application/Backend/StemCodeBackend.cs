@@ -388,6 +388,11 @@ public sealed class StemCodeBackend : IStemCodeBackend
             cancellationToken);
     }
 
+    public IReadOnlyList<McpPromptDescriptor> ListMcpPrompts()
+    {
+        return _host?.Services.GetService<IMcpPromptService>()?.ListPrompts() ?? [];
+    }
+
     public IReadOnlyList<FileEditSummary> GetFileEditSummary()
     {
         ReplSessionContext? session = _session;

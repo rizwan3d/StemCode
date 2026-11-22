@@ -40,6 +40,61 @@ public sealed class AgentTurnServiceTests
     }
 
     [Fact]
+    public async Task RunTurnAsync_Should_ExpandMcpPromptCommandBeforeRunningTurn()
+    {
+        ReplSessionContext session = CreateSession();
+        RecordingProgressSink progressSink = new();
+        Mock<IMcpPromptService> mcpPrompts = new(MockBehavior.Strict);
+        mcpPrompts
+            .Setup(service => service.TryExpandAsync("/mcp__github__review 12", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new McpPromptExpansion("Review pull request 12 carefully.", null));
+
+        Mock<IConversationPipeline> conversationPipeline = new(MockBehavior.Strict);
+        conversationPipeline
+            .Setup(pipeline => pipeline.ProcessAsync(
+                "Review pull request 12 carefully.",
+                session,
+                progressSink,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ConversationTurnResult.AssistantMessage("Reviewed."));
+
+        AgentTurnService sut = new(
+            conversationPipeline.Object,
+            new BuiltInAgentProfileResolver(),
+            mcpPromptService: mcpPrompts.Object);
+
+        ConversationTurnResult result = await sut.RunTurnAsync(
+            new AgentTurnRequest(session, "/mcp__github__review 12", progressSink),
+            CancellationToken.None);
+
+        result.ResponseText.Should().Be("Reviewed.");
+        conversationPipeline.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RunTurnAsync_Should_ReturnMcpPromptError_WithoutCallingModel()
+    {
+        ReplSessionContext session = CreateSession();
+        Mock<IMcpPromptService> mcpPrompts = new(MockBehavior.Strict);
+        mcpPrompts
+            .Setup(service => service.TryExpandAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new McpPromptExpansion(null, "Missing required argument(s) pr."));
+        Mock<IConversationPipeline> conversationPipeline = new(MockBehavior.Strict);
+
+        AgentTurnService sut = new(
+            conversationPipeline.Object,
+            new BuiltInAgentProfileResolver(),
+            mcpPromptService: mcpPrompts.Object);
+
+        ConversationTurnResult result = await sut.RunTurnAsync(
+            new AgentTurnRequest(session, "/mcp__github__review", new RecordingProgressSink()),
+            CancellationToken.None);
+
+        result.ResponseText.Should().Be("Missing required argument(s) pr.");
+        conversationPipeline.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task RunTurnAsync_Should_ForwardAttachmentsToConversationPipeline()
     {
         ReplSessionContext session = CreateSession();

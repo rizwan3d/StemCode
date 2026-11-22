@@ -1,3 +1,4 @@
+using StemCode.Application.Abstractions;
 using StemCode.Application.Backend;
 using StemCode.Application.Commands;
 using StemCode.Application.Models;
@@ -292,6 +293,16 @@ public static partial class Program
 
         if (TryHandleTerminalView(state, command))
         {
+            return;
+        }
+
+        // MCP prompts (/mcp__server__prompt) are expanded by the backend into a
+        // normal turn, so they run as a conversation rather than a REPL command.
+        if (McpPromptCommand.IsCandidate(command))
+        {
+            state.JumpConversationToBottom();
+            state.AddMessage(Role.User, command);
+            StartConversation(state, command);
             return;
         }
 

@@ -33,15 +33,26 @@ internal sealed class McpStdioServerClient : IMcpServerClient
 
     public string TransportKind => "stdio";
 
+    public JsonElement ServerCapabilities { get; private set; }
+
+    public Task<JsonElement> RequestAsync(
+        string method,
+        Action<Utf8JsonWriter>? writeParams,
+        CancellationToken cancellationToken)
+    {
+        return SendRequestAsync(method, writeParams, cancellationToken);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         EnsureProcessStarted();
 
-        await SendRequestAsync(
+        JsonElement initializeResult = await SendRequestAsync(
             "initialize",
             McpJson.WriteInitializeParams,
             cancellationToken);
+        ServerCapabilities = McpServerFeatures.ReadCapabilities(initializeResult);
         await SendNotificationAsync(
             "notifications/initialized",
             writeParams: null,

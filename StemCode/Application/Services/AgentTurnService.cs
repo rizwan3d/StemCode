@@ -18,17 +18,20 @@ internal sealed class AgentTurnService
     private readonly IAgentProfileResolver _profileResolver;
     private readonly IProductTelemetry _telemetry;
     private readonly IShellCommandService? _shellCommandService;
+    private readonly IMcpPromptService? _mcpPromptService;
 
     public AgentTurnService(
         IConversationPipeline conversationPipeline,
         IAgentProfileResolver profileResolver,
         IProductTelemetry? telemetry = null,
-        IShellCommandService? shellCommandService = null)
+        IShellCommandService? shellCommandService = null,
+        IMcpPromptService? mcpPromptService = null)
     {
         _conversationPipeline = conversationPipeline;
         _profileResolver = profileResolver;
         _telemetry = telemetry ?? NoOpProductTelemetry.Instance;
         _shellCommandService = shellCommandService;
+        _mcpPromptService = mcpPromptService;
     }
 
     public AgentTurnService(
@@ -56,8 +59,21 @@ internal sealed class AgentTurnService
         try
         {
             ConversationTurnResult result;
+            McpPromptExpansion? mcpPrompt = _mcpPromptService is not null && McpPromptCommand.IsCandidate(request.UserInput)
+                ? await _mcpPromptService.TryExpandAsync(request.UserInput, cancellationToken)
+                : null;
 
-            if (CustomSlashCommandService.TryExpand(
+            if (mcpPrompt is not null)
+            {
+                featureName = TelemetryFeatureNames.McpPrompt;
+                result = mcpPrompt.Prompt is null
+                    ? ConversationTurnResult.AssistantMessage(mcpPrompt.Error ?? "MCP prompt could not be expanded.")
+                    : await ProcessWithOptionalAttachmentsAsync(
+                        mcpPrompt.Prompt,
+                        request,
+                        cancellationToken);
+            }
+            else if (CustomSlashCommandService.TryExpand(
                     request.Session.WorkspacePath,
                     request.UserInput,
                     out CustomSlashCommandResolution? customCommand,

@@ -1,3 +1,4 @@
+using StemCode.Application.Abstractions;
 using StemCode.Application.Backend;
 using StemCode.Application.Commands;
 using StemCode.Application.Exceptions;
@@ -50,7 +51,8 @@ internal static class SingleTurnRunner
             streamBridge?.WriteInit(sessionInfo);
 
             string normalizedPrompt = prompt.Trim();
-            if (normalizedPrompt.StartsWith("/", StringComparison.Ordinal))
+            if (normalizedPrompt.StartsWith("/", StringComparison.Ordinal) &&
+                !McpPromptCommand.IsCandidate(normalizedPrompt))
             {
                 return await RunSlashCommandAsync(
                     backend,

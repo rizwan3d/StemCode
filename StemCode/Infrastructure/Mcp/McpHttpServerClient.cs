@@ -29,12 +29,23 @@ internal sealed class McpHttpServerClient : IMcpServerClient
 
     public string TransportKind => "http";
 
+    public JsonElement ServerCapabilities { get; private set; }
+
+    public Task<JsonElement> RequestAsync(
+        string method,
+        Action<Utf8JsonWriter>? writeParams,
+        CancellationToken cancellationToken)
+    {
+        return SendRequestAsync(method, writeParams, cancellationToken);
+    }
+
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        await SendRequestAsync(
+        JsonElement initializeResult = await SendRequestAsync(
             "initialize",
             McpJson.WriteInitializeParams,
             cancellationToken);
+        ServerCapabilities = McpServerFeatures.ReadCapabilities(initializeResult);
         await SendNotificationAsync(
             "notifications/initialized",
             writeParams: null,

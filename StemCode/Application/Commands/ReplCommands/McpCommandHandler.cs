@@ -8,13 +8,16 @@ internal sealed class McpCommandHandler : IReplCommandHandler
 {
     private readonly IEnumerable<IDynamicToolProvider> _dynamicToolProviders;
     private readonly IToolRegistry _toolRegistry;
+    private readonly IMcpPromptService? _mcpPromptService;
 
     public McpCommandHandler(
         IEnumerable<IDynamicToolProvider> dynamicToolProviders,
-        IToolRegistry toolRegistry)
+        IToolRegistry toolRegistry,
+        IMcpPromptService? mcpPromptService = null)
     {
         _dynamicToolProviders = dynamicToolProviders;
         _toolRegistry = toolRegistry;
+        _mcpPromptService = mcpPromptService;
     }
 
     public string CommandName => "mcp";
@@ -68,6 +71,20 @@ internal sealed class McpCommandHandler : IReplCommandHandler
         lines.AddRange(toolNames.Length == 0
             ? ["No dynamic tools are currently available."]
             : toolNames);
+
+        IReadOnlyList<McpPromptDescriptor> prompts = _mcpPromptService?.ListPrompts() ?? [];
+        if (prompts.Count > 0)
+        {
+            lines.Add(string.Empty);
+            lines.Add("MCP prompts (run as slash commands):");
+            foreach (McpPromptDescriptor prompt in prompts)
+            {
+                string description = string.IsNullOrWhiteSpace(prompt.Description)
+                    ? string.Empty
+                    : $" - {prompt.Description.Trim()}";
+                lines.Add($"{prompt.Usage}{description}");
+            }
+        }
 
         return Task.FromResult(ReplCommandResult.Continue(string.Join(Environment.NewLine, lines)));
     }

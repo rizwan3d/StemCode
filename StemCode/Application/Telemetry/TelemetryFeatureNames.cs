@@ -45,6 +45,7 @@ internal static class TelemetryFeatureNames
 
     public const string AgentMention = "agent_mention";
     public const string CustomCommand = "custom_command";
+    public const string McpPrompt = "mcp_prompt";
     public const string DirectShell = "direct_shell";
     public const string DirectShellBackground = "direct_shell_background";
     public const string Prompt = "prompt";

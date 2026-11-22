@@ -39,4 +39,7 @@ public interface IStemCodeBackend : IAsyncDisposable
 
     /// <summary>Per-file added/removed line totals for the current conversation, for the end-of-conversation summary.</summary>
     IReadOnlyList<FileEditSummary> GetFileEditSummary() => [];
+
+    /// <summary>MCP prompts available as /mcp__server__prompt commands. May connect to MCP servers.</summary>
+    IReadOnlyList<Abstractions.McpPromptDescriptor> ListMcpPrompts() => [];
 }

@@ -4,8 +4,10 @@ using StemCode.Application.Models;
 
 namespace StemCode.Infrastructure.Mcp;
 
-internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IAsyncDisposable
+internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IMcpPromptService, IAsyncDisposable
 {
+    private sealed record PromptBinding(McpPromptDescriptor Descriptor, IMcpServerClient Client);
+
     private readonly StemCodeMcpConfigLoader _configLoader;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<McpDynamicToolProvider> _logger;
@@ -15,6 +17,7 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IAsyncDispo
     private IReadOnlyList<ITool> _tools = [];
     private IReadOnlyList<DynamicToolProviderStatus> _statuses = [];
     private IReadOnlyList<IMcpServerClient> _clients = [];
+    private IReadOnlyDictionary<string, PromptBinding> _prompts = new Dictionary<string, PromptBinding>();
 
     public McpDynamicToolProvider(
         StemCodeMcpConfigLoader configLoader,
@@ -38,6 +41,62 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IAsyncDispo
     {
         EnsureInitialized();
         return _statuses;
+    }
+
+    public IReadOnlyList<McpPromptDescriptor> ListPrompts()
+    {
+        EnsureInitialized();
+        return _prompts.Values
+            .Select(static binding => binding.Descriptor)
+            .OrderBy(static descriptor => descriptor.CommandName, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public async Task<McpPromptExpansion?> TryExpandAsync(
+        string input,
+        CancellationToken cancellationToken)
+    {
+        if (!McpPromptCommand.IsCandidate(input))
+        {
+            return null;
+        }
+
+        EnsureInitialized();
+        (string commandName, string argumentText) = McpPromptCommand.Split(input);
+        if (!_prompts.TryGetValue(commandName, out PromptBinding? binding))
+        {
+            return new McpPromptExpansion(
+                null,
+                _prompts.Count == 0
+                    ? $"Unknown MCP prompt '/{commandName}'. No connected MCP server publishes prompts."
+                    : $"Unknown MCP prompt '/{commandName}'. Available: {string.Join(", ", _prompts.Keys.Order(StringComparer.Ordinal).Select(static name => "/" + name))}.");
+        }
+
+        if (!McpPromptCommand.TryBindArguments(
+                binding.Descriptor,
+                argumentText,
+                out Dictionary<string, string> arguments,
+                out string? bindError))
+        {
+            return new McpPromptExpansion(null, bindError);
+        }
+
+        try
+        {
+            string prompt = await binding.Client.GetPromptTextAsync(
+                binding.Descriptor.PromptName,
+                arguments,
+                cancellationToken);
+            return string.IsNullOrWhiteSpace(prompt)
+                ? new McpPromptExpansion(null, $"MCP prompt '{binding.Descriptor.PromptName}' on '{binding.Descriptor.ServerName}' returned no text.")
+                : new McpPromptExpansion(prompt, null);
+        }
+        catch (Exception exception) when (exception is McpProtocolException or IOException or HttpRequestException or InvalidOperationException)
+        {
+            return new McpPromptExpansion(
+                null,
+                $"MCP prompt '{binding.Descriptor.PromptName}' on '{binding.Descriptor.ServerName}' failed: {exception.Message}");
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -74,6 +133,9 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IAsyncDispo
         List<DynamicToolProviderStatus> statuses = [];
         List<IMcpServerClient> clients = [];
         HashSet<string> usedToolNames = new(StringComparer.Ordinal);
+        Dictionary<string, IMcpServerClient> resourceClients = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, PromptBinding> prompts = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> usedPromptNames = new(StringComparer.Ordinal);
 
         foreach (McpServerConfiguration configuration in configurations)
         {
@@ -118,14 +180,35 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IAsyncDispo
                         TimeSpan.FromSeconds(configuration.ToolTimeoutSeconds)));
                 }
 
+                List<string> features = [];
+                if (client.SupportsResources())
+                {
+                    resourceClients[configuration.Name] = client;
+                    features.Add("resources");
+                }
+
+                if (client.SupportsPrompts())
+                {
+                    int promptCount = await DiscoverPromptsAsync(
+                        configuration,
+                        client,
+                        prompts,
+                        usedPromptNames,
+                        startupTimeout.Token);
+                    features.Add($"{promptCount} prompt(s)");
+                }
+
                 clients.Add(client);
+                string endpointDetails = features.Count == 0
+                    ? client.Endpoint
+                    : $"{client.Endpoint}; {string.Join(", ", features)}";
                 statuses.Add(new DynamicToolProviderStatus(
                     configuration.Name,
                     client.TransportKind,
                     Enabled: true,
                     IsAvailable: true,
                     ToolCount: enabledTools.Length,
-                    Details: FormatDetails(configuration, client.Endpoint)));
+                    Details: FormatDetails(configuration, endpointDetails)));
             }
             catch (Exception exception)
             {
@@ -151,9 +234,64 @@ internal sealed class McpDynamicToolProvider : IDynamicToolProvider, IAsyncDispo
             }
         }
 
+        if (resourceClients.Count > 0)
+        {
+            tools.Add(new McpListResourcesTool(resourceClients));
+            tools.Add(new McpReadResourceTool(resourceClients, GetResourceReadTimeout()));
+        }
+
         _tools = tools;
         _statuses = statuses;
         _clients = clients;
+        _prompts = prompts;
+    }
+
+    private async Task<int> DiscoverPromptsAsync(
+        McpServerConfiguration configuration,
+        IMcpServerClient client,
+        Dictionary<string, PromptBinding> prompts,
+        HashSet<string> usedPromptNames,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<McpRemotePrompt> remotePrompts;
+        try
+        {
+            remotePrompts = await client.ListPromptsAsync(cancellationToken);
+        }
+        catch (Exception exception) when (exception is McpProtocolException or IOException or HttpRequestException)
+        {
+            _logger.LogWarning(exception, "MCP server '{Server}' advertised prompts but listing them failed.", configuration.Name);
+            return 0;
+        }
+
+        foreach (McpRemotePrompt remotePrompt in remotePrompts)
+        {
+            string commandName = McpToolName.Create(configuration.Name, remotePrompt.Name, usedPromptNames);
+            usedPromptNames.Add(commandName);
+            prompts[commandName] = new PromptBinding(
+                new McpPromptDescriptor(
+                    commandName,
+                    configuration.Name,
+                    remotePrompt.Name,
+                    remotePrompt.Description,
+                    remotePrompt.Arguments
+                        .Select(static argument => new McpPromptArgumentDescriptor(
+                            argument.Name,
+                            argument.Description,
+                            argument.Required))
+                        .ToArray()),
+                client);
+        }
+
+        return remotePrompts.Count;
+    }
+
+    private TimeSpan GetResourceReadTimeout()
+    {
+        TimeSpan requestTimeout = GetRequestTimeout();
+        return requestTimeout == Timeout.InfiniteTimeSpan
+            ? TimeSpan.FromMinutes(2)
+            : requestTimeout;
     }
 
     private IMcpServerClient CreateClient(McpServerConfiguration configuration)

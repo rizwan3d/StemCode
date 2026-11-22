@@ -10,7 +10,16 @@ internal interface IMcpServerClient : IAsyncDisposable
 
     string TransportKind { get; }
 
+    /// <summary>The <c>capabilities</c> object from the server's initialize result.</summary>
+    JsonElement ServerCapabilities { get; }
+
     Task InitializeAsync(CancellationToken cancellationToken);
+
+    /// <summary>Sends one JSON-RPC request and returns its <c>result</c>.</summary>
+    Task<JsonElement> RequestAsync(
+        string method,
+        Action<Utf8JsonWriter>? writeParams,
+        CancellationToken cancellationToken);
 
     Task<IReadOnlyList<McpRemoteTool>> ListToolsAsync(CancellationToken cancellationToken);
 

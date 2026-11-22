@@ -1,3 +1,4 @@
+using StemCode.Application.Abstractions;
 using StemCode.Application.Backend;
 using StemCode.Application.Commands;
 using StemCode.Application.Models;
@@ -60,7 +61,8 @@ public sealed class AgentRunner : IAsyncDisposable
                 }
                 else
                 {
-                    output = prompt.TrimStart().StartsWith("/", StringComparison.Ordinal)
+                    output = prompt.TrimStart().StartsWith("/", StringComparison.Ordinal) &&
+                             !McpPromptCommand.IsCandidate(prompt)
                         ? await RunCommandAsync(prompt, activity, cancellationToken)
                         : await RunTurnAsync(prompt, cancellationToken);
                 }

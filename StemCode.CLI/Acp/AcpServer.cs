@@ -1,3 +1,4 @@
+using StemCode.Application.Abstractions;
 using Microsoft.Extensions.Configuration;
 using StemCode.Application.Backend;
 using StemCode.Application.Commands;
@@ -623,6 +624,7 @@ internal sealed class AcpServer : IAsyncDisposable
             ConversationTurnMetrics? metrics = null;
             bool shouldEmitCompletionChunk = true;
             if (prompt.Attachments.Count == 0 &&
+                !McpPromptCommand.IsCandidate(prompt.Text) &&
                 prompt.Text.StartsWith("/", StringComparison.Ordinal))
             {
                 if (CustomSlashCommandService.TryExpand(
@@ -1014,11 +1016,22 @@ internal sealed class AcpServer : IAsyncDisposable
 
     // Standard ACP available_commands_update. Names omit the leading slash per the ACP
     // spec; "usage" is a StemCode extension field clients may show as a hint.
-    private Task SendAvailableCommandsAsync(AcpSession session, CancellationToken cancellationToken)
+    private async Task SendAvailableCommandsAsync(AcpSession session, CancellationToken cancellationToken)
     {
-        IReadOnlyList<AcpAvailableCommand> commands = GetAvailableCommands(session.WorkingDirectory);
+        IReadOnlyList<McpPromptDescriptor> mcpPrompts;
+        try
+        {
+            // Listing prompts may connect to MCP servers, so keep it off the caller's thread.
+            mcpPrompts = await Task.Run(() => session.Backend.ListMcpPrompts(), cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            mcpPrompts = [];
+        }
 
-        return SendNotificationAsync(
+        IReadOnlyList<AcpAvailableCommand> commands = GetAvailableCommands(session.WorkingDirectory, mcpPrompts);
+
+        await SendNotificationAsync(
             "session/update",
             writer =>
             {
@@ -1053,7 +1066,9 @@ internal sealed class AcpServer : IAsyncDisposable
             cancellationToken);
     }
 
-    internal static IReadOnlyList<AcpAvailableCommand> GetAvailableCommands(string workingDirectory)
+    internal static IReadOnlyList<AcpAvailableCommand> GetAvailableCommands(
+        string workingDirectory,
+        IReadOnlyList<McpPromptDescriptor>? mcpPrompts = null)
     {
         List<AcpAvailableCommand> commands = ReplCommandCatalog.All
             .Select(static metadata => CreateAvailableCommand(
@@ -1086,6 +1101,17 @@ internal sealed class AcpServer : IAsyncDisposable
             }
 
             commands.Add(CreateAvailableCommand(name, custom.Usage, custom.Description, isCustom: true));
+        }
+
+        foreach (McpPromptDescriptor prompt in mcpPrompts ?? [])
+        {
+            commands.Add(CreateAvailableCommand(
+                prompt.CommandName,
+                prompt.Usage,
+                string.IsNullOrWhiteSpace(prompt.Description)
+                    ? $"MCP prompt '{prompt.PromptName}' from {prompt.ServerName}."
+                    : $"{prompt.Description.Trim()} (MCP: {prompt.ServerName})",
+                isCustom: true));
         }
 
         return commands

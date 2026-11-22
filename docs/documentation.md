@@ -1310,7 +1310,14 @@ Supported transports:
 - Stdio: `command`, `args`, `env`, `envVars`, `cwd`.
 - Streamable HTTP: `url`, `bearerTokenEnvVar`, `httpHeaders`, `envHttpHeaders`.
 
-Use `enabledTools` and `disabledTools` to filter exposed tools. Use `/mcp` to inspect loaded MCP servers, custom tool providers, and dynamic tools.
+Use `enabledTools` and `disabledTools` to filter exposed tools. Use `/mcp` to inspect loaded MCP servers, custom tool providers, dynamic tools, and MCP prompts.
+
+### MCP Resources and Prompts
+
+StemCode supports the MCP **resources** and **prompts** features as well as tools.
+
+- **Resources.** When any connected server advertises the `resources` capability, the agent gets two extra tools. `mcp__list_resources` lists each server's resources and resource templates, and `mcp__read_resource` (`server`, `uri`) returns a resource's contents. Binary contents are summarized, not inlined. Both tools are read-only and run without a prompt. Deny them with a rule on the `mcp:resources` tag if needed.
+- **Prompts.** Every prompt a server publishes becomes a slash command named `/mcp__<server>__<prompt>`. Arguments are given positionally in declared order, or as `name=value`, and can be quoted: `/mcp__github__review 128 focus="error handling"`. Words beyond the last argument are appended to it. StemCode fetches the prompt from the server and sends the result as your turn. Missing required arguments are reported without calling the model. Prompts appear in `/mcp`, and ACP editors such as VS Code list them with the other commands.
 
 ## Code Intelligence
 
