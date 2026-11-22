@@ -2,6 +2,7 @@ using StemCode.Application.Backend;
 using StemCode.Application.Commands;
 using StemCode.Application.Exceptions;
 using StemCode.Application.Models;
+using StemCode.Application.UI;
 
 namespace StemCode.CLI;
 
@@ -12,15 +13,24 @@ internal static class SingleTurnRunner
         string? providerAuthKey,
         string prompt,
         bool jsonOutput,
-        bool autoApproveAllTools)
+        bool autoApproveAllTools,
+        bool streamJsonOutput = false)
     {
+        // stream-json ends with the same result/error object --json prints, so the
+        // final-output paths below treat it as JSON output.
+        jsonOutput = jsonOutput || streamJsonOutput;
+
         if (string.IsNullOrWhiteSpace(prompt))
         {
             WriteError(jsonOutput, "missing_prompt", "No prompt was provided.");
             return ExitCodeMapper.UsageError;
         }
 
-        ConsoleBridge uiBridge = new(providerAuthKey);
+        ConsoleBridge consoleBridge = new(providerAuthKey);
+        StreamJsonBridge? streamBridge = streamJsonOutput
+            ? new StreamJsonBridge(consoleBridge, Console.Out)
+            : null;
+        IUiBridge uiBridge = streamBridge is null ? consoleBridge : streamBridge;
         await using IStemCodeBackend backend = new StemCodeBackend(
             runtimeArguments,
             sessionMcpServers: [],
@@ -37,6 +47,7 @@ internal static class SingleTurnRunner
         try
         {
             BackendSessionInfo sessionInfo = await backend.InitializeAsync(uiBridge, cancellation.Token);
+            streamBridge?.WriteInit(sessionInfo);
 
             string normalizedPrompt = prompt.Trim();
             if (normalizedPrompt.StartsWith("/", StringComparison.Ordinal))
@@ -86,7 +97,7 @@ internal static class SingleTurnRunner
         BackendSessionInfo sessionInfo,
         string normalizedPrompt,
         bool jsonOutput,
-        ConsoleBridge uiBridge,
+        IUiBridge uiBridge,
         CancellationToken cancellationToken)
     {
         if (CustomSlashCommandService.TryExpand(

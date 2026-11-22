@@ -18,6 +18,72 @@ namespace StemCode.Tests.Application.Conversation.Services;
 public sealed class AgentConversationPipelineTests
 {
     [Fact]
+    public async Task ProcessAsync_Should_ApplyHeadlessOverrides_ToToolsAndSystemPrompt()
+    {
+        ReplSessionContext session = CreateSession();
+        Mock<IApiKeySecretStore> secretStore = new(MockBehavior.Strict);
+        secretStore
+            .Setup(store => store.LoadAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("test-key");
+        Mock<IConversationConfigurationAccessor> configurationAccessor = new(MockBehavior.Strict);
+        configurationAccessor
+            .Setup(accessor => accessor.GetSettings())
+            .Returns(CreateSettings("Base prompt"));
+        Mock<IToolRegistry> toolRegistry = new(MockBehavior.Strict);
+        toolRegistry
+            .Setup(registry => registry.GetToolDefinitions())
+            .Returns([
+                CreateToolDefinition(AgentToolNames.FileRead),
+                CreateToolDefinition(AgentToolNames.FileWrite),
+                CreateToolDefinition(AgentToolNames.ShellCommand)
+            ]);
+
+        List<ConversationProviderRequest> requests = [];
+        Mock<IConversationProviderClient> providerClient = new(MockBehavior.Strict);
+        providerClient
+            .Setup(client => client.SendAsync(
+                It.IsAny<ConversationProviderRequest>(),
+                It.IsAny<CancellationToken>()))
+            .Returns<ConversationProviderRequest, CancellationToken>((request, _) =>
+            {
+                requests.Add(request);
+                return Task.FromResult(new ConversationProviderPayload(
+                    ProviderKind.OpenAiCompatible,
+                    """{ "choices": [] }""",
+                    "resp_1"));
+            });
+        Mock<IConversationResponseMapper> responseMapper = new(MockBehavior.Strict);
+        responseMapper
+            .Setup(mapper => mapper.Map(It.IsAny<ConversationProviderPayload>()))
+            .Returns(new ConversationResponse("Done.", [], "resp_1"));
+
+        HeadlessRunOverrides overrides = new(
+            modelId: null,
+            appendSystemPrompt: "Always answer in haiku.",
+            allowedTools: [],
+            disallowedTools: ToolRuleSpec.ParseList("shell_command file_write(docs/**)"));
+
+        AgentConversationPipeline sut = CreateSut(
+            TimeProvider.System,
+            new HeuristicTokenEstimator(),
+            secretStore.Object,
+            providerClient.Object,
+            responseMapper.Object,
+            new Mock<IToolExecutionPipeline>(MockBehavior.Strict).Object,
+            toolRegistry.Object,
+            configurationAccessor.Object,
+            headlessRunOverrides: overrides);
+
+        await ProcessAsync(sut, "Do the thing.", session);
+
+        requests.Should().ContainSingle();
+        requests[0].AvailableTools.Select(static tool => tool.Name)
+            .Should()
+            .Equal(AgentToolNames.FileRead, AgentToolNames.FileWrite);
+        requests[0].SystemPrompt.Should().EndWith("Always answer in haiku.");
+    }
+
+    [Fact]
     public async Task ProcessAsync_Should_RunSingleConversationPass_When_ResponseContainsNormalAssistantContent()
     {
         ReplSessionContext session = CreateSession();
@@ -4049,7 +4115,8 @@ public sealed class AgentConversationPipelineTests
         IBudgetControlsUsageService? budgetControlsUsageService = null,
         IReplSectionService? sectionService = null,
         ICodebaseIndexService? codebaseIndexService = null,
-        CodebaseIndexSettings? codebaseIndexSettings = null)
+        CodebaseIndexSettings? codebaseIndexSettings = null,
+        HeadlessRunOverrides? headlessRunOverrides = null)
     {
         return new AgentConversationPipeline(
             timeProvider,
@@ -4070,7 +4137,8 @@ public sealed class AgentConversationPipelineTests
             workspaceAgentProfilePromptProvider: workspaceAgentProfilePromptProvider ?? new EmptyWorkspaceAgentProfilePromptProvider(),
             sectionService: sectionService,
             codebaseIndexService: codebaseIndexService,
-            codebaseIndexSettings: codebaseIndexSettings);
+            codebaseIndexSettings: codebaseIndexSettings,
+            headlessRunOverrides: headlessRunOverrides);
     }
 
     private static Task<ConversationTurnResult> ProcessAsync(

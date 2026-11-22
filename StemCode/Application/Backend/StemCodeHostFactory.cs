@@ -103,9 +103,35 @@ public static class StemCodeHostFactory
         // default UI prompt registrations so callers can override services (for example
         // an in-memory provider configuration to skip interactive onboarding, a fixed
         // workspace root, or custom ITool registrations) and add their own.
+        builder.Services.AddSingleton(runtimeArguments.Overrides);
+
         configureServices?.Invoke(builder.Services);
 
-        return builder.Build();
+        IHost host = builder.Build();
+        ApplyHeadlessPermissionRules(host.Services, runtimeArguments.Overrides);
+        return host;
+    }
+
+    // --allowedTools / --disallowedTools become ordinary permission rules appended
+    // after the configured ones, so they win over config and show up in /rules,
+    // while a later session /allow or /deny can still override them.
+    private static void ApplyHeadlessPermissionRules(
+        IServiceProvider services,
+        Models.HeadlessRunOverrides overrides)
+    {
+        IReadOnlyList<Models.PermissionRule> rules = overrides.CreatePermissionRules();
+        if (rules.Count == 0)
+        {
+            return;
+        }
+
+        Models.PermissionSettings? settings = services.GetService<Models.PermissionSettings>();
+        if (settings is null)
+        {
+            return;
+        }
+
+        settings.Rules = [.. settings.Rules ?? [], .. rules];
     }
 
     private static bool ResolveStartupPromptPreference(IReadOnlyList<string> args)

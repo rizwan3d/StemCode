@@ -75,6 +75,33 @@ internal static class CliJsonOutputWriter
         });
     }
 
+    public static string FormatStreamInit(BackendSessionInfo sessionInfo)
+    {
+        ArgumentNullException.ThrowIfNull(sessionInfo);
+
+        return WriteJson(writer =>
+        {
+            writer.WriteString("type", "system");
+            writer.WriteString("subtype", "init");
+            writer.WriteString("cwd", Directory.GetCurrentDirectory());
+            WriteSession(writer, sessionInfo);
+        });
+    }
+
+    public static string FormatStreamEvent(
+        string type,
+        Action<Utf8JsonWriter> writeProperties)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        ArgumentNullException.ThrowIfNull(writeProperties);
+
+        return WriteJson(writer =>
+        {
+            writer.WriteString("type", type);
+            writeProperties(writer);
+        });
+    }
+
     private static bool IsError(ReplFeedbackKind feedbackKind)
     {
         return feedbackKind == ReplFeedbackKind.Error;

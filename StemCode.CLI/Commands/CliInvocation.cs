@@ -29,6 +29,12 @@ internal sealed record CliInvocation(
     /// </summary>
     public string? WorktreeName { get; init; }
 
+    /// <summary>
+    /// <c>--output-format stream-json</c>: write each progress event of a one-shot
+    /// run as a JSON line, ending with the same result object <c>--json</c> prints.
+    /// </summary>
+    public bool StreamJsonOutput { get; init; }
+
     public static CliInvocation Help { get; } = new(
         CliMode.Interactive,
         BackendRuntimeArguments.Empty,
@@ -63,6 +69,7 @@ internal sealed record CliInvocation(
 
         List<string> remainingArgs = [];
         string? worktreeName = null;
+        bool streamJson = false;
         for (int index = 0; index < args.Count; index++)
         {
             string arg = args[index];
@@ -70,6 +77,27 @@ internal sealed record CliInvocation(
             {
                 remainingArgs.AddRange(args.Skip(index));
                 break;
+            }
+
+            if (TryReadOptionValue(args, ref index, "--output-format", out string? outputFormat))
+            {
+                switch (outputFormat!.ToLowerInvariant())
+                {
+                    case "text":
+                        break;
+                    case "json":
+                        remainingArgs.Add("--json");
+                        break;
+                    case "stream-json":
+                    case "stream_json":
+                        streamJson = true;
+                        break;
+                    default:
+                        throw new ArgumentException(
+                            "Invalid value for --output-format. Expected one of: text, json, stream-json.");
+                }
+
+                continue;
             }
 
             if (string.Equals(arg, "--worktree", StringComparison.OrdinalIgnoreCase) ||
@@ -94,7 +122,27 @@ internal sealed record CliInvocation(
         }
 
         CliInvocation invocation = ParseCore(remainingArgs, stdinRedirected, readStandardInput);
-        return worktreeName is null || invocation.ShowHelp || invocation.ShowVersion
+        if (invocation.ShowHelp || invocation.ShowVersion)
+        {
+            return invocation;
+        }
+
+        if (streamJson)
+        {
+            if (invocation.Mode != CliMode.SingleTurn || invocation.ShowDoctor)
+            {
+                throw new ArgumentException("--output-format stream-json requires a one-shot prompt.");
+            }
+
+            if (invocation.JsonOutput)
+            {
+                throw new ArgumentException("--output-format stream-json cannot be combined with --json.");
+            }
+
+            invocation = invocation with { StreamJsonOutput = true };
+        }
+
+        return worktreeName is null
             ? invocation
             : invocation with { WorktreeName = worktreeName };
     }

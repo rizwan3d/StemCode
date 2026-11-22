@@ -46,6 +46,48 @@ public sealed class CliInvocationTests
     }
 
     [Fact]
+    public void Parse_Should_EnableStreamJsonForOneShotPrompt()
+    {
+        CliInvocation invocation = CliInvocation.Parse(
+            ["--output-format", "stream-json", "--model", "m1", "--max-turns=3", "Hello"],
+            stdinRedirected: false,
+            () => throw new InvalidOperationException());
+
+        invocation.Mode.Should().Be(CliMode.SingleTurn);
+        invocation.StreamJsonOutput.Should().BeTrue();
+        invocation.JsonOutput.Should().BeFalse();
+        invocation.RuntimeArguments.Overrides.ModelId.Should().Be("m1");
+        invocation.RuntimeArguments.RawArgs.Should().Contain("--Application:Conversation:MaxToolRoundsPerTurn=3");
+    }
+
+    [Fact]
+    public void Parse_Should_MapOutputFormatJsonToJsonOutput()
+    {
+        CliInvocation invocation = CliInvocation.Parse(
+            ["--output-format=json", "Hello"],
+            stdinRedirected: false,
+            () => throw new InvalidOperationException());
+
+        invocation.JsonOutput.Should().BeTrue();
+        invocation.StreamJsonOutput.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("--output-format stream-json")]
+    [InlineData("--output-format stream-json --acp")]
+    [InlineData("--output-format stream-json --json Hello")]
+    [InlineData("--output-format xml Hello")]
+    public void Parse_Should_RejectInvalidOutputFormatCombinations(string commandLine)
+    {
+        Action act = () => CliInvocation.Parse(
+            commandLine.Split(' '),
+            stdinRedirected: false,
+            () => throw new InvalidOperationException());
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
     public void Parse_Should_LeaveWorktreeUnset_ByDefault()
     {
         CliInvocation invocation = CliInvocation.Parse(

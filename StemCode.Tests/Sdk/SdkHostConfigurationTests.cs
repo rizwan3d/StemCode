@@ -63,6 +63,34 @@ public sealed class SdkHostConfigurationTests
         }
     }
 
+    [Fact]
+    public void Create_Should_AppendHeadlessToolRulesToPermissionSettings_And_RegisterOverrides()
+    {
+        using IHost host = StemCodeHostFactory.Create(
+            new StubUiBridge(),
+            BackendRuntimeArguments.Parse(
+            [
+                "--no-update-check",
+                "--allowedTools", "shell_command(git *)",
+                "--disallowedTools", "web_search"
+            ]),
+            [],
+            autoApproveAllTools: false);
+
+        PermissionSettings settings = host.Services.GetRequiredService<PermissionSettings>();
+        settings.Rules.Should().HaveCountGreaterThanOrEqualTo(2);
+        PermissionRule allow = settings.Rules[^2];
+        PermissionRule deny = settings.Rules[^1];
+        allow.Mode.Should().Be(PermissionMode.Allow);
+        allow.Tools.Should().Equal("shell_command");
+        allow.Patterns.Should().Equal("git *");
+        deny.Mode.Should().Be(PermissionMode.Deny);
+        deny.Tools.Should().Equal("web_search");
+
+        host.Services.GetRequiredService<HeadlessRunOverrides>()
+            .HiddenToolNames.Should().BeEquivalentTo(["web_search"]);
+    }
+
     private sealed class EchoTool : ITool
     {
         public string Name => "sdk_echo";

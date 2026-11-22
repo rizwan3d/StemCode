@@ -1,3 +1,5 @@
+using StemCode.Application.Models;
+
 namespace StemCode.Application.Backend;
 
 internal sealed record BackendRuntimeArguments(
@@ -15,6 +17,9 @@ internal sealed record BackendRuntimeArguments(
         ThinkingMode: null,
         AppSurface: null,
         SkipUpdateCheck: false);
+
+    /// <summary>Headless/CI overrides: model, tool allow/deny lists, appended system prompt.</summary>
+    public HeadlessRunOverrides Overrides { get; init; } = HeadlessRunOverrides.None;
 
     public string EffectiveAppSurface(string defaultAppSurface)
     {
@@ -55,9 +60,14 @@ internal sealed record BackendRuntimeArguments(
     internal sealed class Builder
     {
         private const string SandboxModeConfigKey = "--Application:Permissions:SandboxMode";
+        private const string MaxToolRoundsConfigKey = "--Application:Conversation:MaxToolRoundsPerTurn";
         private readonly bool _includePassthroughArgs;
         private readonly List<string> _rawArgs = [];
+        private readonly List<ToolRuleSpec> _allowedTools = [];
+        private readonly List<ToolRuleSpec> _disallowedTools = [];
+        private readonly List<string> _appendedSystemPrompts = [];
         private string? _appSurface;
+        private string? _modelId;
 
         public Builder(bool includePassthroughArgs = false)
         {
@@ -90,7 +100,16 @@ internal sealed record BackendRuntimeArguments(
                 ProfileName,
                 ThinkingMode,
                 _appSurface,
-                SkipUpdateCheck);
+                SkipUpdateCheck)
+            {
+                Overrides = new HeadlessRunOverrides(
+                    _modelId,
+                    _appendedSystemPrompts.Count == 0
+                        ? null
+                        : string.Join(Environment.NewLine + Environment.NewLine, _appendedSystemPrompts),
+                    _allowedTools,
+                    _disallowedTools)
+            };
         }
 
         public bool TryConsume(
@@ -131,6 +150,57 @@ internal sealed record BackendRuntimeArguments(
             if (TryReadOptionValue(args, ref index, "--sandbox-mode", out string? sandboxMode))
             {
                 _rawArgs.Add($"{SandboxModeConfigKey}={NormalizeSandboxMode(sandboxMode)}");
+                return true;
+            }
+
+            if (TryReadOptionValue(args, ref index, "--model", out string? modelId) ||
+                TryReadOptionValue(args, ref index, "-m", out modelId))
+            {
+                _modelId = modelId;
+                return true;
+            }
+
+            if (TryReadOptionValue(args, ref index, "--max-turns", out string? maxTurns))
+            {
+                if (!int.TryParse(maxTurns, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out int parsedMaxTurns) ||
+                    parsedMaxTurns <= 0)
+                {
+                    throw new ArgumentException("Invalid value for --max-turns. Expected a positive whole number.");
+                }
+
+                _rawArgs.Add($"{MaxToolRoundsConfigKey}={parsedMaxTurns.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                return true;
+            }
+
+            if (TryReadOptionValue(args, ref index, "--allowedTools", out string? allowedTools) ||
+                TryReadOptionValue(args, ref index, "--allowed-tools", out allowedTools))
+            {
+                _allowedTools.AddRange(ToolRuleSpec.ParseList(allowedTools));
+                return true;
+            }
+
+            if (TryReadOptionValue(args, ref index, "--disallowedTools", out string? disallowedTools) ||
+                TryReadOptionValue(args, ref index, "--disallowed-tools", out disallowedTools))
+            {
+                _disallowedTools.AddRange(ToolRuleSpec.ParseList(disallowedTools));
+                return true;
+            }
+
+            if (TryReadOptionValue(args, ref index, "--append-system-prompt", out string? appendedPrompt))
+            {
+                _appendedSystemPrompts.Add(appendedPrompt!);
+                return true;
+            }
+
+            if (TryReadOptionValue(args, ref index, "--append-system-prompt-file", out string? appendedPromptFile))
+            {
+                string path = Path.GetFullPath(appendedPromptFile!);
+                if (!File.Exists(path))
+                {
+                    throw new ArgumentException($"--append-system-prompt-file: '{appendedPromptFile}' does not exist.");
+                }
+
+                _appendedSystemPrompts.Add(File.ReadAllText(path));
                 return true;
             }
 

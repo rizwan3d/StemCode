@@ -67,7 +67,8 @@ internal static class CliApplication
                 invocation.ProviderAuthKey,
                 invocation.Prompt ?? string.Empty,
                 invocation.JsonOutput,
-                invocation.AutoApproveAllTools),
+                invocation.AutoApproveAllTools,
+                invocation.StreamJsonOutput),
             CliMode.Acp => await AcpHost.RunAsync(
                 runtimeArguments.RawArgs,
                 invocation.ProviderAuthKey,
@@ -99,6 +100,20 @@ internal static class CliApplication
               --interactive        Start the terminal UI explicitly
               --stdin              Read the one-shot prompt from standard input
               --json               Write one-shot result as a JSON object
+              --output-format <text|json|stream-json>
+                                   Output for one-shot runs; stream-json writes one JSON event per line
+                                   (init, assistant_delta, reasoning, tool_use, tool_result, plan, retry)
+                                   and ends with the --json result object
+              -m, --model <id>     Use this model for this run (not saved as the default)
+              --max-turns <n>      Stop after n sequential tool rounds in one turn
+              --allowedTools <list>
+                                   Allow these tools without prompting, e.g. "file_write shell_command(git *)"
+              --disallowedTools <list>
+                                   Deny these tools; entries without a (pattern) are hidden from the model
+              --append-system-prompt <text>
+                                   Append text to the main agent's system prompt for this run
+              --append-system-prompt-file <path>
+                                   Append a file's contents to the main agent's system prompt
               -y, --yes            Approve promptable tool requests for this run
               -p, --prompt <text>  One-shot prompt text
               --sandbox-mode <mode>

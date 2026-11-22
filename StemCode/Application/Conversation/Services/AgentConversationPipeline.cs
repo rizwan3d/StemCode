@@ -198,6 +198,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
     private readonly IReplSectionService? _sectionService;
     private readonly ICodebaseIndexService? _codebaseIndexService;
     private readonly ISessionEventLogService? _sessionEventLogService;
+    private readonly HeadlessRunOverrides _headlessRunOverrides;
     private readonly CodebaseIndexSettings _codebaseIndexSettings;
     private readonly ILogger<AgentConversationPipeline> _logger;
 
@@ -222,7 +223,8 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         IReplSectionService? sectionService = null,
         ICodebaseIndexService? codebaseIndexService = null,
         CodebaseIndexSettings? codebaseIndexSettings = null,
-        ISessionEventLogService? sessionEventLogService = null)
+        ISessionEventLogService? sessionEventLogService = null,
+        HeadlessRunOverrides? headlessRunOverrides = null)
     {
         _timeProvider = timeProvider;
         _tokenEstimator = tokenEstimator;
@@ -245,6 +247,7 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
         _codebaseIndexService = codebaseIndexService;
         _codebaseIndexSettings = codebaseIndexSettings ?? new CodebaseIndexSettings();
         _sessionEventLogService = sessionEventLogService;
+        _headlessRunOverrides = headlessRunOverrides ?? HeadlessRunOverrides.None;
         _logger = logger;
     }
 
@@ -348,7 +351,9 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
                 pendingTurn.TurnId,
                 session,
                 messages,
-                PlanningModePolicy.CreateToolDrivenConversationSystemPrompt(preparedTurn.ProfileSystemPrompt),
+                AppendHeadlessSystemPrompt(
+                    PlanningModePolicy.CreateToolDrivenConversationSystemPrompt(preparedTurn.ProfileSystemPrompt),
+                    session),
                 preparedTurn.AvailableToolDefinitions,
                 preparedTurn.AvailableToolNames,
                 ConversationExecutionPhase.Execution,
@@ -503,13 +508,15 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
             session.ConversationTurns.Last().TurnId,
             session,
             executionMessages,
-            PlanningModePolicy.CreateExecutionSystemPrompt(
-                await CreateProfileSystemPromptAsync(
-                    baseSystemPrompt,
-                    pendingPlan.PlanningSummary,
-                    session,
-                    cancellationToken),
-                pendingPlan.PlanningSummary),
+            AppendHeadlessSystemPrompt(
+                PlanningModePolicy.CreateExecutionSystemPrompt(
+                    await CreateProfileSystemPromptAsync(
+                        baseSystemPrompt,
+                        pendingPlan.PlanningSummary,
+                        session,
+                        cancellationToken),
+                    pendingPlan.PlanningSummary),
+                session),
             allToolDefinitions,
             executionToolNames,
             ConversationExecutionPhase.Execution,
@@ -752,12 +759,31 @@ internal sealed class AgentConversationPipeline : IConversationPipeline
     private IReadOnlyList<ToolDefinition> GetProfileToolDefinitions(ReplSessionContext session)
     {
         IReadOnlySet<string> enabledTools = session.AgentProfile.EnabledTools;
+        IReadOnlySet<string> hiddenTools = _headlessRunOverrides.HiddenToolNames;
 
         return _toolRegistry.GetToolDefinitions()
             .Where(definition =>
-                enabledTools.Contains(definition.Name) ||
-                IsDynamicTool(definition.Name))
+                (enabledTools.Contains(definition.Name) ||
+                 IsDynamicTool(definition.Name)) &&
+                !hiddenTools.Contains(definition.Name))
             .ToArray();
+    }
+
+    // --append-system-prompt goes last so it has the final word, and applies to the
+    // main agent only; delegated subagents keep their own prompts.
+    private string? AppendHeadlessSystemPrompt(
+        string? systemPrompt,
+        ReplSessionContext session)
+    {
+        string? appended = _headlessRunOverrides.AppendSystemPrompt;
+        if (appended is null || session.AgentProfile.Mode != AgentProfileMode.Primary)
+        {
+            return systemPrompt;
+        }
+
+        return string.IsNullOrWhiteSpace(systemPrompt)
+            ? appended
+            : $"{systemPrompt.TrimEnd()}{Environment.NewLine}{Environment.NewLine}{appended}";
     }
 
     private static bool IsDynamicTool(string toolName)

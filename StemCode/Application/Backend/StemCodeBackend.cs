@@ -179,6 +179,8 @@ public sealed class StemCodeBackend : IStemCodeBackend
                 cancellationToken);
         }
 
+        ApplyModelOverride(_session, options.Overrides.ModelId);
+
         await RecordSessionStartedAsync(_session, cancellationToken);
         await PromptForUpdateIfAvailableAsync(options.SkipUpdateCheck, cancellationToken);
         _editListStartIndex = _session.GetRecordedEditCount();
@@ -631,6 +633,36 @@ public sealed class StemCodeBackend : IStemCodeBackend
         }
 
         await _statusMessageWriter.ShowErrorAsync(installResult.Message, cancellationToken);
+    }
+
+    // --model switches the session for this run only; unlike /use it is not saved
+    // as the default model.
+    private void ApplyModelOverride(
+        ReplSessionContext session,
+        string? modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId) || _host is null)
+        {
+            return;
+        }
+
+        IModelActivationService activationService = _host.Services.GetRequiredService<IModelActivationService>();
+        ModelActivationResult result = activationService.Resolve(session, modelId);
+        switch (result.Status)
+        {
+            case ModelActivationStatus.Switched:
+            case ModelActivationStatus.AlreadyActive:
+                return;
+            case ModelActivationStatus.Ambiguous:
+                throw new ArgumentException(
+                    $"--model '{modelId}' is ambiguous. Matches: {string.Join(", ", result.CandidateModelIds)}.");
+            default:
+                string available = session.AvailableModelIds.Count == 0
+                    ? "none discovered"
+                    : string.Join(", ", session.AvailableModelIds.Take(20));
+                throw new ArgumentException(
+                    $"--model '{modelId}' is not available from provider '{session.ProviderName}'. Available: {available}.");
+        }
     }
 
     private IConversationProgressSink CreateProgressSink(

@@ -325,6 +325,40 @@ stemcode --sandbox-mode danger-full-access "Apply the requested refactor"
 git diff --stat | stemcode --stdin --profile review
 ```
 
+### Headless and CI Runs
+
+One-shot runs accept flags that control the model, tools, and output without touching saved settings:
+
+```bash
+stemcode --model claude-sonnet-5-5 --max-turns 20 \
+  --allowedTools "file_read text_search shell_command(dotnet test*)" \
+  --disallowedTools "web_search headless_browser" \
+  --append-system-prompt "You are running in CI. Never push or open pull requests." \
+  --output-format stream-json \
+  "Fix the failing unit tests"
+```
+
+- `--model` resolves names the same way `/use` does, but only for this run. An unknown or ambiguous name fails the run before any request is sent.
+- `--max-turns` caps the sequential tool rounds in one turn. When the cap is reached, the run fails instead of continuing.
+- `--allowedTools` and `--disallowedTools` take tool names or permission tags (such as `edit`), separated by spaces or commas. An entry can carry a target pattern: `shell_command(git *)` or `file_write(src/**)`. They are added after your configured permission rules (so they win over config) and appear in `/rules`. A disallowed entry with no pattern is also removed from the tool list sent to the model.
+- `--append-system-prompt` and `--append-system-prompt-file` add text to the end of the main agent's system prompt. Subagents are not affected.
+
+`--output-format stream-json` writes one JSON object per line on stdout while the run happens, then ends with the same result object `--json` prints:
+
+| `type` | Fields |
+| --- | --- |
+| `system` (`subtype: "init"`) | `cwd`, `session` (id, provider, model, profile, ...) |
+| `assistant_delta` | `text`: a streamed piece of the answer |
+| `reasoning` | `text` |
+| `tool_use` | `id`, `name`, `input` (the tool arguments as JSON) |
+| `tool_result` | `id`, `name`, `status`, `isError`, `message`, `result` |
+| `plan` | `completed`, `total`, `tasks[]` with `task` and `status` |
+| `retry` | `attempt`, `maxAttempts`, `reason` |
+| `system` (`subtype: "info"`, `"error"`, or `"success"`) | `message` |
+| `turn` / `command` / `error` | The final result, identical to `--json` output |
+
+`--output-format json` is the same as `--json`, and `--output-format text` is the default.
+
 ### Resume a Session
 
 When you exit, StemCode prints a session resume command. You can also resume directly:
@@ -341,6 +375,13 @@ stemcode --session <session-guid>
 | `--interactive` | Start the terminal UI explicitly. |
 | `--stdin` | Read one-shot prompt text from standard input. |
 | `--json` | Write one-shot prompt or command output as a JSON object. |
+| `--output-format <text\|json\|stream-json>` | Output format for one-shot runs. `stream-json` writes one JSON event per line. See [Headless and CI Runs](#headless-and-ci-runs). |
+| `-m, --model <id>` | Use this model for this run only. It is not saved as the default. |
+| `--max-turns <n>` | Fail the turn after `n` sequential tool rounds. |
+| `--allowedTools <list>` | Allow these tools or `tool(pattern)` entries without prompting. |
+| `--disallowedTools <list>` | Deny these tools or `tool(pattern)` entries. Entries without a pattern are hidden from the model. |
+| `--append-system-prompt <text>` | Append text to the main agent's system prompt for this run. |
+| `--append-system-prompt-file <path>` | Append a file's contents to the main agent's system prompt for this run. |
 | `-y, --yes` | Approve promptable tool requests for this run while preserving explicit deny rules. |
 | `-p, --prompt <text>` | Run one prompt and print the response. |
 | `--sandbox-mode <mode>` | Override sandbox mode for this run. Values: `read-only`, `workspace-write`, `danger-full-access`. |
