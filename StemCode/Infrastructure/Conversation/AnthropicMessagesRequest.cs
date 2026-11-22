@@ -14,7 +14,9 @@ internal sealed record AnthropicMessagesRequest(
     [property: JsonPropertyName("output_config")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AnthropicOutputConfig? OutputConfig = null,
     [property: JsonPropertyName("thinking")]
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AnthropicThinking? Thinking = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AnthropicThinking? Thinking = null,
+    [property: JsonPropertyName("stream")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? Stream = null);
 
 internal sealed record AnthropicMessage(
     [property: JsonPropertyName("role")] string Role,
@@ -37,7 +39,17 @@ internal sealed record AnthropicContentBlock(
     [property: JsonPropertyName("content")]
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Content = null,
     [property: JsonPropertyName("is_error")]
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsError = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? IsError = null,
+    // thinking / redacted_thinking blocks replayed from an earlier response. They must be sent
+    // back byte-for-byte (including the signature) or the API rejects or drops them.
+    [property: JsonPropertyName("thinking")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Thinking = null,
+    [property: JsonPropertyName("signature")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Signature = null,
+    [property: JsonPropertyName("data")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Data = null,
+    [property: JsonPropertyName("cache_control")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AnthropicCacheControl? CacheControl = null);
 
 internal sealed record AnthropicImageSource(
     [property: JsonPropertyName("type")] string Type,
@@ -47,7 +59,15 @@ internal sealed record AnthropicImageSource(
 internal sealed record AnthropicToolDefinition(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("description")] string Description,
-    [property: JsonPropertyName("input_schema")] JsonElement InputSchema);
+    [property: JsonPropertyName("input_schema")] JsonElement InputSchema,
+    [property: JsonPropertyName("cache_control")]
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] AnthropicCacheControl? CacheControl = null);
+
+internal sealed record AnthropicCacheControl(
+    [property: JsonPropertyName("type")] string Type)
+{
+    public static AnthropicCacheControl Ephemeral { get; } = new("ephemeral");
+}
 
 internal sealed record AnthropicThinking(
     [property: JsonPropertyName("type")] string Type,
@@ -72,7 +92,9 @@ internal sealed record AnthropicResponseContentBlock(
     [property: JsonPropertyName("thinking")] string? Thinking,
     [property: JsonPropertyName("id")] string? Id,
     [property: JsonPropertyName("name")] string? Name,
-    [property: JsonPropertyName("input")] JsonElement Input);
+    [property: JsonPropertyName("input")] JsonElement Input,
+    [property: JsonPropertyName("signature")] string? Signature = null,
+    [property: JsonPropertyName("data")] string? Data = null);
 
 internal sealed record AnthropicUsage(
     [property: JsonPropertyName("input_tokens")] int? InputTokens,

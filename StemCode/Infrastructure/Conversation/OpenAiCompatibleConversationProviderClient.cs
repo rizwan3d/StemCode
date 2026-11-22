@@ -12,6 +12,7 @@ namespace StemCode.Infrastructure.Conversation;
 internal sealed class OpenAiCompatibleConversationProviderClient : IConversationProviderClient
 {
     private readonly AnthropicClaudeAccountConversationProviderAdapter _anthropicClaudeAccountAdapter;
+    private readonly AnthropicMessagesConversationProviderAdapter _anthropicMessagesAdapter;
     private readonly GitHubCopilotConversationProviderAdapter _gitHubCopilotAdapter;
     private readonly OpenAiChatGptAccountConversationProviderAdapter _openAiChatGptAccountAdapter;
     private readonly OpenAiCompatibleConversationProviderAdapter _openAiCompatibleAdapter;
@@ -42,6 +43,10 @@ internal sealed class OpenAiCompatibleConversationProviderClient : IConversation
             openAiChatGptAccountCredentialService);
         _anthropicClaudeAccountAdapter = new AnthropicClaudeAccountConversationProviderAdapter(
             processRunner);
+        _anthropicMessagesAdapter = new AnthropicMessagesConversationProviderAdapter(
+            httpExecutor,
+            payloadFactory,
+            responseNormalizer);
         _gitHubCopilotAdapter = new GitHubCopilotConversationProviderAdapter(
             httpExecutor,
             payloadFactory,
@@ -76,6 +81,7 @@ internal sealed class OpenAiCompatibleConversationProviderClient : IConversation
         return providerKind switch
         {
             ProviderKind.OpenAiChatGptAccount => _openAiChatGptAccountAdapter,
+            ProviderKind.Anthropic => _anthropicMessagesAdapter,
             ProviderKind.AnthropicClaudeAccount => _anthropicClaudeAccountAdapter,
             ProviderKind.GitHubCopilot => _gitHubCopilotAdapter,
             ProviderKind.OllamaCloud => _ollamaCloudAdapter,

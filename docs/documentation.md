@@ -899,7 +899,7 @@ The desktop app keeps the existing thinking toggle and also exposes a reasoning 
 | --- | --- | --- |
 | OpenCode Zen | `reasoning.effort` for Responses, `reasoningEffort` in OpenCode config | CamelCase in OpenCode config files; StemCode uses Responses-style payloads for Zen Responses models. |
 | OpenAI | `reasoning_effort` for chat-completions style, `reasoning: { effort, summary }` for Responses-style | Raw reasoning stays hidden; StemCode only shows provider-approved summaries. |
-| Anthropic Claude | `thinking` plus `output_config.effort`, or manual `budget_tokens` fallback | Adaptive thinking for Claude 4 families, manual budget fallback for older Claude models. |
+| Anthropic Claude | Native Messages API: `thinking` plus `output_config.effort`, or manual `budget_tokens` fallback | Adaptive thinking for Claude 4.6 and later; manual budget (always below `max_tokens`) for Claude 3.7 through 4.5. Models that cannot turn thinking off (Opus/Sonnet 5.5, Fable) run at `low` effort when thinking is off. Requests stream, use prompt-cache breakpoints, and replay signed thinking blocks during tool loops. |
 | DeepSeek | `reasoning_content` in responses; optional `reasoning_effort` where supported | StemCode never replays prior `reasoning_content` back to DeepSeek. |
 | Gemini | `thinkingConfig.thinkingLevel` or `thinkingConfig.thinkingBudget` | Gemini 3-style and Gemini 2.5-style models differ. |
 | xAI Grok and other OpenAI-compatible providers | `reasoning_effort` or Responses-compatible `reasoning.effort` when supported | Capability depends on the upstream provider and model. |

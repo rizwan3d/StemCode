@@ -840,19 +840,20 @@ public sealed class OpenAiCompatibleConversationProviderClientTests
     }
 
     [Fact]
-    public async Task SendAsync_Should_PostChatCompletionsToAnthropicEndpoint_When_AnthropicProviderIsSelected()
+    public async Task SendAsync_Should_StreamNativeMessagesRequest_When_AnthropicProviderIsSelected()
     {
         RecordingHandler handler = new("""
-            {
-              "id": "resp_5",
-              "choices": [
-                {
-                  "message": {
-                    "content": "Hello from Claude."
-                  }
-                }
-              ]
-            }
+            event: message_start
+            data: {"type":"message_start","message":{"id":"msg_5","usage":{"input_tokens":7,"output_tokens":1}}}
+
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello from Claude."}}
+
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":4}}
+
+            data: {"type":"message_stop"}
+
             """, responseIdHeaderName: "request-id");
         HttpClient httpClient = new(handler);
         OpenAiCompatibleConversationProviderClient sut = CreateSut(httpClient);
@@ -869,11 +870,20 @@ public sealed class OpenAiCompatibleConversationProviderClientTests
                 []),
             CancellationToken.None);
 
-        handler.RequestUri.Should().Be(new Uri("https://api.anthropic.com/v1/chat/completions"));
-        handler.AuthorizationHeader.Should().Be("Bearer test-key");
+        handler.RequestUri.Should().Be(new Uri("https://api.anthropic.com/v1/messages"));
+        handler.ApiKeyHeader.Should().Be("test-key");
+        handler.AuthorizationHeader.Should().BeNull();
+        handler.AnthropicVersionHeader.Should().Be("2023-06-01");
         handler.RequestBody.Should().Contain("\"model\":\"claude-sonnet-4-6\"");
+        handler.RequestBody.Should().Contain("\"stream\":true");
+        handler.RequestBody.Should().Contain("\"cache_control\":{\"type\":\"ephemeral\"}");
         payload.ProviderKind.Should().Be(ProviderKind.Anthropic);
         payload.ResponseId.Should().Be("req_789");
+
+        ConversationResponse response = new OpenAiConversationResponseMapper().Map(payload);
+        response.AssistantMessage.Should().Be("Hello from Claude.");
+        response.PromptTokens.Should().Be(7);
+        response.CompletionTokens.Should().Be(4);
     }
 
     [Fact]
@@ -1686,6 +1696,8 @@ public sealed class OpenAiCompatibleConversationProviderClientTests
 
         public string? AnthropicVersionHeader { get; private set; }
 
+        public string? ApiKeyHeader { get; private set; }
+
         public string? CopilotInitiatorHeader { get; private set; }
 
         public string? CopilotIntegrationIdHeader { get; private set; }
@@ -1732,6 +1744,9 @@ public sealed class OpenAiCompatibleConversationProviderClientTests
                 : null;
             AnthropicVersionHeader = request.Headers.TryGetValues("anthropic-version", out IEnumerable<string>? versionValues)
                 ? versionValues.FirstOrDefault()
+                : null;
+            ApiKeyHeader = request.Headers.TryGetValues("x-api-key", out IEnumerable<string>? apiKeyValues)
+                ? apiKeyValues.FirstOrDefault()
                 : null;
             AnthropicBetaHeader = request.Headers.TryGetValues("anthropic-beta", out IEnumerable<string>? betaValues)
                 ? betaValues.FirstOrDefault()

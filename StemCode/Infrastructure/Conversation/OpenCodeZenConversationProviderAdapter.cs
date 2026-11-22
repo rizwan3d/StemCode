@@ -8,9 +8,8 @@ namespace StemCode.Infrastructure.Conversation;
 
 internal sealed class OpenCodeZenConversationProviderAdapter : IConversationProviderAdapter
 {
-    private const string AnthropicVersion = "2023-06-01";
     private const string ChatCompletionsPath = "chat/completions";
-    private const string MessagesPath = "messages";
+    private const string MessagesPath = AnthropicMessagesTransport.MessagesPath;
     private const string ResponsesPath = "responses";
 
     private readonly IConversationProviderHttpExecutor _httpExecutor;
@@ -32,8 +31,21 @@ internal sealed class OpenCodeZenConversationProviderAdapter : IConversationProv
         CancellationToken cancellationToken)
     {
         string path = ResolvePath(request.ModelId);
-        string requestBody = CreateRequestBody(request, path);
         Uri baseUri = request.ProviderProfile.ResolveBaseUri();
+
+        if (path == MessagesPath)
+        {
+            return AnthropicMessagesTransport.SendAsync(
+                _httpExecutor,
+                _payloadFactory,
+                _responseNormalizer,
+                request,
+                baseUri,
+                headers => headers.Authorization = new AuthenticationHeaderValue("Bearer", request.ApiKey),
+                cancellationToken);
+        }
+
+        string requestBody = CreateRequestBody(request, path);
 
         return _httpExecutor.ExecuteAsync(
             request.ProviderProfile.ProviderKind,
@@ -54,7 +66,6 @@ internal sealed class OpenCodeZenConversationProviderAdapter : IConversationProv
         return path switch
         {
             ResponsesPath => _responseNormalizer.NormalizeOpenAiResponsesBody,
-            MessagesPath => _responseNormalizer.ConvertAnthropicMessagesResponseToChatCompletion,
             _ => null
         };
     }
@@ -68,9 +79,6 @@ internal sealed class OpenCodeZenConversationProviderAdapter : IConversationProv
             ResponsesPath => JsonSerializer.Serialize(
                 _payloadFactory.BuildResponsesRequest(request),
                 OpenAiConversationJsonContext.Default.OpenAiResponsesRequest),
-            MessagesPath => JsonSerializer.Serialize(
-                _payloadFactory.BuildAnthropicMessagesRequest(request),
-                OpenAiConversationJsonContext.Default.AnthropicMessagesRequest),
             ChatCompletionsPath => JsonSerializer.Serialize(
                 _payloadFactory.BuildChatCompletionRequest(request),
                 OpenAiConversationJsonContext.Default.OpenAiChatCompletionRequest),
@@ -103,11 +111,6 @@ internal sealed class OpenCodeZenConversationProviderAdapter : IConversationProv
         HttpRequestMessage httpRequest = new(HttpMethod.Post, new Uri(baseUri, path));
         httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         httpRequest.Headers.Accept.ParseAdd("application/json");
-        if (path == MessagesPath)
-        {
-            httpRequest.Headers.TryAddWithoutValidation("anthropic-version", AnthropicVersion);
-        }
-
         httpRequest.Content = new StringContent(requestBody, Encoding.UTF8, "application/json");
         return httpRequest;
     }

@@ -7,7 +7,7 @@ namespace StemCode.Infrastructure.Conversation;
 
 internal sealed class ConversationProviderRequestPayloadFactory
 {
-    private const int AnthropicClaudeAccountMaxTokens = 8192;
+    private const int AnthropicMinimumThinkingBudgetTokens = 1_024;
 
     public OpenAiChatCompletionRequest BuildChatCompletionRequest(ConversationProviderRequest request)
     {
@@ -126,10 +126,21 @@ internal sealed class ConversationProviderRequestPayloadFactory
             messages.Add(new AnthropicMessage("user", CreateAnthropicUserContent(message)));
         }
 
+        // Prompt caching. The cached prefix renders tools -> system -> messages, so a breakpoint
+        // at the end of each stable section lets later requests reuse it. That is at most four
+        // breakpoints, the API limit:
+        //   1. the last tool definition (the tool set rarely changes within a session),
+        //   2. the system prompt,
+        //   3. the end of the previous request's conversation (the user message just before the
+        //      latest assistant turn), so this request reads the prefix the last one wrote, and
+        //   4. the end of the conversation, so the next request can read this one.
         List<AnthropicContentBlock> system = [];
         if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
         {
-            system.Add(new AnthropicContentBlock("text", Text: request.SystemPrompt.Trim()));
+            system.Add(new AnthropicContentBlock(
+                "text",
+                Text: request.SystemPrompt.Trim(),
+                CacheControl: AnthropicCacheControl.Ephemeral));
         }
 
         AnthropicToolDefinition[] tools = request.AvailableTools
@@ -138,18 +149,66 @@ internal sealed class ConversationProviderRequestPayloadFactory
                 definition.Description,
                 definition.Schema))
             .ToArray();
+        if (tools.Length > 0)
+        {
+            tools[^1] = tools[^1] with { CacheControl = AnthropicCacheControl.Ephemeral };
+        }
 
-        AnthropicThinking? thinking = MapAnthropicThinking(request);
-        AnthropicOutputConfig? outputConfig = MapAnthropicOutputConfig(request);
+        ApplyAnthropicMessageCacheBreakpoints(messages);
+
+        AnthropicModelCapabilities capabilities = AnthropicModelCapabilities.Resolve(request.ModelId);
+        int maxTokens = capabilities.MaxOutputTokens;
+        AnthropicThinking? thinking = MapAnthropicThinking(request, capabilities, maxTokens);
+        AnthropicOutputConfig? outputConfig = MapAnthropicOutputConfig(request, capabilities);
 
         return new AnthropicMessagesRequest(
             request.ModelId,
             messages,
-            AnthropicClaudeAccountMaxTokens,
-            system,
+            maxTokens,
+            system.Count == 0 ? null : system,
             tools.Length == 0 ? null : tools,
             outputConfig,
-            thinking);
+            thinking,
+            Stream: true);
+    }
+
+    private static void ApplyAnthropicMessageCacheBreakpoints(List<AnthropicMessage> messages)
+    {
+        if (messages.Count == 0)
+        {
+            return;
+        }
+
+        int lastAssistantIndex = messages.FindLastIndex(
+            static message => string.Equals(message.Role, "assistant", StringComparison.Ordinal));
+        int previousTailIndex = lastAssistantIndex - 1;
+        if (previousTailIndex >= 0 &&
+            string.Equals(messages[previousTailIndex].Role, "user", StringComparison.Ordinal))
+        {
+            TryApplyCacheControlToLastBlock(messages, previousTailIndex);
+        }
+
+        TryApplyCacheControlToLastBlock(messages, messages.Count - 1);
+    }
+
+    private static void TryApplyCacheControlToLastBlock(List<AnthropicMessage> messages, int messageIndex)
+    {
+        AnthropicMessage message = messages[messageIndex];
+        if (message.Content.Count == 0)
+        {
+            return;
+        }
+
+        AnthropicContentBlock lastBlock = message.Content[^1];
+        // thinking and redacted_thinking blocks cannot carry cache_control.
+        if (lastBlock.Type is "thinking" or "redacted_thinking")
+        {
+            return;
+        }
+
+        List<AnthropicContentBlock> content = [.. message.Content];
+        content[^1] = lastBlock with { CacheControl = AnthropicCacheControl.Ephemeral };
+        messages[messageIndex] = message with { Content = content };
     }
 
     public JsonElement MapOllamaThink(ConversationProviderRequest request)
@@ -269,44 +328,67 @@ internal sealed class ConversationProviderRequestPayloadFactory
             IncludeThoughts: request.ShowThinking);
     }
 
-    private static AnthropicThinking? MapAnthropicThinking(ConversationProviderRequest request)
+    private static AnthropicThinking? MapAnthropicThinking(
+        ConversationProviderRequest request,
+        AnthropicModelCapabilities capabilities,
+        int maxTokens)
     {
+        if (capabilities.Thinking == AnthropicThinkingSupport.None)
+        {
+            return null;
+        }
+
         if (!ShouldEnableReasoning(request))
         {
-            return SupportsAnthropicManualThinking(request.ModelId)
+            // Models that reject thinking: disabled get no thinking parameter; their effort is
+            // lowered instead (see MapAnthropicOutputConfig).
+            return capabilities.CanDisableThinking
                 ? new AnthropicThinking("disabled")
                 : null;
         }
 
-        if (SupportsAnthropicAdaptiveThinking(request.ModelId))
+        if (capabilities.Thinking == AnthropicThinkingSupport.Adaptive)
         {
+            // Newer models default to an empty ("omitted") thinking display, so ask for a summary
+            // when the user wants to see reasoning.
             return new AnthropicThinking("adaptive", Display: request.ShowThinking ? "summarized" : null);
         }
 
-        if (SupportsAnthropicManualThinking(request.ModelId))
-        {
-            return new AnthropicThinking(
-                "enabled",
-                BudgetTokens: MapAnthropicBudgetTokens(ResolveEffectiveEffort(request)),
-                Display: request.ShowThinking ? "summarized" : null);
-        }
-
-        return null;
+        // Manual-budget models: budget_tokens must be at least 1024 and below max_tokens. Cap it at
+        // half of max_tokens so thinking cannot starve the visible answer and tool calls.
+        int budget = Math.Clamp(
+            MapAnthropicBudgetTokens(ResolveEffectiveEffort(request)),
+            AnthropicMinimumThinkingBudgetTokens,
+            Math.Max(AnthropicMinimumThinkingBudgetTokens, maxTokens / 2));
+        return budget < maxTokens
+            ? new AnthropicThinking("enabled", BudgetTokens: budget)
+            : null;
     }
 
-    private static AnthropicOutputConfig? MapAnthropicOutputConfig(ConversationProviderRequest request)
+    private static AnthropicOutputConfig? MapAnthropicOutputConfig(
+        ConversationProviderRequest request,
+        AnthropicModelCapabilities capabilities)
     {
-        if (!ShouldEnableReasoning(request) || !SupportsAnthropicAdaptiveThinking(request.ModelId))
+        if (capabilities.Thinking != AnthropicThinkingSupport.Adaptive)
         {
             return null;
+        }
+
+        if (!ShouldEnableReasoning(request))
+        {
+            // Thinking cannot be switched off on these models; the lowest effort is the closest
+            // equivalent. Models that accept thinking: disabled keep their default effort.
+            return capabilities.CanDisableThinking
+                ? null
+                : new AnthropicOutputConfig(Effort: ReasoningEffortOptions.Low);
         }
 
         return new AnthropicOutputConfig(
             Effort: ResolveEffectiveEffort(request) switch
             {
-                ReasoningEffortOptions.Minimal => ReasoningEffortOptions.Low,
-                ReasoningEffortOptions.Max => ReasoningEffortOptions.XHigh,
-                _ => ResolveEffectiveEffort(request)
+                ReasoningEffortOptions.None or ReasoningEffortOptions.Minimal => ReasoningEffortOptions.Low,
+                ReasoningEffortOptions.XHigh when !capabilities.SupportsXHighEffort => ReasoningEffortOptions.High,
+                string effort => effort
             });
     }
 
@@ -358,7 +440,84 @@ internal sealed class ConversationProviderRequestPayloadFactory
                 Input: ParseToolCallArguments(toolCall.ArgumentsJson)));
         }
 
+        // Signed thinking blocks from the response go first, unchanged. With thinking enabled the
+        // API needs them on the assistant turn that made the tool call; on other turns it drops
+        // them itself, unbilled. A message with only thinking blocks is not valid on its own.
+        if (parts.Count > 0)
+        {
+            parts.InsertRange(0, ParseAnthropicThinkingBlocks(message.ReasoningDetailsJson));
+        }
+
         return parts;
+    }
+
+    private static IReadOnlyList<AnthropicContentBlock> ParseAnthropicThinkingBlocks(string? reasoningDetailsJson)
+    {
+        if (string.IsNullOrWhiteSpace(reasoningDetailsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(reasoningDetailsJson);
+            JsonElement root = document.RootElement;
+            List<AnthropicContentBlock> blocks = [];
+            if (root.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement item in root.EnumerateArray())
+                {
+                    TryAddAnthropicThinkingBlock(item, blocks);
+                }
+            }
+            else
+            {
+                TryAddAnthropicThinkingBlock(root, blocks);
+            }
+
+            return blocks;
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static void TryAddAnthropicThinkingBlock(JsonElement element, List<AnthropicContentBlock> blocks)
+    {
+        // Only Anthropic-shaped blocks are replayed. Reasoning details from other providers
+        // (for example OpenRouter's reasoning.text entries) are skipped.
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty("type", out JsonElement typeElement) ||
+            typeElement.ValueKind != JsonValueKind.String)
+        {
+            return;
+        }
+
+        string? type = typeElement.GetString();
+        if (string.Equals(type, "thinking", StringComparison.Ordinal) &&
+            TryGetJsonString(element, "signature") is { Length: > 0 } signature)
+        {
+            blocks.Add(new AnthropicContentBlock(
+                "thinking",
+                Thinking: TryGetJsonString(element, "thinking") ?? string.Empty,
+                Signature: signature));
+            return;
+        }
+
+        if (string.Equals(type, "redacted_thinking", StringComparison.Ordinal) &&
+            TryGetJsonString(element, "data") is { Length: > 0 } data)
+        {
+            blocks.Add(new AnthropicContentBlock("redacted_thinking", Data: data));
+        }
+    }
+
+    private static string? TryGetJsonString(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out JsonElement property) &&
+            property.ValueKind == JsonValueKind.String
+                ? property.GetString()
+                : null;
     }
 
     private static JsonElement ParseToolCallArguments(string argumentsJson)
@@ -573,18 +732,6 @@ internal sealed class ConversationProviderRequestPayloadFactory
         return providerKind is ProviderKind.OpenAiChatGptAccount or
             ProviderKind.OpenCodeZen or
             ProviderKind.OpenRouter;
-    }
-
-    private static bool SupportsAnthropicAdaptiveThinking(string modelId)
-    {
-        return modelId.Contains("sonnet-4", StringComparison.OrdinalIgnoreCase) ||
-            modelId.Contains("opus-4", StringComparison.OrdinalIgnoreCase) ||
-            modelId.Contains("claude-4", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool SupportsAnthropicManualThinking(string modelId)
-    {
-        return modelId.Contains("claude", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string MapOpenAiCompatibleEffort(string reasoningEffort)

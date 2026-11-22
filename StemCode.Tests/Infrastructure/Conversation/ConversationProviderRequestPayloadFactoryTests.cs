@@ -49,7 +49,8 @@ public sealed class ConversationProviderRequestPayloadFactoryTests
         request.Thinking!.Type.Should().Be("adaptive");
         request.Thinking.Display.Should().Be("summarized");
         request.OutputConfig.Should().NotBeNull();
-        request.OutputConfig!.Effort.Should().Be("xhigh");
+        // xhigh arrived with Opus 4.7; the 4.6 models accept low/medium/high/max only.
+        request.OutputConfig!.Effort.Should().Be("high");
     }
 
     [Fact]

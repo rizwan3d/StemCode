@@ -31,7 +31,7 @@ public sealed class ConversationOptions
 
     private static bool IsGitInitialized => Directory.Exists(Path.Combine(Directory.GetCurrentDirectory(), ".git"));
 
-    public static string IdentityDescription => $"You are StemCode Developed by: Rizwan3D (Muhammad Rizwan) github.com/Rizwan3D running on operating system {OperatingSystemDescription} with default shell {DefaultShellName}, current date and time: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}, git initialized: {IsGitInitialized}, an autonomous AI coding agent running on the user's machine.";
+    public static string IdentityDescription => $"You are StemCode Developed by: Rizwan3D (Muhammad Rizwan) github.com/Rizwan3D running on operating system {OperatingSystemDescription} with default shell {DefaultShellName}, current date: {DateTimeOffset.Now:yyyy-MM-dd zzz}, git initialized: {IsGitInitialized}, an autonomous AI coding agent running on the user's machine.";
 
     public static string CreateSystemPrompt(string? systemPrompt)
     {

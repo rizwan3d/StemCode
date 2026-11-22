@@ -18,20 +18,39 @@ internal sealed class ConversationProviderResponseNormalizer
         if (response?.Content is null)
         {
             throw new ConversationProviderException(
-                "The Anthropic Claude Pro/Max response did not contain message content.");
+                "The Anthropic Messages response did not contain message content.");
         }
 
         List<string> textParts = [];
         List<string> thinkingParts = [];
+        List<AnthropicResponseContentBlock> replayableThinkingBlocks = [];
         List<OpenAiChatCompletionToolCall> toolCalls = [];
         int toolCallOrdinal = 0;
 
         foreach (AnthropicResponseContentBlock contentBlock in response.Content)
         {
-            if (string.Equals(contentBlock.Type, "thinking", StringComparison.Ordinal) &&
-                !string.IsNullOrWhiteSpace(contentBlock.Thinking))
+            if (string.Equals(contentBlock.Type, "thinking", StringComparison.Ordinal))
             {
-                thinkingParts.Add(contentBlock.Thinking.Trim());
+                if (!string.IsNullOrWhiteSpace(contentBlock.Signature))
+                {
+                    replayableThinkingBlocks.Add(contentBlock);
+                }
+
+                if (!string.IsNullOrWhiteSpace(contentBlock.Thinking))
+                {
+                    thinkingParts.Add(contentBlock.Thinking.Trim());
+                }
+
+                continue;
+            }
+
+            if (string.Equals(contentBlock.Type, "redacted_thinking", StringComparison.Ordinal))
+            {
+                if (!string.IsNullOrWhiteSpace(contentBlock.Data))
+                {
+                    replayableThinkingBlocks.Add(contentBlock);
+                }
+
                 continue;
             }
 
@@ -71,7 +90,8 @@ internal sealed class ConversationProviderResponseNormalizer
                         toolCalls.Count == 0 ? null : toolCalls,
                         FunctionCall: null,
                         Refusal: null,
-                        ReasoningContent: reasoningContent),
+                        ReasoningContent: reasoningContent,
+                        ReasoningDetails: CreateAnthropicThinkingDetails(replayableThinkingBlocks)),
                     MapAnthropicStopReason(response.StopReason))
             ],
             ConvertAnthropicUsage(response.Usage));
@@ -79,6 +99,45 @@ internal sealed class ConversationProviderResponseNormalizer
         return JsonSerializer.Serialize(
             convertedResponse,
             OpenAiConversationJsonContext.Default.OpenAiChatCompletionResponse);
+    }
+
+    // Keeps the signed thinking blocks exactly as returned. They travel through the pipeline
+    // as reasoning_details and are replayed on the next request by
+    // ConversationProviderRequestPayloadFactory.CreateAnthropicAssistantContent.
+    private static JsonElement? CreateAnthropicThinkingDetails(
+        IReadOnlyList<AnthropicResponseContentBlock> blocks)
+    {
+        if (blocks.Count == 0)
+        {
+            return null;
+        }
+
+        using MemoryStream stream = new();
+        using (Utf8JsonWriter writer = new(stream))
+        {
+            writer.WriteStartArray();
+            foreach (AnthropicResponseContentBlock block in blocks)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("type", block.Type);
+                if (string.Equals(block.Type, "redacted_thinking", StringComparison.Ordinal))
+                {
+                    writer.WriteString("data", block.Data);
+                }
+                else
+                {
+                    writer.WriteString("thinking", block.Thinking ?? string.Empty);
+                    writer.WriteString("signature", block.Signature);
+                }
+
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+        }
+
+        using JsonDocument document = JsonDocument.Parse(stream.ToArray());
+        return document.RootElement.Clone();
     }
 
     public string ConvertOllamaChatResponseToChatCompletion(string responseBody)
