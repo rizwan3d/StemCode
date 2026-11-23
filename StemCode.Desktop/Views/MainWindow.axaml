@@ -2,9 +2,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:StemCode.Desktop.ViewModels"
         xmlns:models="using:StemCode.Desktop.Models"
-        xmlns:appmodels="using:StemCode.Application.Models"
         xmlns:controls="using:StemCode.Desktop.Controls"
-        xmlns:conv="using:StemCode.Desktop.Converters"
+        xmlns:views="using:StemCode.Desktop.Views"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
@@ -14,996 +13,203 @@
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/logo.ico"
         Width="1360"
-        Height="860"
-        MinWidth="720"
-        MinHeight="680"
-        Title="StemCode"
-        Background="#08090A">
+        Height="880"
+        MinWidth="760"
+        MinHeight="560"
+        Title="StemCode">
 
-    <Design.DataContext>
-        <vm:MainWindowViewModel/>
-    </Design.DataContext>
+    <Grid>
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+            <!-- Sidebar -->
+            <views:SidebarView Width="268" IsVisible="{Binding IsSidebarOpen}"/>
 
-    <Grid RowDefinitions="52,*,Auto">
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="280"
-                              MinWidth="220"
-                              MaxWidth="520"/>
-            <ColumnDefinition Width="6"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-
-        <Border Grid.Row="0"
-                Grid.ColumnSpan="3"
-                Background="#0E0F11"
-                BorderBrush="#20242A"
-                BorderThickness="0,0,0,1">
-            <Grid ColumnDefinitions="Auto,*,Auto"
-                  Margin="16,0"
-                  ColumnSpacing="16">
-                <StackPanel Orientation="Horizontal"
-                            Spacing="10"
-                            VerticalAlignment="Center">
-                    <Border Width="26"
-                            Height="26"
-                            CornerRadius="6"
-                            Background="#F3F4F6"
-                            ClipToBounds="True">
-                        <Image Source="/Assets/logo.png"
-                               Width="26"
-                               Height="26"
-                               Stretch="UniformToFill"/>
-                    </Border>
-                    <TextBlock Text="StemCode"
-                               Foreground="#F4F4F5"
-                               FontSize="15"
-                               FontWeight="SemiBold"
-                               VerticalAlignment="Center"/>
-                </StackPanel>
-
-                <Border Grid.Column="1"
-                        Background="#121417"
-                        BorderBrush="#282D34"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="10,6"
-                        HorizontalAlignment="Stretch"
-                        VerticalAlignment="Center"
-                        MinWidth="0">
-                    <Grid ColumnDefinitions="Auto,*"
-                          ColumnSpacing="8"
-                          MinWidth="0">
-                        <TextBlock Text="{Binding Project.SelectedProjectName}"
-                                   Foreground="#F4F4F5"
-                                   FontSize="12"
-                                   FontWeight="SemiBold"
-                                   MaxWidth="150"
-                                   TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="{Binding Project.SelectedProjectPath}"
-                                   ToolTip.Tip="{Binding Project.SelectedProjectPath}"
-                                   Foreground="#8B949E"
-                                   FontSize="12"
-                                   MinWidth="0"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis"/>
-                    </Grid>
-                </Border>
-
-                <Border Grid.Column="2"
-                        Background="#111827"
-                        BorderBrush="#27313A"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="10,5"
-                        VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal"
-                                Spacing="8">
-                        <Ellipse Width="7"
-                                 Height="7"
-                                 Fill="#34D399"
-                                 VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding Chat.StatusText}"
-                                   Foreground="#CBD5E1"
-                                   FontSize="12"
-                                   VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Border>
-            </Grid>
-        </Border>
-
-        <Border Grid.Row="1"
-                Grid.Column="0"
-                Grid.RowSpan="2"
-                Background="#0B0D10"
-                BorderBrush="#20242A"
-                BorderThickness="0,0,1,0">
-            <Grid RowDefinitions="Auto,Auto,Auto,*"
-                  Margin="14"
-                  RowSpacing="12">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock Text="Workspaces"
-                               Foreground="#8B949E"
-                               FontSize="11"
-                               FontWeight="SemiBold"
-                               LetterSpacing="0"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1"
-                               Text="Local"
-                               Foreground="#6B7280"
-                               FontSize="11"
-                               VerticalAlignment="Center"/>
-                </Grid>
-
-                <Button Grid.Row="1"
-                        Classes="secondary"
-                        Content="+ Open"
-                        Click="OpenProject_Click"
-                        HorizontalAlignment="Stretch"/>
-
-                <Border Grid.Row="2"
-                        Background="#101318"
-                        BorderBrush="#20242A"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="10">
-                    <Grid RowDefinitions="Auto,Auto,Auto"
-                          RowSpacing="8">
-                        <Grid ColumnDefinitions="*,Auto"
-                              ColumnSpacing="8">
-                            <TextBlock Text="Budget controls"
-                                       Foreground="#8B949E"
-                                       FontSize="11"
-                                       FontWeight="SemiBold"
-                                       VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding Chat.BudgetControlStatusText}"
-                                       Foreground="#6B7280"
-                                       FontSize="10"
-                                       TextTrimming="CharacterEllipsis"
-                                       MaxWidth="118"
-                                       VerticalAlignment="Center"/>
-                        </Grid>
-
-                        <Grid Grid.Row="1"
-                              ColumnDefinitions="*,Auto"
-                              ColumnSpacing="8">
-                            <ComboBox ItemsSource="{Binding Chat.BudgetControlSources}"
-                                      SelectedItem="{Binding Chat.SelectedBudgetControlSource, Mode=TwoWay}"
-                                      IsEnabled="{Binding Chat.BudgetControlsEnabled}"
-                                      HorizontalAlignment="Stretch"
-                                      MinHeight="30"/>
-                            <Button Grid.Column="1"
-                                    Classes="ghost"
-                                    Content="{Binding Chat.BudgetControlActionText}"
-                                    Command="{Binding Chat.ConfigureBudgetControlsCommand}"
-                                    CommandParameter="{Binding Project.SelectedProject}"
-                                    Padding="8,4"
-                                    MinHeight="30"
-                                    MinWidth="74"/>
-                        </Grid>
-
-                        <TextBlock Grid.Row="2"
-                                   Text="{Binding Chat.BudgetControlDetailText}"
-                                   IsVisible="{Binding Chat.HasBudgetControlDetail}"
-                                   ToolTip.Tip="{Binding Chat.BudgetControlDetailText}"
-                                   Foreground="#8B949E"
-                                   FontSize="11"
-                                   TextTrimming="CharacterEllipsis"/>
-                    </Grid>
-                </Border>
-
-                <Grid Grid.Row="3"
-                      RowDefinitions="Auto,*"
-                      RowSpacing="8">
-                    <Grid ColumnDefinitions="*,Auto,Auto">
-                        <TextBlock Text="Workspace tree"
-                                   Foreground="#8B949E"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1"
-                                   Text="{Binding Project.SectionCountText}"
-                                   Foreground="#6B7280"
-                                   FontSize="11"
-                                   VerticalAlignment="Center"/>
-                        <Button Grid.Column="2"
-                                Classes="ghost"
-                                Content="+ New"
-                                Command="{Binding StartNewSectionCommand}"
-                                Margin="8,0,0,0"
-                                Padding="8,4"
-                                MinHeight="24"
-                                VerticalAlignment="Center"/>
-                    </Grid>
-
-                    <ScrollViewer Grid.Row="1"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  VerticalScrollBarVisibility="Auto"
-                                  ClipToBounds="True">
-                        <TreeView ItemsSource="{Binding Project.WorkspaceTreeItems}"
-                                  SelectedItem="{Binding Project.SelectedTreeItem, Mode=TwoWay}"
-                                  Background="Transparent"
-                                  Foreground="#E5E7EB"
-                                  Padding="0"
-                                  HorizontalAlignment="Stretch"
-                                  ClipToBounds="True">
-                            <TreeView.Styles>
-                                <Style Selector="TreeViewItem"
-                                       x:CompileBindings="False">
-                                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}"/>
-                                    <Setter Property="HorizontalAlignment" Value="Stretch"/>
-                                    <Setter Property="ClipToBounds" Value="True"/>
-                                </Style>
-                            </TreeView.Styles>
-                            <TreeView.DataTemplates>
-                                <TreeDataTemplate x:DataType="vm:WorkspaceTreeItemViewModel"
-                                                  ItemsSource="{Binding Children}">
-                                    <Border Background="#101318"
-                                            BorderBrush="#20242A"
-                                            BorderThickness="1"
-                                            CornerRadius="8"
-                                            Padding="10"
-                                            Margin="0,0,8,8"
-                                            HorizontalAlignment="Stretch"
-                                            ClipToBounds="True">
-                                        <Grid ColumnDefinitions="4,*,Auto"
-                                              ColumnSpacing="8"
-                                              MinWidth="0"
-                                              ClipToBounds="True">
-                                            <Border Background="#4B5563"
-                                                    CornerRadius="2"/>
-                                            <Grid Grid.Column="1"
-                                                  RowDefinitions="Auto,Auto"
-                                                  RowSpacing="4"
-                                                  MinWidth="0"
-                                                  ClipToBounds="True">
-                                                <Grid ColumnDefinitions="*,Auto"
-                                                      MinWidth="0">
-                                                    <TextBlock Text="{Binding Name}"
-                                                              Foreground="#F4F4F5"
-                                                              FontSize="12"
-                                                              FontWeight="SemiBold"
-                                                              MinWidth="0"
-                                                              TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Grid.Column="1"
-                                                               Text="{Binding MetaText}"
-                                                               Foreground="#6B7280"
-                                                               FontSize="10"
-                                                               Margin="8,0,0,0"
-                                                               MaxWidth="86"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               VerticalAlignment="Center"/>
-                                                </Grid>
-                                                <TextBlock Grid.Row="1"
-                                                           Text="{Binding DetailText}"
-                                                           Foreground="#8B949E"
-                                                           FontSize="11"
-                                                           MinWidth="0"
-                                                           ToolTip.Tip="{Binding DetailText}"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                            </Grid>
-                                            <Button Grid.Column="2"
-                                                    Classes="ghost"
-                                                    Content="Remove"
-                                                    Command="{Binding RemoveCommand}"
-                                                    IsVisible="{Binding CanRemove}"
-                                                    Padding="7,3"
-                                                    MinHeight="24"
-                                                    MinWidth="0"
-                                                    VerticalAlignment="Center"/>
-                                        </Grid>
-                                    </Border>
-                                </TreeDataTemplate>
-                            </TreeView.DataTemplates>
-                        </TreeView>
-                    </ScrollViewer>
-                </Grid>
-            </Grid>
-        </Border>
-
-        <GridSplitter Grid.Row="1"
-                      Grid.RowSpan="2"
-                      Grid.Column="1"
-                      Width="6"
-                      ResizeDirection="Columns"
-                      ResizeBehavior="PreviousAndNext"
-                      Background="#0F1318"
-                      HorizontalAlignment="Stretch"
-                      VerticalAlignment="Stretch"/>
-
-        <Grid Grid.Row="1"
-              Grid.Column="2"
-              RowDefinitions="Auto,*,Auto"
-              Background="#08090A">
-            <Border Background="#08090A"
-                    BorderBrush="#161A20"
-                    BorderThickness="0,0,0,1"
-                    Padding="24,16,24,12">
-                <Grid ColumnDefinitions="*,Auto">
-                    <StackPanel Spacing="3">
-                        <TextBlock Text="Conversation"
-                                   Foreground="#F4F4F5"
-                                   FontSize="16"
-                                   FontWeight="SemiBold"/>
-                        <TextBlock Text="{Binding Project.SelectedProjectPath}"
-                                   Foreground="#6B7280"
-                                   FontSize="12"
-                                   TextTrimming="CharacterEllipsis"/>
-                    </StackPanel>
-                    <TextBlock Grid.Column="1"
-                               Text="{Binding Chat.StatusText}"
-                               Foreground="#8B949E"
-                               FontSize="12"
-                               VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-
-            <ScrollViewer Grid.Row="1"
-                          VerticalScrollBarVisibility="Auto"
-                          Background="#08090A">
-                <ItemsControl ItemsSource="{Binding Chat.Messages}"
-                              Margin="24,20,24,28"
-                              HorizontalAlignment="Stretch">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="models:ChatMessage">
-                            <Border Background="{Binding BubbleBackground}"
-                                    BorderBrush="{Binding BubbleBorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="8"
-                                    Padding="14"
-                                    Margin="0,0,0,14"
-                                    HorizontalAlignment="Stretch"
-                                    MinWidth="0"
-                                    ClipToBounds="True">
-                                <Grid ColumnDefinitions="28,*"
-                                      ColumnSpacing="12"
-                                      MinWidth="0"
-                                      ClipToBounds="True">
-                                    <Border Width="28"
-                                            Height="28"
-                                            CornerRadius="14"
-                                            Background="{Binding AvatarBackground}"
-                                            BorderBrush="{Binding AvatarBorderBrush}"
-                                            BorderThickness="1"
-                                            VerticalAlignment="Top">
-                                        <TextBlock Text="{Binding AvatarText}"
-                                                   Foreground="#CBD5E1"
-                                                   FontSize="11"
-                                                   FontWeight="SemiBold"
-                                                   HorizontalAlignment="Center"
-                                                   VerticalAlignment="Center"/>
-                                    </Border>
-                                    <StackPanel Grid.Column="1"
-                                                Spacing="8"
-                                                MinWidth="0">
-                                        <TextBlock Text="{Binding Role}"
-                                                   Foreground="{Binding RoleForeground}"
-                                                   FontSize="12"
-                                                   FontWeight="SemiBold"/>
-                                        <controls:MarkdownMessageView SourceText="{Binding Content}"
-                                                                      TextBrush="{Binding ContentForeground}"
-                                                                      WorkspacePath="{Binding WorkspacePath}"/>
-                                        <TextBlock Text="{Binding StatusNote}"
-                                                   IsVisible="{Binding HasStatusNote}"
-                                                   Foreground="#6B7280"
-                                                   FontSize="11"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                    </StackPanel>
-                                </Grid>
+            <!-- Center -->
+            <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto">
+                <Border BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,0,1" Padding="10,8,10,8">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Button AutomationProperties.Name="Show sidebar (Ctrl+B)" Classes="icon" Margin="0,0,6,0" IsVisible="{Binding !IsSidebarOpen}" ToolTip.Tip="Show sidebar (Ctrl+B)"
+                                Command="{Binding ToggleSidebarCommand}">
+                            <controls:Icon Data="{StaticResource IconSidebar}"/>
+                        </Button>
+                        <StackPanel Grid.Column="1" Margin="6,0" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="{Binding Chat.SessionTitle}" FontSize="13.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Classes="muted" FontSize="11.5" TextTrimming="CharacterEllipsis" Text="{Binding Chat.HeaderSubtitle}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                            <Border IsVisible="{Binding Chat.IsRunning}" Background="{StaticResource AccentSoft}" CornerRadius="10" Padding="9,3" Margin="0,0,6,0"
+                                    VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Ellipse Classes="pulse" Width="6" Height="6" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding Chat.StatusText}" Foreground="{StaticResource Accent}" FontSize="11.5"/>
+                                </StackPanel>
                             </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+                            <Button AutomationProperties.Name="Undo last edit" Classes="icon" ToolTip.Tip="Undo last edit" Command="{Binding Chat.UndoCommand}">
+                                <controls:Icon Data="{StaticResource IconUndo}"/>
+                            </Button>
+                            <Button AutomationProperties.Name="Command palette (Ctrl+K)" Classes="icon" ToolTip.Tip="Command palette (Ctrl+K)" Command="{Binding OpenPaletteCommand}">
+                                <controls:Icon Data="{StaticResource IconCommand}" Size="15"/>
+                            </Button>
+                            <Button AutomationProperties.Name="Session actions" Classes="icon" ToolTip.Tip="Session actions">
+                                <controls:Icon Data="{StaticResource IconMore}" StrokeThickness="3"/>
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuItem Header="New session" InputGesture="Ctrl+N" Command="{Binding NewSessionCommand}"/>
+                                        <MenuItem Header="Fork from a message…" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/fork"/>
+                                        <MenuItem Header="Rewind…" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/rewind"/>
+                                        <MenuItem Header="Clone session" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/clone"/>
+                                        <MenuItem Header="Session tree" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/tree"/>
+                                        <MenuItem Header="Resume another session…" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/resume"/>
+                                        <Separator/>
+                                        <MenuItem Header="Compact context" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/compact"/>
+                                        <MenuItem Header="Session info" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/session"/>
+                                        <MenuItem Header="Export">
+                                            <MenuItem Header="JSON" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/export json"/>
+                                            <MenuItem Header="HTML" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/export html"/>
+                                            <MenuItem Header="Trajectory HTML" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/export trajectory"/>
+                                        </MenuItem>
+                                        <MenuItem Header="Share as secret gist" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/share"/>
+                                        <Separator/>
+                                        <MenuItem Header="Undo last edit" Command="{Binding Chat.UndoCommand}"/>
+                                        <MenuItem Header="Redo edit" Command="{Binding Chat.RedoCommand}"/>
+                                        <MenuItem Header="Clear view" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/clear"/>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                            <Button AutomationProperties.Name="Changes, plan, terminals (Ctrl+J)" Classes="icon" ToolTip.Tip="Changes, plan, terminals (Ctrl+J)" Command="{Binding ToggleInspectorCommand}">
+                                <controls:Icon Data="{StaticResource IconPanel}"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
 
-            <Border Grid.Row="1"
-                    IsVisible="{Binding Chat.HasChangedFiles}"
-                    Background="#0E1116"
-                    BorderBrush="#1F2630"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="10"
-                    Margin="0,0,18,16"
-                    MaxWidth="360"
-                    MaxHeight="260"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Bottom">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Top"
-                               Text="Changed files"
-                               Foreground="#8B949E"
-                               FontSize="11"
-                               FontWeight="SemiBold"
-                               Margin="0,0,0,6"/>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <ItemsControl ItemsSource="{Binding Chat.ChangedFiles}">
+                <views:TranscriptView x:Name="Transcript" Grid.Row="1"/>
+                <views:ComposerView x:Name="Composer" Grid.Row="2" IsVisible="{Binding ShowInlinePrompts}"/>
+            </Grid>
+
+            <views:InspectorView Grid.Column="3" Width="430" MinWidth="300" IsVisible="{Binding IsInspectorOpen}"/>
+        </Grid>
+
+        <!-- Settings overlay -->
+        <views:SettingsView IsVisible="{Binding IsSettingsOpen}"/>
+
+        <!-- Prompt raised while settings is open -->
+        <Border IsVisible="{Binding ShowModalPrompt}" Background="#99000000">
+            <Border Background="{StaticResource AppBackground}" BorderBrush="{StaticResource Accent}" BorderThickness="1" CornerRadius="12"
+                    MaxWidth="620" MaxHeight="620" Padding="16" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Grid RowDefinitions="Auto,*,Auto">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{Binding Chat.OnboardingTitle}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Chat.OnboardingDescription}" Classes="secondary" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ScrollViewer Grid.Row="1" Margin="0,12" IsVisible="{Binding Chat.HasActiveSelectionPrompt}">
+                        <ItemsControl ItemsSource="{Binding Chat.ActiveSelectionPrompt.Options}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="appmodels:FileEditSummary">
-                                    <Grid ColumnDefinitions="Auto,*,Auto"
-                                          ColumnSpacing="8"
-                                          Margin="0,0,0,3">
-                                        <TextBlock Text="{Binding Action}"
-                                                   Foreground="{Binding Action, Converter={x:Static conv:EditActionToBrushConverter.Instance}}"
-                                                   FontSize="10"
-                                                   MinWidth="48"
-                                                   VerticalAlignment="Center"
-                                                   ToolTip.Tip="{Binding Action}"/>
-                                        <Button Grid.Column="1"
-                                                Classes="ghost"
-                                                Command="{Binding ((vm:MainWindowViewModel)DataContext).Chat.OpenChangedFileCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                CommandParameter="{Binding}"
-                                                HorizontalContentAlignment="Left"
-                                                Padding="0"
-                                                ToolTip.Tip="{Binding AbsolutePath}">
-                                            <TextBlock Text="{Binding DisplayPath}"
-                                                       Foreground="#7DB7FF"
-                                                       FontSize="12"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </Button>
-                                        <StackPanel Grid.Column="2"
-                                                    Orientation="Horizontal"
-                                                    Spacing="6"
-                                                    VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding AddedLineCount, StringFormat='+{0}'}"
-                                                       Foreground="#86EFAC"
-                                                       FontSize="11"/>
-                                            <TextBlock Text="{Binding RemovedLineCount, StringFormat='-{0}'}"
-                                                       Foreground="#F4A6A6"
-                                                       FontSize="11"/>
+                                <DataTemplate x:DataType="models:DesktopSelectionPromptOption">
+                                    <Button Classes="prompt-option" Margin="0,0,0,6" Command="{Binding SelectCommand}">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock Text="{Binding Label}" FontSize="13" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding Description}" IsVisible="{Binding HasDescription}" Classes="muted" TextWrapping="Wrap"/>
                                         </StackPanel>
-                                    </Grid>
+                                    </Button>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
-                </DockPanel>
-            </Border>
-
-            <Border Grid.Row="1"
-                    IsVisible="{Binding Chat.HasFloatingSelectionPrompt}"
-                    Background="#111317"
-                    BorderBrush="#F59E0B"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="14"
-                    Margin="24"
-                    MaxWidth="680"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Bottom">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto"
-                      RowSpacing="10">
-                    <Grid ColumnDefinitions="*,Auto"
-                          ColumnSpacing="12">
-                        <StackPanel Spacing="4">
-                            <TextBlock Text="{Binding Chat.ActiveSelectionPrompt.Title}"
-                                       Foreground="#F4F4F5"
-                                       FontSize="14"
-                                       FontWeight="SemiBold"
-                                       TextWrapping="Wrap"/>
-                            <TextBlock Text="{Binding Chat.ActiveSelectionPrompt.Description}"
-                                       IsVisible="{Binding Chat.ActiveSelectionPrompt.HasDescription}"
-                                       Foreground="#CBD5E1"
-                                       FontSize="12"
-                                       LineHeight="18"
-                                       TextWrapping="Wrap"/>
-                        </StackPanel>
-                        <Border Grid.Column="1"
-                                IsVisible="{Binding Chat.ActiveSelectionPrompt.HasCountdown}"
-                                Background="#1E1A12"
-                                BorderBrush="#785A18"
-                                BorderThickness="1"
-                                CornerRadius="8"
-                                Padding="9,5"
-                                VerticalAlignment="Top">
-                            <TextBlock Text="{Binding Chat.ActiveSelectionPrompt.CountdownText}"
-                                       Foreground="#FBBF24"
-                                       FontSize="11"
-                                       FontFamily="Consolas"/>
-                        </Border>
-                    </Grid>
-
-                    <ItemsControl Grid.Row="1"
-                                  ItemsSource="{Binding Chat.ActiveSelectionPrompt.Options}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="models:DesktopSelectionPromptOption">
-                                <Button Classes="secondary"
-                                        Command="{Binding SelectCommand}"
-                                        HorizontalAlignment="Stretch"
-                                        Margin="0,0,0,8">
-                                    <Grid ColumnDefinitions="*,Auto"
-                                          ColumnSpacing="10">
-                                        <StackPanel Spacing="3">
-                                            <TextBlock Text="{Binding Label}"
-                                                       Foreground="#F4F4F5"
-                                                       FontSize="12"
-                                                       FontWeight="SemiBold"
-                                                       TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding Description}"
-                                                       IsVisible="{Binding HasDescription}"
-                                                       Foreground="#8B949E"
-                                                       FontSize="11"
-                                                       TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                        <Border Grid.Column="1"
-                                                IsVisible="{Binding IsDefault}"
-                                                Background="#142016"
-                                                BorderBrush="#2F6B3A"
-                                                BorderThickness="1"
-                                                CornerRadius="6"
-                                                Padding="7,3"
-                                                VerticalAlignment="Center">
-                                            <TextBlock Text="Default"
-                                                       Foreground="#86EFAC"
-                                                       FontSize="10"
-                                                       FontWeight="SemiBold"/>
-                                        </Border>
-                                    </Grid>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <Button Grid.Row="2"
-                            Classes="ghost"
-                            Content="Cancel"
-                            IsVisible="{Binding Chat.ActiveSelectionPrompt.AllowCancellation}"
-                            Command="{Binding Chat.ActiveSelectionPrompt.CancelCommand}"
-                            HorizontalAlignment="Right"/>
-                </Grid>
-            </Border>
-
-            <Border Grid.Row="1"
-                    IsVisible="{Binding Chat.HasFloatingTextPrompt}"
-                    Background="#111317"
-                    BorderBrush="#3B82F6"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="14"
-                    Margin="24"
-                    MaxWidth="620"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Bottom">
-                <Grid RowDefinitions="Auto,Auto,Auto"
-                      RowSpacing="10">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="{Binding Chat.ActiveTextPrompt.Title}"
-                                   Foreground="#F4F4F5"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="{Binding Chat.ActiveTextPrompt.Description}"
-                                   IsVisible="{Binding Chat.ActiveTextPrompt.HasDescription}"
-                                   Foreground="#CBD5E1"
-                                   FontSize="12"
-                                   LineHeight="18"
-                                   TextWrapping="Wrap"/>
-                    </StackPanel>
-
-                    <TextBox Grid.Row="1"
-                             Text="{Binding Chat.ActiveTextPrompt.Value, Mode=TwoWay}"
-                             PasswordChar="{Binding Chat.ActiveTextPrompt.PasswordChar}"
-                             Background="#121417"
-                             BorderBrush="#30363D"
-                             BorderThickness="1"
-                             CornerRadius="8"
-                             Padding="10,7"
-                             MinHeight="38"/>
-
-                    <Grid Grid.Row="2"
-                          ColumnDefinitions="*,Auto,Auto"
-                          ColumnSpacing="8">
-                        <TextBlock Text="Prompt input"
-                                   Foreground="#6B7280"
-                                   FontSize="11"
-                                   VerticalAlignment="Center"/>
-                        <Button Grid.Column="1"
-                                Classes="ghost"
-                                Content="Cancel"
-                                IsVisible="{Binding Chat.ActiveTextPrompt.AllowCancellation}"
+                    <TextBox Grid.Row="1" Margin="0,12" IsVisible="{Binding Chat.HasActiveTextPrompt}" VerticalAlignment="Top"
+                             Text="{Binding Chat.ActiveTextPrompt.Value, Mode=TwoWay}" PasswordChar="{Binding Chat.ActiveTextPrompt.PasswordChar}"
+                             MinHeight="36" Padding="10,7"/>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                        <Button Classes="ghost" Content="Cancel" IsVisible="{Binding Chat.CanCancelOnboardingSelectionPrompt}"
+                                Command="{Binding Chat.ActiveSelectionPrompt.CancelCommand}"/>
+                        <Button Classes="ghost" Content="Cancel" IsVisible="{Binding Chat.CanCancelOnboardingTextPrompt}"
                                 Command="{Binding Chat.ActiveTextPrompt.CancelCommand}"/>
-                        <Button Grid.Column="2"
-                                Classes="primary"
-                                Content="Submit"
+                        <Button Classes="primary" Content="Submit" IsVisible="{Binding Chat.HasActiveTextPrompt}"
                                 Command="{Binding Chat.ActiveTextPrompt.SubmitCommand}"/>
-                    </Grid>
-                </Grid>
-            </Border>
-
-            <Border Grid.Row="2"
-                    IsVisible="{Binding Chat.HasPromptProgress}"
-                    Background="#101216"
-                    BorderBrush="#30363D"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="12,10"
-                    Margin="24,0,24,16">
-                <Grid ColumnDefinitions="Auto,*,Auto"
-                      ColumnSpacing="10">
-                    <Ellipse Width="8"
-                             Height="8"
-                             Fill="#34D399"
-                             VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="1"
-                               Text="StemCode is working"
-                               Foreground="#D1D5DB"
-                               FontSize="12"
-                               FontWeight="SemiBold"
-                               VerticalAlignment="Center"/>
-                    <TextBlock Grid.Column="2"
-                               Text="{Binding Chat.ProgressText}"
-                               Foreground="#8B949E"
-                               FontSize="12"
-                               FontFamily="Consolas"
-                               VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-        </Grid>
-
-        <Border Grid.Row="2"
-                Grid.Column="2"
-                Background="#08090A"
-                BorderBrush="#20242A"
-                BorderThickness="0,1,0,0"
-                Padding="16">
-            <Border Background="#101216"
-                    BorderBrush="#30363D"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="12">
-                <Grid RowDefinitions="*,Auto,Auto,Auto,Auto"
-                      RowSpacing="10">
-                    <TextBox Text="{Binding Chat.Prompt, Mode=TwoWay}"
-                             PlaceholderText="Ask StemCode..."
-                             AcceptsReturn="True"
-                             TextWrapping="Wrap"
-                             Background="Transparent"
-                             Foreground="#F4F4F5"
-                             BorderThickness="0"
-                             MinHeight="64"
-                             FontSize="13"
-                             KeyDown="PromptTextBox_KeyDown"/>
-
-                    <Grid Grid.Row="1"
-                          IsVisible="{Binding Chat.HasPromptCommandSuggestions}">
-                        <Border Background="#0D1014"
-                                BorderBrush="#30363D"
-                                BorderThickness="1"
-                                CornerRadius="8"
-                                Padding="6"
-                                MaxHeight="260">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                <ItemsControl ItemsSource="{Binding Chat.PromptCommandSuggestions}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="models:DesktopCommandSuggestion">
-                                            <Button Classes="commandSuggestion"
-                                                    Command="{Binding SelectCommand}"
-                                                    Background="{Binding Background}"
-                                                    BorderBrush="{Binding BorderBrush}"
-                                                    HorizontalAlignment="Stretch"
-                                                    Margin="0,0,0,4">
-                                                <Grid ColumnDefinitions="16,210,*"
-                                                      ColumnSpacing="8">
-                                                    <TextBlock Text="{Binding SelectionMarker}"
-                                                               Foreground="{Binding MarkerForeground}"
-                                                               FontSize="12"
-                                                               FontFamily="Consolas"
-                                                               FontWeight="Bold"
-                                                               VerticalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="1"
-                                                               Text="{Binding Usage}"
-                                                               Foreground="{Binding UsageForeground}"
-                                                               FontSize="12"
-                                                               FontFamily="Consolas"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               VerticalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="2"
-                                                               Text="{Binding Description}"
-                                                               Foreground="{Binding DescriptionForeground}"
-                                                               FontSize="12"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               VerticalAlignment="Center"/>
-                                                </Grid>
-                                            </Button>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-                        </Border>
-                    </Grid>
-
-                    <Grid Grid.Row="2"
-                          ColumnDefinitions="Auto,*,Auto,132,Auto"
-                          ColumnSpacing="8">
-                        <TextBlock Text="Model"
-                                   Foreground="#8B949E"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1"
-                                  ItemsSource="{Binding Chat.AvailableModels}"
-                                  SelectedItem="{Binding Chat.SelectedModelId, Mode=TwoWay}"
-                                  IsEnabled="{Binding Chat.SessionOptionsEnabled}"
-                                  HorizontalAlignment="Stretch"
-                                  MaxDropDownHeight="360"/>
-                        <TextBlock Grid.Column="2"
-                                   Text="Profile"
-                                   Foreground="#8B949E"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="3"
-                                  ItemsSource="{Binding Chat.ProfileOptions}"
-                                  SelectedItem="{Binding Chat.SelectedProfileName, Mode=TwoWay}"
-                                  IsEnabled="{Binding Chat.SessionOptionsEnabled}"
-                                  HorizontalAlignment="Stretch"/>
-                        <ToggleButton Grid.Column="4"
-                                      Content="{Binding Chat.ThinkingToggleText}"
-                                      IsChecked="{Binding Chat.IsThinkingEnabled, Mode=TwoWay}"
-                                      IsEnabled="{Binding Chat.SessionOptionsEnabled}"
-                                      HorizontalAlignment="Stretch"
-                                      MinWidth="112"/>
-                    </Grid>
-
-                    <Grid Grid.Row="3"
-                          ColumnDefinitions="Auto,220,*"
-                          ColumnSpacing="8">
-                        <TextBlock Text="Reasoning"
-                                   Foreground="#8B949E"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"/>
-                        <ComboBox Grid.Column="1"
-                                  ItemsSource="{Binding Chat.ReasoningEfforts}"
-                                  SelectedItem="{Binding Chat.SelectedReasoningEffort, Mode=TwoWay}"
-                                  IsEnabled="{Binding Chat.SessionOptionsEnabled}"
-                                  HorizontalAlignment="Stretch"
-                                  MaxDropDownHeight="240"/>
-                        <TextBlock Grid.Column="2"
-                                   Text="{Binding Chat.ReasoningStatusText}"
-                                   Foreground="#6B7280"
-                                   FontSize="11"
-                                   VerticalAlignment="Center"
-                                   TextWrapping="Wrap"/>
-                    </Grid>
-
-                    <Grid Grid.Row="4"
-                          ColumnDefinitions="*,96"
-                          ColumnSpacing="12">
-                        <TextBlock Text="{Binding Project.SelectedProjectName}"
-                                   Foreground="#8B949E"
-                                   FontSize="12"
-                                   VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis"/>
-                        <Button Grid.Column="1"
-                                Classes="primary"
-                                Content="Run"
-                                Command="{Binding Chat.RunPromptCommand}"
-                                CommandParameter="{Binding Project.SelectedProject}"
-                                HorizontalAlignment="Stretch"/>
-                    </Grid>
+                    </StackPanel>
                 </Grid>
             </Border>
         </Border>
 
-        <Border Grid.Row="0"
-                Grid.RowSpan="3"
-                Grid.ColumnSpan="3"
-                IsVisible="{Binding Chat.HasOnboardingOverlay}"
-                Background="#E608090A">
-            <Grid Margin="32"
-                  RowDefinitions="*"
-                  ColumnDefinitions="*">
-                <Border Background="#0D1014"
-                        BorderBrush="#30363D"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        MaxWidth="980"
-                        MaxHeight="720"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center">
-                    <Grid ColumnDefinitions="260,*"
-                          RowDefinitions="Auto,*">
-                        <Border Grid.RowSpan="2"
-                                Background="#101318"
-                                BorderBrush="#242A32"
-                                BorderThickness="0,0,1,0"
-                                Padding="22">
-                            <Grid RowDefinitions="Auto,*">
-                                <StackPanel Spacing="12">
-                                    <Border Width="34"
-                                            Height="34"
-                                            CornerRadius="8"
-                                            Background="#F4F4F5"
-                                            HorizontalAlignment="Left"
-                                            ClipToBounds="True">
-                                        <Image Source="/Assets/logo.png"
-                                               Width="34"
-                                               Height="34"
-                                               Stretch="UniformToFill"/>
-                                    </Border>
-                                    <StackPanel Spacing="4">
-                                        <TextBlock Text="StemCode setup"
-                                                   Foreground="#F4F4F5"
-                                                   FontSize="18"
-                                                   FontWeight="SemiBold"/>
-                                        <TextBlock Text="{Binding Chat.OnboardingStatusText}"
-                                                   Foreground="#8B949E"
-                                                   FontSize="12"/>
-                                    </StackPanel>
-                                </StackPanel>
+        <!-- Command palette -->
+        <Border IsVisible="{Binding Palette.IsOpen}" Background="#80000000" PointerPressed="PaletteBackdrop_PointerPressed">
+            <Border Background="{StaticResource SurfaceBackground}" BorderBrush="{StaticResource BorderDefault}" BorderThickness="1"
+                    CornerRadius="12" Width="640" MaxHeight="520" Margin="0,90,0,0" VerticalAlignment="Top" HorizontalAlignment="Center"
+                    BoxShadow="0 24 64 0 #90000000" PointerPressed="PaletteBox_PointerPressed">
+                <Grid RowDefinitions="Auto,*">
+                    <Grid ColumnDefinitions="Auto,*" Margin="14,6">
+                        <controls:Icon Data="{StaticResource IconSearch}"/>
+                        <TextBox x:Name="PaletteBox" Grid.Column="1" Classes="bare" FontSize="14" Margin="8,0,0,0"
+                                 PlaceholderText="Search commands, settings, sessions, workspaces…"
+                                 Text="{Binding Palette.Query, Mode=TwoWay}"/>
+                    </Grid>
+                    <ScrollViewer x:Name="PaletteScroll" Grid.Row="1" BorderBrush="{StaticResource BorderSubtle}">
+                        <ItemsControl ItemsSource="{Binding Palette.Results}" Margin="6,0,6,8">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PaletteEntry">
+                                    <Button Classes="list" Background="{Binding Background}" Command="{Binding ExecuteCommand}" Padding="10,6"
+                                            Focusable="False">
+                                        <Grid ColumnDefinitions="84,Auto,*,Auto">
+                                            <TextBlock Text="{Binding Group}" Classes="kbd" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" VerticalAlignment="Center"
+                                                       MaxWidth="300" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Detail}" Classes="muted" Margin="12,0,8,0"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Shortcut}" Classes="kbd" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+        </Border>
 
-                                <StackPanel Grid.Row="1"
-                                            Spacing="16"
-                                            VerticalAlignment="Center">
-                                    <Grid ColumnDefinitions="28,*"
-                                          ColumnSpacing="10">
-                                        <Border Width="24"
-                                                Height="24"
-                                                CornerRadius="12"
-                                                Background="#F59E0B">
-                                            <TextBlock Text="1"
-                                                       Foreground="#111827"
-                                                       FontSize="12"
-                                                       FontWeight="Bold"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"/>
-                                        </Border>
-                                        <StackPanel Grid.Column="1"
-                                                    Spacing="2">
-                                            <TextBlock Text="Provider"
-                                                       Foreground="#F4F4F5"
-                                                       FontSize="12"
-                                                       FontWeight="SemiBold"/>
-                                            <TextBlock Text="Choose the backend"
-                                                       Foreground="#8B949E"
-                                                       FontSize="11"/>
-                                        </StackPanel>
-                                    </Grid>
-
-                                    <Grid ColumnDefinitions="28,*"
-                                          ColumnSpacing="10">
-                                        <Border Width="24"
-                                                Height="24"
-                                                CornerRadius="12"
-                                                Background="#3B82F6">
-                                            <TextBlock Text="2"
-                                                       Foreground="#F4F4F5"
-                                                       FontSize="12"
-                                                       FontWeight="Bold"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"/>
-                                        </Border>
-                                        <StackPanel Grid.Column="1"
-                                                    Spacing="2">
-                                            <TextBlock Text="Credentials"
-                                                       Foreground="#F4F4F5"
-                                                       FontSize="12"
-                                                       FontWeight="SemiBold"/>
-                                            <TextBlock Text="Enter the required secret"
-                                                       Foreground="#8B949E"
-                                                       FontSize="11"/>
-                                        </StackPanel>
-                                    </Grid>
-
-                                    <Grid ColumnDefinitions="28,*"
-                                          ColumnSpacing="10">
-                                        <Border Width="24"
-                                                Height="24"
-                                                CornerRadius="12"
-                                                Background="#22C55E">
-                                            <TextBlock Text="3"
-                                                       Foreground="#052E16"
-                                                       FontSize="12"
-                                                       FontWeight="Bold"
-                                                       HorizontalAlignment="Center"
-                                                       VerticalAlignment="Center"/>
-                                        </Border>
-                                        <StackPanel Grid.Column="1"
-                                                    Spacing="2">
-                                            <TextBlock Text="Models"
-                                                       Foreground="#F4F4F5"
-                                                       FontSize="12"
-                                                       FontWeight="SemiBold"/>
-                                            <TextBlock Text="Validate and select"
-                                                       Foreground="#8B949E"
-                                                       FontSize="11"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-
-                        <Border Grid.Column="1"
-                                Background="#0D1014"
-                                BorderBrush="#242A32"
-                                BorderThickness="0,0,0,1"
-                                Padding="24,22">
-                            <Grid ColumnDefinitions="*,Auto"
-                                  ColumnSpacing="16">
-                                <StackPanel Spacing="5">
-                                    <TextBlock Text="{Binding Chat.OnboardingStageText}"
-                                               Foreground="#F59E0B"
-                                               FontSize="11"
-                                               FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Chat.OnboardingTitle}"
-                                               Foreground="#F4F4F5"
-                                               FontSize="20"
-                                               FontWeight="SemiBold"
-                                               TextWrapping="Wrap"/>
-                                    <TextBlock Text="{Binding Chat.OnboardingDescription}"
-                                               Foreground="#CBD5E1"
-                                               FontSize="12"
-                                               LineHeight="18"
-                                               TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <Border Grid.Column="1"
-                                        IsVisible="{Binding Chat.HasOnboardingCountdown}"
-                                        Background="#1E1A12"
-                                        BorderBrush="#785A18"
-                                        BorderThickness="1"
-                                        CornerRadius="8"
-                                        Padding="10,6"
-                                        VerticalAlignment="Top">
-                                    <TextBlock Text="{Binding Chat.ActiveSelectionPrompt.CountdownText}"
-                                               Foreground="#FBBF24"
-                                               FontSize="11"
-                                               FontFamily="Consolas"/>
+        <!-- Provider onboarding -->
+        <Border IsVisible="{Binding Chat.HasOnboardingOverlay}" Background="#E60E0E10">
+            <Border Background="{StaticResource SurfaceBackground}" BorderBrush="{StaticResource BorderDefault}" BorderThickness="1"
+                    CornerRadius="14" MaxWidth="900" MaxHeight="680" Margin="32" ClipToBounds="True"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Grid ColumnDefinitions="240,*">
+                    <Border Background="{StaticResource SidebarBackground}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,0,1,0" Padding="22">
+                        <Grid RowDefinitions="Auto,*">
+                            <StackPanel Spacing="12">
+                                <Border Width="34" Height="34" CornerRadius="8" Background="#F4F4F5" HorizontalAlignment="Left" ClipToBounds="True">
+                                    <Image Source="/Assets/logo.png" Width="34" Height="34" Stretch="UniformToFill"/>
                                 </Border>
-                            </Grid>
-                        </Border>
+                                <TextBlock Text="{Binding Chat.OnboardingHeading}" FontSize="18" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding Chat.OnboardingBlurb}" Classes="secondary" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <StackPanel Grid.Row="1" Spacing="14" VerticalAlignment="Bottom" IsVisible="{Binding Chat.IsDedicatedProviderSetup}">
+                                <TextBlock Text="1  Provider" Classes="secondary"/>
+                                <TextBlock Text="2  Credentials" Classes="secondary"/>
+                                <TextBlock Text="3  Models" Classes="secondary"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <Grid Grid.Column="1" RowDefinitions="Auto,*,Auto" Margin="24,22,24,20">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="{Binding Chat.OnboardingStageText}" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="SemiBold"/>
+                            <TextBlock Text="{Binding Chat.OnboardingTitle}" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding Chat.OnboardingDescription}" Classes="secondary" TextWrapping="Wrap" LineHeight="18"/>
+                        </StackPanel>
 
-                        <Grid Grid.Row="1"
-                              Grid.Column="1"
-                              RowDefinitions="*,Auto"
-                              Margin="24"
-                              RowSpacing="18">
-                            <Grid RowDefinitions="Auto,Auto"
-                                  RowSpacing="14">
-                                <ItemsControl IsVisible="{Binding Chat.HasOnboardingSelectionPrompt}"
-                                              ItemsSource="{Binding Chat.ActiveSelectionPrompt.Options}">
+                        <Grid Grid.Row="1" Margin="0,16,0,12">
+                            <ScrollViewer IsVisible="{Binding Chat.HasOnboardingSelectionPrompt}" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl ItemsSource="{Binding Chat.ActiveSelectionPrompt.Options}" Margin="0,0,8,0">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="models:DesktopSelectionPromptOption">
-                                            <StackPanel Spacing="8"
-                                                        Margin="0,0,0,10">
-                                                <TextBlock Text="{Binding Section}"
-                                                           IsVisible="{Binding HasSection}"
-                                                           Foreground="#E5E7EB"
-                                                           FontSize="11"
-                                                           FontWeight="Bold"
-                                                           TextWrapping="Wrap"/>
-                                                <Button Classes="secondary"
-                                                        Command="{Binding SelectCommand}"
-                                                        HorizontalAlignment="Stretch"
-                                                        Padding="13,11">
-                                                    <Grid ColumnDefinitions="*,Auto"
-                                                          ColumnSpacing="12">
-                                                        <StackPanel Spacing="4">
-                                                            <TextBlock Text="{Binding Label}"
-                                                                       Foreground="#F4F4F5"
-                                                                       FontSize="13"
-                                                                       FontWeight="SemiBold"
-                                                                       TextWrapping="Wrap"/>
-                                                            <TextBlock Text="{Binding Description}"
-                                                                       IsVisible="{Binding HasDescription}"
-                                                                       Foreground="#9CA3AF"
-                                                                       FontSize="11"
-                                                                       LineHeight="16"
-                                                                       TextWrapping="Wrap"/>
+                                            <StackPanel Spacing="6" Margin="0,0,0,8">
+                                                <TextBlock Text="{Binding Section}" IsVisible="{Binding HasSection}" Classes="label"/>
+                                                <Button Classes="prompt-option" Command="{Binding SelectCommand}" Padding="13,10">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <StackPanel Spacing="3">
+                                                            <TextBlock Text="{Binding Label}" FontSize="13" FontWeight="Medium" TextWrapping="Wrap"/>
+                                                            <TextBlock Text="{Binding Description}" IsVisible="{Binding HasDescription}" Classes="muted" TextWrapping="Wrap"/>
                                                         </StackPanel>
-                                                        <Border Grid.Column="1"
-                                                                IsVisible="{Binding IsDefault}"
-                                                                Background="#142016"
-                                                                BorderBrush="#2F6B3A"
-                                                                BorderThickness="1"
-                                                                CornerRadius="6"
-                                                                Padding="7,3"
-                                                                VerticalAlignment="Center">
-                                                            <TextBlock Text="Default"
-                                                                       Foreground="#86EFAC"
-                                                                       FontSize="10"
-                                                                       FontWeight="SemiBold"/>
+                                                        <Border Grid.Column="1" IsVisible="{Binding IsDefault}" Background="#142016" CornerRadius="6" Padding="7,2"
+                                                                VerticalAlignment="Center" Margin="10,0,0,0">
+                                                            <TextBlock Text="Default" Foreground="{StaticResource Success}" FontSize="10.5" FontWeight="SemiBold"/>
                                                         </Border>
                                                     </Grid>
                                                 </Button>
@@ -1011,58 +217,34 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                            </ScrollViewer>
 
-                                <Grid IsVisible="{Binding Chat.HasOnboardingTextPrompt}"
-                                      RowDefinitions="Auto,Auto"
-                                      RowSpacing="10">
-                                    <TextBox Text="{Binding Chat.ActiveTextPrompt.Value, Mode=TwoWay}"
-                                             PasswordChar="{Binding Chat.ActiveTextPrompt.PasswordChar}"
-                                             Background="#121417"
-                                             BorderBrush="#30363D"
-                                             BorderThickness="1"
-                                             CornerRadius="8"
-                                             Padding="12,9"
-                                             MinHeight="42"
-                                             FontSize="13"/>
+                            <StackPanel IsVisible="{Binding Chat.HasOnboardingTextPrompt}" Spacing="10" VerticalAlignment="Top">
+                                <TextBox x:Name="OnboardingTextBox" Text="{Binding Chat.ActiveTextPrompt.Value, Mode=TwoWay}"
+                                         PasswordChar="{Binding Chat.ActiveTextPrompt.PasswordChar}" MinHeight="40" Padding="12,9"
+                                         KeyDown="OnboardingTextBox_KeyDown"/>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                                    <Button Classes="ghost" Content="Cancel" IsVisible="{Binding Chat.CanCancelOnboardingTextPrompt}"
+                                            Command="{Binding Chat.ActiveTextPrompt.CancelCommand}"/>
+                                    <Button Classes="primary" Content="Continue" Command="{Binding Chat.ActiveTextPrompt.SubmitCommand}"/>
+                                </StackPanel>
+                            </StackPanel>
 
-                                    <Grid Grid.Row="1"
-                                          ColumnDefinitions="*,Auto,Auto"
-                                          ColumnSpacing="8">
-                                        <TextBlock Text="{Binding Chat.OnboardingInputKind}"
-                                                   Foreground="#6B7280"
-                                                   FontSize="11"
-                                                   VerticalAlignment="Center"/>
-                                        <Button Grid.Column="1"
-                                                Classes="ghost"
-                                                Content="Cancel"
-                                                IsVisible="{Binding Chat.CanCancelOnboardingTextPrompt}"
-                                                Command="{Binding Chat.ActiveTextPrompt.CancelCommand}"/>
-                                        <Button Grid.Column="2"
-                                                Classes="primary"
-                                                Content="Submit"
-                                                Command="{Binding Chat.ActiveTextPrompt.SubmitCommand}"/>
-                                    </Grid>
-                                </Grid>
-                            </Grid>
+                            <StackPanel IsVisible="{Binding Chat.IsOnboardingWorking}" Orientation="Horizontal" Spacing="10" VerticalAlignment="Top">
+                                <Ellipse Classes="pulse" Width="8" Height="8" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                                <TextBlock Text="Validating provider and loading models…" Classes="secondary"/>
+                            </StackPanel>
+                        </Grid>
 
-                            <Grid Grid.Row="1"
-                                  ColumnDefinitions="*,Auto"
-                                  ColumnSpacing="10">
-                                <TextBlock Text="Credentials are stored locally through the configured platform secret store."
-                                           Foreground="#6B7280"
-                                           FontSize="11"
-                                           VerticalAlignment="Center"
-                                           TextWrapping="Wrap"/>
-                                <Button Grid.Column="1"
-                                        Classes="ghost"
-                                        Content="Cancel"
-                                        IsVisible="{Binding Chat.CanCancelOnboardingSelectionPrompt}"
-                                        Command="{Binding Chat.ActiveSelectionPrompt.CancelCommand}"/>
-                            </Grid>
+                        <Grid Grid.Row="2" ColumnDefinitions="*,Auto">
+                            <TextBlock Text="{Binding Chat.ActiveSelectionPrompt.CountdownText}" IsVisible="{Binding Chat.HasOnboardingCountdown}"
+                                       Classes="kbd" VerticalAlignment="Center"/>
+                            <Button Grid.Column="1" Classes="ghost" Content="Cancel" IsVisible="{Binding Chat.CanCancelOnboardingSelectionPrompt}"
+                                    Command="{Binding Chat.ActiveSelectionPrompt.CancelCommand}"/>
                         </Grid>
                     </Grid>
-                </Border>
-            </Grid>
+                </Grid>
+            </Border>
         </Border>
     </Grid>
 </Window>

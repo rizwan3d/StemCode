@@ -1,0 +1,224 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:StemCode.Desktop.ViewModels"
+             xmlns:models="using:StemCode.Desktop.Models"
+             xmlns:controls="using:StemCode.Desktop.Controls"
+             x:Class="StemCode.Desktop.Views.ComposerView"
+             x:DataType="vm:MainWindowViewModel">
+
+    <StackPanel MaxWidth="860" Margin="28,0,28,14" Spacing="8">
+
+        <!-- Queued follow-ups -->
+        <ItemsControl ItemsSource="{Binding Chat.QueuedPrompts}" IsVisible="{Binding Chat.HasQueuedPrompts}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:QueuedPrompt">
+                    <Border Background="{StaticResource SurfaceBackground}" BorderBrush="{StaticResource BorderSubtle}"
+                            BorderThickness="1" CornerRadius="8" Padding="10,6" Margin="0,0,0,4">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <TextBlock Text="Queued" Classes="label" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Preview}" Classes="secondary" TextTrimming="CharacterEllipsis"
+                                       VerticalAlignment="Center"/>
+                            <Button AutomationProperties.Name="Remove from queue" Grid.Column="2" Classes="icon" Width="22" Height="22" ToolTip.Tip="Remove from queue"
+                                    Command="{Binding RemoveCommand}">
+                                <controls:Icon Data="{StaticResource IconClose}" Size="12"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Inline approval / selection prompt -->
+        <Border IsVisible="{Binding Chat.HasInlineSelectionPrompt}" Background="{StaticResource SurfaceBackground}"
+                BorderBrush="{StaticResource Accent}" BorderThickness="1" CornerRadius="12" Padding="14,12">
+            <Grid RowDefinitions="Auto,Auto,Auto">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{Binding Chat.ActiveSelectionPrompt.Title}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <SelectableTextBlock Text="{Binding Chat.ActiveSelectionPrompt.Description}" IsVisible="{Binding Chat.ActiveSelectionPrompt.HasDescription}"
+                                             Foreground="{StaticResource TextSecondary}" FontSize="12.5" LineHeight="19" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <Border Grid.Column="1" IsVisible="{Binding Chat.ActiveSelectionPrompt.HasCountdown}" Background="{StaticResource AccentSoft}"
+                            CornerRadius="6" Padding="8,3" VerticalAlignment="Top" Margin="10,0,0,0">
+                        <TextBlock Text="{Binding Chat.ActiveSelectionPrompt.CountdownText}" Foreground="{StaticResource Accent}"
+                                   FontSize="11" FontFamily="{StaticResource MonoFont}"/>
+                    </Border>
+                </Grid>
+                <ScrollViewer Grid.Row="1" MaxHeight="300" Margin="0,10,0,0" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Chat.ActiveSelectionPrompt.Options}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:DesktopSelectionPromptOption">
+                                <StackPanel Spacing="4" Margin="0,0,0,6">
+                                    <TextBlock Text="{Binding Section}" IsVisible="{Binding HasSection}" Classes="label" Margin="2,4,0,0"/>
+                                    <Button Classes="prompt-option" Command="{Binding SelectCommand}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <Border Width="20" Height="20" CornerRadius="5" Background="{StaticResource SurfaceHover}"
+                                                    VerticalAlignment="Top" Margin="0,0,10,0">
+                                                <TextBlock Text="{Binding NumberText}" FontSize="11" FontFamily="{StaticResource MonoFont}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Text="{Binding Label}" FontSize="13" FontWeight="Medium" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding Description}" IsVisible="{Binding HasDescription}" Classes="muted" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="default" IsVisible="{Binding IsDefault}" Classes="kbd"
+                                                       VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                        </Grid>
+                                    </Button>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,4,0,0">
+                    <TextBlock Text="Press 1–9 to choose · Esc to cancel" Classes="kbd" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="ghost" Content="Cancel" IsVisible="{Binding Chat.ActiveSelectionPrompt.AllowCancellation}"
+                            Command="{Binding Chat.ActiveSelectionPrompt.CancelCommand}"/>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Inline text prompt -->
+        <Border IsVisible="{Binding Chat.HasInlineTextPrompt}" Background="{StaticResource SurfaceBackground}"
+                BorderBrush="{StaticResource Info}" BorderThickness="1" CornerRadius="12" Padding="14,12">
+            <StackPanel Spacing="10">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="{Binding Chat.ActiveTextPrompt.Title}" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <SelectableTextBlock Text="{Binding Chat.ActiveTextPrompt.Description}" IsVisible="{Binding Chat.ActiveTextPrompt.HasDescription}"
+                                         Foreground="{StaticResource TextSecondary}" FontSize="12.5" TextWrapping="Wrap"/>
+                </StackPanel>
+                <TextBox x:Name="InlineTextPromptBox" Text="{Binding Chat.ActiveTextPrompt.Value, Mode=TwoWay}"
+                         PasswordChar="{Binding Chat.ActiveTextPrompt.PasswordChar}" MinHeight="36" Padding="10,7"
+                         KeyDown="TextPromptBox_KeyDown"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                    <Button Classes="ghost" Content="Cancel" IsVisible="{Binding Chat.ActiveTextPrompt.AllowCancellation}"
+                            Command="{Binding Chat.ActiveTextPrompt.CancelCommand}"/>
+                    <Button Classes="primary" Content="Submit" Command="{Binding Chat.ActiveTextPrompt.SubmitCommand}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Composer -->
+        <Border x:Name="ComposerFrame" Background="{StaticResource SurfaceBackground}" BorderBrush="{StaticResource BorderDefault}"
+                BorderThickness="1" CornerRadius="14" Padding="10,8,8,8" DragDrop.AllowDrop="True">
+            <StackPanel Spacing="6">
+
+                <!-- Suggestions -->
+                <Border IsVisible="{Binding Chat.HasSuggestions}" Background="{StaticResource SurfaceSunken}"
+                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1" CornerRadius="9" Padding="4">
+                    <Grid RowDefinitions="Auto,*">
+                        <TextBlock Text="{Binding Chat.SuggestionHeader}" Classes="label" Margin="8,4,0,4"/>
+                        <ScrollViewer x:Name="SuggestionScroll" Grid.Row="1" MaxHeight="280" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding Chat.Suggestions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:SuggestionItem">
+                                        <Button Classes="list" Background="{Binding Background}" Padding="8,5"
+                                                Command="{Binding AcceptCommand}" Focusable="False">
+                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                <controls:Icon Data="{StaticResource IconFile}" Size="13" IsVisible="{Binding IsFile}"
+                                                               Margin="0,0,8,0" Foreground="{StaticResource TextMuted}"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding Label}" FontFamily="{StaticResource MonoFont}"
+                                                           FontSize="12" Foreground="{StaticResource TextPrimary}" VerticalAlignment="Center"
+                                                           MaxWidth="330" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Grid.Column="2" Text="{Binding Detail}" Classes="muted" Margin="14,0,8,0"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                                <Border Grid.Column="3" IsVisible="{Binding HasBadge}" Background="{StaticResource SurfaceHover}"
+                                                        CornerRadius="4" Padding="5,1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Badge}" Classes="kbd"/>
+                                                </Border>
+                                            </Grid>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+
+                <!-- Attachments -->
+                <ItemsControl ItemsSource="{Binding Chat.ComposerAttachments}" IsVisible="{Binding Chat.HasAttachments}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ComposerAttachment">
+                            <Border Background="{StaticResource SurfaceRaised}" BorderBrush="{StaticResource BorderDefault}" BorderThickness="1"
+                                    CornerRadius="8" Padding="4,4,2,4" Margin="0,0,6,4" ToolTip.Tip="{Binding Name}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Border Width="28" Height="28" CornerRadius="5" ClipToBounds="True" IsVisible="{Binding HasThumbnail}">
+                                        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
+                                    </Border>
+                                    <controls:Icon Data="{StaticResource IconFile}" Size="14" IsVisible="{Binding HasNoThumbnail}" Margin="4,0,0,0"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="12" MaxWidth="180" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding KindText}" Classes="muted" FontSize="10.5"/>
+                                    </StackPanel>
+                                    <Button AutomationProperties.Name="Remove" Classes="icon" Width="20" Height="20" Command="{Binding RemoveCommand}" ToolTip.Tip="Remove">
+                                        <controls:Icon Data="{StaticResource IconClose}" Size="11"/>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBox x:Name="PromptBox" Classes="bare"
+                         Text="{Binding Chat.Prompt, Mode=TwoWay}"
+                         CaretIndex="{Binding Chat.PromptCaretIndex, Mode=TwoWay}"
+                         PlaceholderText="{Binding Chat.ComposerPlaceholder}"
+                         AcceptsReturn="True" TextWrapping="Wrap" FontSize="14" MinHeight="44" MaxHeight="260"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         IsEnabled="{Binding Chat.HasProject}"/>
+
+                <!-- Toolbar -->
+                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto">
+                    <Button AutomationProperties.Name="Attach files or images (drag &amp; drop and paste work too)" Classes="icon" ToolTip.Tip="Attach files or images (drag &amp; drop and paste work too)" Click="Attach_Click"
+                            IsEnabled="{Binding Chat.HasProject}">
+                        <controls:Icon Data="{StaticResource IconPaperclip}"/>
+                    </Button>
+                    <ComboBox Grid.Column="1" Classes="chip" ItemsSource="{Binding Chat.ProfileOptions}"
+                              SelectedItem="{Binding Chat.SelectedProfileName, Mode=TwoWay}" IsEnabled="{Binding Chat.SessionOptionsEnabled}"
+                              ToolTip.Tip="Agent profile: build edits code, plan only plans, review reviews"/>
+                    <ComboBox Grid.Column="2" Classes="chip" ItemsSource="{Binding Chat.AvailableModels}" MaxWidth="230"
+                              SelectedItem="{Binding Chat.SelectedModelId, Mode=TwoWay}" IsEnabled="{Binding Chat.SessionOptionsEnabled}"
+                              PlaceholderText="Model" MaxDropDownHeight="380" ToolTip.Tip="Model"/>
+                    <ComboBox Grid.Column="3" Classes="chip" ItemsSource="{Binding Chat.ReasoningEfforts}"
+                              SelectedItem="{Binding Chat.SelectedReasoningEffort, Mode=TwoWay}" IsEnabled="{Binding Chat.SessionOptionsEnabled}"
+                              PlaceholderText="Effort" ToolTip.Tip="Reasoning effort (provider support varies)"/>
+                    <ToggleButton Grid.Column="4" IsChecked="{Binding Chat.IsThinkingEnabled, Mode=TwoWay}" IsEnabled="{Binding Chat.SessionOptionsEnabled}"
+                                  ToolTip.Tip="Show model thinking">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <controls:Icon Data="{StaticResource IconSpark}" Size="13"/>
+                            <TextBlock Text="Think" FontSize="12" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ToggleButton>
+
+                    <TextBlock Grid.Column="6" Text="{Binding Chat.VoiceStatusText}" IsVisible="{Binding Chat.HasVoiceStatus}"
+                               Foreground="{StaticResource Accent}" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <StackPanel Grid.Column="7" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,6,0"
+                                IsVisible="{Binding Chat.HasSessionOptions}" ToolTip.Tip="{Binding Chat.ContextUsageText}">
+                        <ProgressBar Width="34" MinWidth="0" Height="4" Minimum="0" Maximum="1" Value="{Binding Chat.ContextUsageFraction}"
+                                     IsVisible="{Binding Chat.HasContextWindow}" CornerRadius="2"/>
+                        <TextBlock Text="{Binding Chat.ContextShortText}" Classes="kbd" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Button Grid.Column="8" Classes="icon" ToolTip.Tip="{Binding Chat.VoiceButtonTip}" Click="Voice_Click"
+                            IsEnabled="{Binding Chat.HasProject}" Margin="0,0,4,0">
+                        <controls:Icon Data="{StaticResource IconMic}"/>
+                    </Button>
+                    <StackPanel Grid.Column="9" Orientation="Horizontal" Spacing="6">
+                        <Button AutomationProperties.Name="Stop (Esc)" Classes="send stop" IsVisible="{Binding Chat.IsRunning}" Command="{Binding Chat.StopCommand}" ToolTip.Tip="Stop (Esc)">
+                            <controls:Icon Data="{StaticResource IconStop}" Size="12" IsFilled="True" Foreground="#0E0E10"/>
+                        </Button>
+                        <Button AutomationProperties.Name="Send (Enter) — queues while a task runs" Classes="send" Command="{Binding Chat.SendCommand}" ToolTip.Tip="Send (Enter) — queues while a task runs">
+                            <controls:Icon Data="{StaticResource IconSend}" Size="16" StrokeThickness="2.2"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <TextBlock HorizontalAlignment="Center" Classes="kbd" Text="Enter send · Shift+Enter newline · / commands · @ files · ! shell · !! background · ↑ history"/>
+    </StackPanel>
+</UserControl>

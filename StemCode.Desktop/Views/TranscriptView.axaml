@@ -1,0 +1,267 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:StemCode.Desktop.ViewModels"
+             xmlns:models="using:StemCode.Desktop.Models"
+             xmlns:controls="using:StemCode.Desktop.Controls"
+             x:Class="StemCode.Desktop.Views.TranscriptView"
+             x:DataType="vm:MainWindowViewModel">
+
+    <UserControl.Styles>
+        <Style Selector="StackPanel.hover-actions">
+            <Setter Property="Opacity" Value="0"/>
+        </Style>
+        <Style Selector="Grid.turn:pointerover StackPanel.hover-actions">
+            <Setter Property="Opacity" Value="1"/>
+        </Style>
+        <Style Selector="Button.card-header">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+        </Style>
+        <Style Selector="Button.card-header:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource SurfaceBackground}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
+        <Style Selector="Button.suggestion">
+            <Setter Property="Background" Value="{StaticResource SurfaceBackground}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderSubtle}"/>
+            <Setter Property="Padding" Value="14,10"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="FontWeight" Value="Normal"/>
+        </Style>
+        <Style Selector="Button.suggestion:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource SurfaceRaised}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderStrong}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid>
+        <!-- Empty state -->
+        <Grid IsVisible="{Binding Chat.IsTranscriptEmpty}" VerticalAlignment="Center" HorizontalAlignment="Center"
+              MaxWidth="640" Margin="24">
+            <StackPanel Spacing="22">
+                <StackPanel Spacing="8" HorizontalAlignment="Center">
+                    <Border Width="44" Height="44" CornerRadius="11" Background="#F3F4F6" ClipToBounds="True" HorizontalAlignment="Center">
+                        <Image Source="/Assets/logo.png" Width="44" Height="44" Stretch="UniformToFill"/>
+                    </Border>
+                    <TextBlock Text="What should we work on?" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                    <TextBlock Classes="secondary" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
+                               Text="{Binding Project.SelectedProjectPath}"/>
+                </StackPanel>
+
+                <Button Classes="primary" HorizontalAlignment="Center" IsVisible="{Binding Chat.HasNoProject}"
+                        Click="OpenFolder_Click" Padding="18,9">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <controls:Icon Data="{StaticResource IconFolder}" Foreground="#0E0E10"/>
+                        <TextBlock Text="Open a workspace folder" Foreground="#0E0E10" FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Button>
+
+                <UniformGrid Columns="2" IsVisible="{Binding Chat.HasProject}">
+                    <Button Classes="suggestion" Margin="0,0,6,8" Click="Suggestion_Click" Tag="Give me a tour of this codebase: its structure, main components and how they fit together.">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="Explain this codebase" FontSize="13" FontWeight="Medium"/>
+                            <TextBlock Text="Structure, components and data flow" Classes="muted"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="suggestion" Margin="6,0,0,8" Click="Suggestion_Click" Tag="Review my uncommitted changes and list any bugs or risks, most severe first.">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="Review my changes" FontSize="13" FontWeight="Medium"/>
+                            <TextBlock Text="Findings-first review of the diff" Classes="muted"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="suggestion" Margin="0,0,6,0" Click="Suggestion_Click" Tag="Find the test setup in this repo, run the tests, and fix anything that fails.">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="Run and fix tests" FontSize="13" FontWeight="Medium"/>
+                            <TextBlock Text="Detect the runner, iterate to green" Classes="muted"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="suggestion" Margin="6,0,0,0" Click="Suggestion_Click" Tag="/init">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="Set up StemCode here" FontSize="13" FontWeight="Medium"/>
+                            <TextBlock Text="AGENTS.md, memory and commands" Classes="muted"/>
+                        </StackPanel>
+                    </Button>
+                </UniformGrid>
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer x:Name="TranscriptScroll" IsVisible="{Binding Chat.HasTranscript}"
+                      HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel MaxWidth="860" Margin="28,20,28,24" HorizontalAlignment="Stretch">
+                <ItemsControl ItemsSource="{Binding Chat.Transcript}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:TranscriptItem">
+                            <Grid Classes="turn" Background="Transparent">
+
+                                <!-- USER -->
+                                <Grid IsVisible="{Binding IsUser}" Margin="0,10,0,14" ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                    <Border Grid.Column="1" Background="{StaticResource UserBubble}" CornerRadius="14,14,4,14"
+                                            Padding="14,10" MaxWidth="640" HorizontalAlignment="Right">
+                                        <StackPanel Spacing="6">
+                                            <SelectableTextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="13.5" LineHeight="21"
+                                                                 Foreground="{StaticResource TextPrimary}"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding HasAttachments}">
+                                                <controls:Icon Data="{StaticResource IconPaperclip}" Size="12"/>
+                                                <TextBlock Text="{Binding AttachmentsText}" Classes="muted" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                    <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Classes="hover-actions" Orientation="Horizontal"
+                                                HorizontalAlignment="Right" Spacing="2" Margin="0,4,0,0">
+                                        <Button AutomationProperties.Name="Copy" Classes="icon" Width="26" Height="26" ToolTip.Tip="Copy" Click="Copy_Click">
+                                            <controls:Icon Data="{StaticResource IconCopy}" Size="13"/>
+                                        </Button>
+                                        <Button AutomationProperties.Name="Rewind code and conversation to before this message" Classes="icon" Width="26" Height="26" ToolTip.Tip="Rewind code and conversation to before this message"
+                                                IsVisible="{Binding HasTurnNumber}"
+                                                Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).Chat.RewindToCommand}"
+                                                CommandParameter="{Binding}">
+                                            <controls:Icon Data="{StaticResource IconRewind}" Size="13"/>
+                                        </Button>
+                                        <Button AutomationProperties.Name="Fork a new session from this message" Classes="icon" Width="26" Height="26" ToolTip.Tip="Fork a new session from this message"
+                                                IsVisible="{Binding HasTurnNumber}"
+                                                Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).Chat.ForkFromCommand}"
+                                                CommandParameter="{Binding}">
+                                            <controls:Icon Data="{StaticResource IconBranch}" Size="13"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- ASSISTANT -->
+                                <Grid IsVisible="{Binding IsAssistant}" Margin="0,4,0,10" RowDefinitions="Auto,Auto">
+                                    <controls:MarkdownMessageView SourceText="{Binding Content}"
+                                                                  TextBrush="{StaticResource TextPrimary}"
+                                                                  WorkspacePath="{Binding WorkspacePath}"/>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+                                        <TextBlock Text="{Binding StatusNote}" IsVisible="{Binding HasStatusNote}" Classes="muted"
+                                                   FontSize="11" VerticalAlignment="Center"/>
+                                        <StackPanel Classes="hover-actions" Orientation="Horizontal" Spacing="2">
+                                            <Button AutomationProperties.Name="Copy response" Classes="icon" Width="26" Height="26" ToolTip.Tip="Copy response" Click="Copy_Click">
+                                                <controls:Icon Data="{StaticResource IconCopy}" Size="13"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Grid>
+
+                                <!-- THINKING -->
+                                <StackPanel IsVisible="{Binding IsThinking}" Margin="0,2,0,6">
+                                    <Button Classes="card-header" Command="{Binding ToggleExpandedCommand}">
+                                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                            <controls:Icon Data="{StaticResource IconSpark}" Size="13" Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding CardTitle}" Classes="secondary" Margin="8,0,10,0"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Preview}" Classes="muted" TextTrimming="CharacterEllipsis"
+                                                       VerticalAlignment="Center" IsVisible="{Binding !IsExpanded}"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding ChevronGlyph}" Classes="muted" Margin="8,0,2,0"
+                                                       VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                    <Border IsVisible="{Binding IsExpanded}" BorderBrush="{StaticResource BorderDefault}" BorderThickness="2,0,0,0"
+                                            Margin="12,4,0,4" Padding="14,2,0,2">
+                                        <SelectableTextBlock Text="{Binding Content}" TextWrapping="Wrap" FontSize="12.5" LineHeight="19"
+                                                             Foreground="{StaticResource TextSecondary}"/>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- TOOL -->
+                                <StackPanel IsVisible="{Binding IsTool}" Margin="0,1,0,1">
+                                    <Button Classes="card-header" Command="{Binding ToggleExpandedCommand}">
+                                        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                                            <Ellipse Width="7" Height="7" Fill="{Binding StatusBrush}" VerticalAlignment="Center"
+                                                     Classes.pulse="{Binding IsRunning}"/>
+                                            <controls:Icon Grid.Column="1" Data="{StaticResource IconTool}" Size="13" Margin="8,0,0,0"
+                                                           Foreground="{StaticResource TextMuted}"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding CardTitle}" FontFamily="{StaticResource MonoFont}"
+                                                       FontSize="12" Foreground="{StaticResource TextSecondary}" Margin="8,0,10,0"
+                                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Preview}" Classes="muted" FontSize="11.5"
+                                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding ChevronGlyph}" Classes="muted" Margin="0,0,2,0"
+                                                       VerticalAlignment="Center" IsVisible="{Binding HasExpandableContent}"/>
+                                        </Grid>
+                                    </Button>
+                                    <Border IsVisible="{Binding IsExpanded}" Background="{StaticResource SurfaceSunken}"
+                                            BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1" CornerRadius="8"
+                                            Margin="20,4,0,8" Padding="0,8" MaxHeight="420">
+                                        <Grid RowDefinitions="*,Auto">
+                                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                                <ItemsControl ItemsSource="{Binding OutputLines}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="models:ToolOutputLine">
+                                                            <Border Background="{Binding Background}" Padding="12,0">
+                                                                <SelectableTextBlock Text="{Binding Text}" Foreground="{Binding Foreground}"
+                                                                                     FontFamily="{StaticResource MonoFont}" FontSize="12" LineHeight="18"/>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </ScrollViewer>
+                                            <Button Grid.Row="1" Classes="ghost" HorizontalAlignment="Right" Margin="0,4,8,0" Padding="6,2"
+                                                    MinHeight="22" FontSize="11" Content="Copy output" Click="Copy_Click"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
+
+                                <!-- PLAN -->
+                                <Border IsVisible="{Binding IsPlan}" Background="{StaticResource SurfaceBackground}"
+                                        BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1" CornerRadius="10"
+                                        Padding="14,10" Margin="0,6,0,10">
+                                    <StackPanel Spacing="6">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <controls:Icon Data="{StaticResource IconList}" Size="14"/>
+                                            <TextBlock Text="{Binding PlanSummary}" Classes="secondary" FontWeight="SemiBold"/>
+                                        </StackPanel>
+                                        <ItemsControl ItemsSource="{Binding Steps}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="models:PlanStep">
+                                                    <Grid ColumnDefinitions="22,*" Margin="0,2">
+                                                        <TextBlock Text="{Binding Glyph}" Foreground="{Binding GlyphBrush}" FontSize="13"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Text}" Foreground="{Binding TextBrush}"
+                                                                   TextDecorations="{Binding Decorations}" TextWrapping="Wrap" FontSize="13"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- NOTICE -->
+                                <Border IsVisible="{Binding IsNotice}" Margin="0,6,0,10" Padding="12,8" CornerRadius="8"
+                                        Background="{StaticResource SurfaceBackground}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1">
+                                    <controls:MarkdownMessageView SourceText="{Binding Content}" TextBrush="{StaticResource TextSecondary}"
+                                                                  WorkspacePath="{Binding WorkspacePath}"/>
+                                </Border>
+
+                                <!-- ERROR -->
+                                <Border IsVisible="{Binding IsError}" Margin="0,6,0,10" Padding="12,9" CornerRadius="8"
+                                        Background="{StaticResource DangerSoft}" BorderBrush="#5B2324" BorderThickness="1">
+                                    <Grid ColumnDefinitions="Auto,*">
+                                        <TextBlock Text="!" Foreground="{StaticResource Danger}" FontWeight="Bold" Margin="2,0,10,0"/>
+                                        <SelectableTextBlock Grid.Column="1" Text="{Binding Content}" TextWrapping="Wrap"
+                                                             Foreground="#FECACA" FontSize="12.5"/>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Live working indicator -->
+                <StackPanel IsVisible="{Binding Chat.IsPromptRunning}" Orientation="Horizontal" Spacing="10" Margin="2,8,0,0">
+                    <Ellipse Classes="pulse" Width="8" Height="8" Fill="{StaticResource Accent}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding Chat.WorkingLabel}" Classes="secondary" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding Chat.ProgressText}" Classes="muted" FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding Chat.RetryText}" IsVisible="{Binding Chat.HasRetryText}" Foreground="{StaticResource Warning}"
+                               FontSize="12" VerticalAlignment="Center"/>
+                    <TextBlock Text="Esc to stop" Classes="kbd" VerticalAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -115,7 +115,7 @@ Use it when you want one agent experience across:
 
 | Surface | Best for |
 | --- | --- |
-| Desktop app | Visual workspace with chat, model controls, profile switching, activity output, permission prompts, and undo/redo for tracked edits. |
+| Desktop app | Three-pane workspace with sessions, a live transcript with tool and diff cards, inline approvals, a stop button and queued follow-ups, `/` and `@` completion, attachments, a changes/plan/terminals inspector, a command palette, and settings for every StemCode feature. |
 | `stemcode` CLI | Keyboard-first work, one-shot prompts, piped input, quick reviews, and automation-friendly output. |
 | VS Code extension | Chat, selected-context prompts, file review, diff review, and applying suggestions without leaving the editor. |
 | Visual Studio extension | Docked StemCode tool window powered by the local CLI over ACP. |

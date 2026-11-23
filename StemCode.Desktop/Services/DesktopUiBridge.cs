@@ -6,10 +6,38 @@ using StemCode.Desktop.Models;
 
 namespace StemCode.Desktop.Services;
 
+/// <summary>Receives structured agent output for the live transcript. Calls arrive on worker threads.</summary>
+public interface IDesktopTranscriptSink
+{
+    void OnAssistantChunk(string text);
+
+    void OnReasoning(string text);
+
+    void OnToolCallsStarted(IReadOnlyList<DesktopToolCall> calls);
+
+    void OnToolCompleted(DesktopToolResult result);
+
+    void OnPlan(ExecutionPlanProgress progress);
+
+    void OnNotice(DesktopNoticeLevel level, string message);
+
+    void OnProviderRetry(ProviderRetryProgress progress);
+}
+
+public enum DesktopNoticeLevel
+{
+    Info,
+    Success,
+    Error
+}
+
+public sealed record DesktopToolCall(string Id, string Name, string Title);
+
+public sealed record DesktopToolResult(string Id, string Name, string Text, bool Succeeded, bool IsPlanUpdate);
+
 internal sealed class DesktopUiBridge : IUiBridge
 {
-    private readonly IPlanOutputFormatter _planOutputFormatter;
-    private readonly Action<string, string> _addConversationMessage;
+    private readonly IDesktopTranscriptSink? _sink;
     private readonly Action<DesktopSelectionPrompt?> _setSelectionPrompt;
     private readonly Action<DesktopTextPrompt?> _setTextPrompt;
     private readonly IToolOutputFormatter _toolOutputFormatter;
@@ -19,16 +47,15 @@ internal sealed class DesktopUiBridge : IUiBridge
 
     public DesktopUiBridge(
         Action<string> addActivity,
-        Action<string, string> addConversationMessage,
+        IDesktopTranscriptSink? sink,
         Action<DesktopSelectionPrompt?> setSelectionPrompt,
         Action<DesktopTextPrompt?> setTextPrompt)
     {
         _addActivity = addActivity ?? throw new ArgumentNullException(nameof(addActivity));
-        _addConversationMessage = addConversationMessage ?? throw new ArgumentNullException(nameof(addConversationMessage));
+        _sink = sink;
         _setSelectionPrompt = setSelectionPrompt ?? throw new ArgumentNullException(nameof(setSelectionPrompt));
         _setTextPrompt = setTextPrompt ?? throw new ArgumentNullException(nameof(setTextPrompt));
         _toolOutputFormatter = new ToolOutputFormatter();
-        _planOutputFormatter = new PlanOutputFormatter();
     }
 
     public async Task<T> RequestSelectionAsync<T>(
@@ -138,16 +165,27 @@ internal sealed class DesktopUiBridge : IUiBridge
     public void ShowError(string message)
     {
         AddActivity($"Error: {message}");
+        _sink?.OnNotice(DesktopNoticeLevel.Error, message);
     }
 
     public void ShowInfo(string message)
     {
         AddActivity(message);
+        _sink?.OnNotice(DesktopNoticeLevel.Info, message);
     }
 
     public void ShowSuccess(string message)
     {
         AddActivity($"Success: {message}");
+        _sink?.OnNotice(DesktopNoticeLevel.Success, message);
+    }
+
+    public void ShowAssistantMessageChunk(string text)
+    {
+        if (!string.IsNullOrEmpty(text))
+        {
+            _sink?.OnAssistantChunk(text);
+        }
     }
 
     public void ShowAssistantReasoning(string reasoningText)
@@ -157,49 +195,77 @@ internal sealed class DesktopUiBridge : IUiBridge
             return;
         }
 
-        string message = "Thinking:" + Environment.NewLine + Environment.NewLine + reasoningText.Trim();
-        AddActivity(message);
-        AddConversationMessage("Thinking", message);
+        AddActivity("Thinking");
+        _sink?.OnReasoning(reasoningText.Trim());
     }
 
     public void ShowToolCalls(IReadOnlyList<ConversationToolCall> toolCalls)
     {
-        string[] descriptions = toolCalls
-            .Select(_toolOutputFormatter.DescribeCall)
-            .Where(static description => !string.IsNullOrWhiteSpace(description))
+        DesktopToolCall[] calls = toolCalls
+            .Select(call =>
+            {
+                string description = _toolOutputFormatter.DescribeCall(call);
+                return new DesktopToolCall(
+                    call.Id,
+                    call.Name,
+                    string.IsNullOrWhiteSpace(description) ? call.Name : description.Trim());
+            })
             .ToArray();
 
-        if (descriptions.Length == 0)
+        foreach (DesktopToolCall call in calls)
         {
-            AddActivity("Running tools");
-            AddConversationMessage("Tool", "Running tools");
-            return;
+            AddActivity($"Running {call.Title}");
         }
 
-        string message = descriptions.Length == 1
-            ? $"Running {descriptions[0]}"
-            : "Running tools:" + Environment.NewLine + string.Join(
-                Environment.NewLine,
-                descriptions.Select(static description => $"- {description}"));
-
-        AddActivity(message);
-        AddConversationMessage("Tool", message);
+        if (calls.Length > 0)
+        {
+            _sink?.OnToolCallsStarted(calls);
+        }
     }
 
     public void ShowToolResults(ToolExecutionBatchResult toolExecutionResult)
     {
-        foreach (string message in _toolOutputFormatter.FormatResults(toolExecutionResult))
+        foreach (ToolInvocationResult result in toolExecutionResult.Results)
         {
-            AddActivity(message);
-            AddConversationMessage("Tool", message);
+            IReadOnlyList<string> formatted = _toolOutputFormatter.FormatResults(
+                new ToolExecutionBatchResult([result]));
+            string text = string.Join(Environment.NewLine + Environment.NewLine, formatted).Trim();
+            bool isPlanUpdate = formatted.Count == 0 && result.Result.IsSuccess;
+            if (!isPlanUpdate)
+            {
+                AddActivity(FirstLine(text, result.ToolName));
+            }
+
+            _sink?.OnToolCompleted(new DesktopToolResult(
+                result.ToolCallId,
+                result.ToolName,
+                text,
+                result.Result.IsSuccess,
+                isPlanUpdate));
         }
     }
 
     public void ShowExecutionPlan(ExecutionPlanProgress progress)
     {
-        string message = _planOutputFormatter.Format(progress);
-        AddActivity(message);
-        AddConversationMessage("Plan", message);
+        AddActivity($"Plan: {progress.CompletedTaskCount}/{progress.Tasks.Count} done");
+        _sink?.OnPlan(progress);
+    }
+
+    public void ShowProviderRetry(ProviderRetryProgress progress)
+    {
+        AddActivity($"Retrying request {progress.Attempt}/{progress.MaxAttempts}: {progress.Reason}");
+        _sink?.OnProviderRetry(progress);
+    }
+
+    private static string FirstLine(string text, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return fallback;
+        }
+
+        int newline = text.IndexOf('\n');
+        return (newline < 0 ? text : text[..newline]).Trim();
     }
 
     private void AddActivity(string message)
@@ -207,15 +273,6 @@ internal sealed class DesktopUiBridge : IUiBridge
         if (!string.IsNullOrWhiteSpace(message))
         {
             _addActivity(message.Trim());
-        }
-    }
-
-    private void AddConversationMessage(string role, string message)
-    {
-        if (!string.IsNullOrWhiteSpace(role) &&
-            !string.IsNullOrWhiteSpace(message))
-        {
-            _addConversationMessage(role.Trim(), message.Trim());
         }
     }
 

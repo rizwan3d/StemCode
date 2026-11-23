@@ -1,0 +1,142 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:StemCode.Desktop.ViewModels"
+             xmlns:models="using:StemCode.Desktop.Models"
+             xmlns:controls="using:StemCode.Desktop.Controls"
+             x:Class="StemCode.Desktop.Views.SidebarView"
+             x:DataType="vm:MainWindowViewModel">
+
+    <Border Background="{StaticResource SidebarBackground}"
+            BorderBrush="{StaticResource BorderSubtle}"
+            BorderThickness="0,0,1,0">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+
+            <!-- Brand row -->
+            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto" Margin="14,12,10,8">
+                <Border Width="24" Height="24" CornerRadius="6" Background="#F3F4F6" ClipToBounds="True">
+                    <Image Source="/Assets/logo.png" Width="24" Height="24" Stretch="UniformToFill"/>
+                </Border>
+                <TextBlock Grid.Column="1" Text="StemCode" FontSize="14" FontWeight="SemiBold"
+                           VerticalAlignment="Center" Margin="10,0,0,0"/>
+                <Button AutomationProperties.Name="Hide sidebar (Ctrl+B)" Grid.Column="2" Classes="icon" ToolTip.Tip="Hide sidebar (Ctrl+B)"
+                        Command="{Binding ToggleSidebarCommand}">
+                    <controls:Icon Data="{StaticResource IconSidebar}"/>
+                </Button>
+            </Grid>
+
+            <!-- New session + search -->
+            <StackPanel Grid.Row="1" Margin="10,2,10,6" Spacing="2">
+                <Button AutomationProperties.Name="New session (Ctrl+N)" Classes="list" Command="{Binding NewSessionCommand}" ToolTip.Tip="New session (Ctrl+N)">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <controls:Icon Data="{StaticResource IconPlus}" Foreground="{StaticResource TextPrimary}"/>
+                        <TextBlock Grid.Column="1" Text="New session" FontSize="13" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Classes="kbd" Text="Ctrl N" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+                <Button AutomationProperties.Name="Search commands, sessions and settings (Ctrl+K)" Classes="list" Command="{Binding OpenPaletteCommand}" ToolTip.Tip="Search commands, sessions and settings (Ctrl+K)">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <controls:Icon Data="{StaticResource IconSearch}" Foreground="{StaticResource TextSecondary}"/>
+                        <TextBlock Grid.Column="1" Text="Search &amp; commands" FontSize="13" Margin="10,0,0,0"
+                                   Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Classes="kbd" Text="Ctrl K" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+            </StackPanel>
+
+            <!-- Workspace picker -->
+            <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto" Margin="14,10,10,4">
+                <TextBlock Classes="label" Text="WORKSPACE" VerticalAlignment="Center"/>
+                <Button AutomationProperties.Name="Open folder (Ctrl+O)" Grid.Column="1" Classes="icon" Width="24" Height="24" ToolTip.Tip="Open folder (Ctrl+O)"
+                        Click="OpenFolder_Click">
+                    <controls:Icon Data="{StaticResource IconPlus}" Size="14"/>
+                </Button>
+                <Button AutomationProperties.Name="Workspace options" Grid.Column="2" Classes="icon" Width="24" Height="24" ToolTip.Tip="Workspace options">
+                    <controls:Icon Data="{StaticResource IconMore}" Size="14" StrokeThickness="3"/>
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <MenuItem Header="Open folder…" Click="OpenFolder_Click"/>
+                            <MenuItem Header="Reveal in file manager" Click="RevealWorkspace_Click"/>
+                            <MenuItem Header="Initialise StemCode files (/init)" Command="{Binding Chat.RunSlashCommand}" CommandParameter="/init"/>
+                            <Separator/>
+                            <MenuItem Header="Remove from list" Command="{Binding Project.RemoveProjectCommand}"
+                                      CommandParameter="{Binding Project.SelectedProject}"/>
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </Grid>
+            <ComboBox Grid.Row="3" Margin="10,2,10,8" HorizontalAlignment="Stretch"
+                      ItemsSource="{Binding Project.Projects}"
+                      SelectedItem="{Binding Project.SelectedProject, Mode=TwoWay}"
+                      PlaceholderText="Open a folder…"
+                      MaxDropDownHeight="420">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:ProjectInfo">
+                        <StackPanel Orientation="Horizontal" Spacing="8" ToolTip.Tip="{Binding Path}">
+                            <controls:Icon Data="{StaticResource IconFolder}" Size="14" Foreground="{StaticResource TextSecondary}"/>
+                            <TextBlock Text="{Binding Name}" FontSize="12.5" TextTrimming="CharacterEllipsis" MaxWidth="190"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+
+            <!-- Sessions -->
+            <Grid Grid.Row="4" RowDefinitions="Auto,Auto,*">
+                <TextBlock Classes="label" Text="SESSIONS" Margin="14,8,10,6"/>
+                <TextBox Grid.Row="1" Margin="10,0,10,6" PlaceholderText="Filter sessions"
+                         Text="{Binding Project.SessionSearch, Mode=TwoWay}" FontSize="12" MinHeight="30" Padding="9,5"/>
+                <Grid Grid.Row="2">
+                    <ListBox ItemsSource="{Binding Project.SessionItems}"
+                             SelectedItem="{Binding Project.SelectedSessionItem, Mode=TwoWay}"
+                             Margin="8,0,8,0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:SessionListItem">
+                                <Grid ColumnDefinitions="3,*,Auto" Background="Transparent" ToolTip.Tip="{Binding Tooltip}">
+                                    <Grid.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Delete session"
+                                                      Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).DeleteSessionCommand}"
+                                                      CommandParameter="{Binding}"/>
+                                        </ContextMenu>
+                                    </Grid.ContextMenu>
+                                    <Border Width="3" CornerRadius="2" Margin="0,6" Background="{StaticResource Accent}"
+                                            IsVisible="{Binding IsActive}"/>
+                                    <StackPanel Grid.Column="1" Margin="8,7,4,7" Spacing="2">
+                                        <TextBlock Text="{Binding Title}" FontSize="12.5" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11"/>
+                                    </StackPanel>
+                                    <Button AutomationProperties.Name="Delete session" Grid.Column="2" Classes="icon" Width="24" Height="24" Margin="0,0,4,0"
+                                            ToolTip.Tip="Delete session" Opacity="0.7"
+                                            Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).DeleteSessionCommand}"
+                                            CommandParameter="{Binding}">
+                                        <controls:Icon Data="{StaticResource IconTrash}" Size="13"/>
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock Text="{Binding Project.SessionsEmptyText}" IsVisible="{Binding Project.HasNoSessions}"
+                               Classes="muted" TextWrapping="Wrap" Margin="16,6,16,0" VerticalAlignment="Top"/>
+                </Grid>
+            </Grid>
+
+            <!-- Footer -->
+            <Border Grid.Row="5" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0" Padding="8">
+                <Grid ColumnDefinitions="*,Auto">
+                    <Button AutomationProperties.Name="Settings (Ctrl+,)" Classes="list" Command="{Binding OpenSettingsCommand}" ToolTip.Tip="Settings (Ctrl+,)">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <controls:Icon Data="{StaticResource IconSettings}"/>
+                            <TextBlock Text="Settings" FontSize="13" VerticalAlignment="Center" Foreground="{StaticResource TextSecondary}"/>
+                        </StackPanel>
+                    </Button>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" Margin="0,0,6,0"
+                                ToolTip.Tip="{Binding Chat.StatusText}">
+                        <Ellipse Width="7" Height="7" Fill="{StaticResource Success}" IsVisible="{Binding Chat.HasSessionOptions}"/>
+                        <TextBlock Text="{Binding Chat.ProviderName}" Classes="muted" FontSize="11" MaxWidth="110"
+                                   TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</UserControl>

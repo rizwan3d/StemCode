@@ -1,7 +1,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using StemCode.Desktop.Models;
 using StemCode.Desktop.Services;
 using System.Collections.ObjectModel;
+using System.Globalization;
 
 namespace StemCode.Desktop.ViewModels;
 
@@ -9,8 +11,7 @@ public partial class ProjectViewModel : ViewModelBase
 {
     private readonly SettingsService _settingsService;
     private readonly SectionHistoryService _sectionHistoryService;
-    private bool _isApplyingTreeSelection;
-    private string? _pendingTreeSectionId;
+    private List<WorkspaceSectionInfo> _allSections = [];
 
     [ObservableProperty]
     private ProjectInfo? _selectedProject;
@@ -19,30 +20,38 @@ public partial class ProjectViewModel : ViewModelBase
     private WorkspaceSectionInfo? _selectedSection;
 
     [ObservableProperty]
-    private WorkspaceTreeItemViewModel? _selectedTreeItem;
+    private SessionListItem? _selectedSessionItem;
 
-    public ProjectViewModel(
-        SettingsService settingsService,
-        SectionHistoryService sectionHistoryService)
+    [ObservableProperty]
+    private string _sessionSearch = string.Empty;
+
+    public ProjectViewModel(SettingsService settingsService, SectionHistoryService sectionHistoryService)
     {
         _settingsService = settingsService;
         _sectionHistoryService = sectionHistoryService;
+        RemoveProjectCommand = new AsyncRelayCommand<ProjectInfo?>(RemoveProjectAsync);
         LoadProjects();
     }
 
     public ObservableCollection<ProjectInfo> Projects { get; } = new();
 
-    public ObservableCollection<WorkspaceSectionInfo> Sections { get; } = new();
+    public ObservableCollection<SessionListItem> SessionItems { get; } = new();
 
-    public ObservableCollection<WorkspaceTreeItemViewModel> WorkspaceTreeItems { get; } = new();
+    public IAsyncRelayCommand<ProjectInfo?> RemoveProjectCommand { get; }
 
-    public string SectionCountText => Sections.Count == 0
-        ? "0"
-        : Sections.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    public bool IsApplyingSelection { get; private set; }
 
-    public string SelectedProjectName => SelectedProject?.Name ?? "No project open";
+    public string SelectedProjectName => SelectedProject?.Name ?? "No workspace";
 
-    public string SelectedProjectPath => SelectedProject?.Path ?? "No folder selected";
+    public string SelectedProjectPath => SelectedProject?.Path ?? "Open a folder to begin";
+
+    public bool HasSessions => SessionItems.Count > 0;
+
+    public bool HasNoSessions => SessionItems.Count == 0;
+
+    public string SessionsEmptyText => SelectedProject is null
+        ? "Open a workspace to see its sessions."
+        : string.IsNullOrWhiteSpace(SessionSearch) ? "No sessions yet. Start one below." : "No sessions match your search.";
 
     public async Task AddProjectAsync(string path)
     {
@@ -51,238 +60,205 @@ public partial class ProjectViewModel : ViewModelBase
             return;
         }
 
-        var normalizedPath = Path.GetFullPath(path);
-        var existing = Projects.FirstOrDefault(project => string.Equals(project.Path, normalizedPath, StringComparison.OrdinalIgnoreCase));
-
+        string normalizedPath = Path.GetFullPath(path);
+        ProjectInfo? existing = Projects.FirstOrDefault(project => string.Equals(project.Path, normalizedPath, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)
         {
+            Projects.Move(Projects.IndexOf(existing), 0);
             SelectedProject = existing;
-            await RefreshWorkspaceTreeAsync();
+            await _settingsService.SaveRecentProjectsAsync(Projects);
             return;
         }
 
-        var name = Path.GetFileName(normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        var project = new ProjectInfo(name, normalizedPath, DateTimeOffset.Now);
-
+        string name = Path.GetFileName(normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        ProjectInfo project = new(string.IsNullOrWhiteSpace(name) ? normalizedPath : name, normalizedPath, DateTimeOffset.Now);
         Projects.Insert(0, project);
         SelectedProject = project;
-
         await _settingsService.SaveRecentProjectsAsync(Projects);
-        await RefreshWorkspaceTreeAsync();
     }
 
-    public async Task RemoveWorkspaceAsync(WorkspaceTreeItemViewModel? item)
+    private async Task RemoveProjectAsync(ProjectInfo? project)
     {
-        ProjectInfo? project = item?.Project;
         if (project is null)
         {
             return;
         }
 
-        ProjectInfo? existing = Projects.FirstOrDefault(candidate =>
-            string.Equals(candidate.Path, project.Path, StringComparison.OrdinalIgnoreCase));
-        if (existing is null)
-        {
-            return;
-        }
-
-        bool removedSelectedProject = SelectedProject is not null &&
-            string.Equals(SelectedProject.Path, existing.Path, StringComparison.OrdinalIgnoreCase);
-
-        Projects.Remove(existing);
+        bool wasSelected = SelectedProject is not null &&
+            string.Equals(SelectedProject.Path, project.Path, StringComparison.OrdinalIgnoreCase);
+        Projects.Remove(project);
         await _settingsService.SaveRecentProjectsAsync(Projects);
-
-        if (removedSelectedProject)
+        if (wasSelected)
         {
             SelectedProject = Projects.FirstOrDefault();
-            SelectedSection = null;
-            Sections.Clear();
-            OnPropertyChanged(nameof(SectionCountText));
         }
-
-        await RefreshWorkspaceTreeAsync();
     }
 
-    public async Task RemoveSectionAsync(WorkspaceTreeItemViewModel? item)
+    public async Task<bool> DeleteSessionAsync(SessionListItem? item)
     {
-        ProjectInfo? project = item?.Project;
-        WorkspaceSectionInfo? section = item?.Section;
-        if (project is null || section is null)
+        if (item is null || SelectedProject is null)
         {
-            return;
+            return false;
         }
 
-        bool removed = await _sectionHistoryService.DeleteSectionAsync(
-            project.Path,
-            section.SectionId);
-        if (!removed)
+        bool removed = await _sectionHistoryService.DeleteSectionAsync(SelectedProject.Path, item.Section.SectionId);
+        if (removed)
         {
-            return;
+            _allSections.RemoveAll(section => string.Equals(section.SectionId, item.Section.SectionId, StringComparison.OrdinalIgnoreCase));
+            ApplyFilter();
         }
 
-        bool isSelectedProject = SelectedProject is not null &&
-            string.Equals(SelectedProject.Path, project.Path, StringComparison.OrdinalIgnoreCase);
-        if (isSelectedProject)
-        {
-            WorkspaceSectionInfo? existingSection = Sections.FirstOrDefault(candidate =>
-                string.Equals(candidate.SectionId, section.SectionId, StringComparison.OrdinalIgnoreCase));
-            bool removedSelectedSection = SelectedSection is not null &&
-                string.Equals(SelectedSection.SectionId, section.SectionId, StringComparison.OrdinalIgnoreCase);
+        return removed;
+    }
 
-            if (existingSection is not null)
+    /// <summary>
+    /// Reloads the session list. With <paramref name="selectSessionId"/> the matching session is selected
+    /// (or nothing, if it is not persisted yet); without it the most recent session is selected.
+    /// Selection changes made here are flagged with <see cref="IsApplyingSelection"/>.
+    /// </summary>
+    public async Task RefreshSectionsAsync(string? selectSessionId = null, bool preferMostRecent = true)
+    {
+        _allSections = SelectedProject is null
+            ? []
+            : (await _sectionHistoryService.ListSectionsAsync(SelectedProject.Path)).ToList();
+
+        IsApplyingSelection = true;
+        try
+        {
+            WorkspaceSectionInfo? selected = null;
+            if (!string.IsNullOrWhiteSpace(selectSessionId))
             {
-                Sections.Remove(existingSection);
+                selected = _allSections.FirstOrDefault(section => string.Equals(section.SectionId, selectSessionId, StringComparison.OrdinalIgnoreCase));
+            }
+            else if (preferMostRecent)
+            {
+                selected = _allSections.FirstOrDefault();
             }
 
-            if (removedSelectedSection)
-            {
-                _pendingTreeSectionId = null;
-                SelectedSection = Sections.FirstOrDefault();
-            }
-
-            OnPropertyChanged(nameof(SectionCountText));
+            SelectedSection = selected;
+            ApplyFilter();
         }
-
-        await RefreshWorkspaceTreeAsync();
+        finally
+        {
+            IsApplyingSelection = false;
+        }
     }
 
     partial void OnSelectedProjectChanged(ProjectInfo? value)
     {
         OnPropertyChanged(nameof(SelectedProjectName));
         OnPropertyChanged(nameof(SelectedProjectPath));
+        OnPropertyChanged(nameof(SessionsEmptyText));
     }
 
-    partial void OnSelectedTreeItemChanged(WorkspaceTreeItemViewModel? value)
+    partial void OnSessionSearchChanged(string value)
     {
-        if (_isApplyingTreeSelection || value is null)
+        bool wasApplying = IsApplyingSelection;
+        IsApplyingSelection = true;
+        try
         {
-            return;
+            ApplyFilter();
         }
-
-        ProjectInfo? project = value.Project;
-        if (project is null)
+        finally
         {
-            return;
-        }
-
-        bool projectChanged = SelectedProject is null ||
-            !string.Equals(SelectedProject.Path, project.Path, StringComparison.OrdinalIgnoreCase);
-
-        if (value.Section is not null)
-        {
-            _pendingTreeSectionId = value.Section.SectionId;
-        }
-        else
-        {
-            _pendingTreeSectionId = null;
-        }
-
-        if (projectChanged)
-        {
-            SelectedProject = project;
-            return;
-        }
-
-        if (value.Section is not null)
-        {
-            SelectedSection = Sections.FirstOrDefault(section =>
-                string.Equals(section.SectionId, value.Section.SectionId, StringComparison.OrdinalIgnoreCase)) ??
-                value.Section;
+            IsApplyingSelection = wasApplying;
         }
     }
 
-    public async Task RefreshSectionsAsync()
+    partial void OnSelectedSessionItemChanged(SessionListItem? value)
     {
-        string? selectedSectionId = _pendingTreeSectionId ?? SelectedSection?.SectionId;
-        _pendingTreeSectionId = null;
-        Sections.Clear();
-        SelectedSection = null;
-
-        if (SelectedProject is null)
+        if (IsApplyingSelection || value is null)
         {
-            OnPropertyChanged(nameof(SectionCountText));
-            await RefreshWorkspaceTreeAsync();
             return;
         }
 
-        IReadOnlyList<WorkspaceSectionInfo> sections = await _sectionHistoryService.ListSectionsAsync(
-            SelectedProject.Path);
-
-        foreach (WorkspaceSectionInfo section in sections)
-        {
-            Sections.Add(section);
-        }
-
-        SelectedSection = Sections.FirstOrDefault(section =>
-            string.Equals(section.SectionId, selectedSectionId, StringComparison.OrdinalIgnoreCase)) ??
-            Sections.FirstOrDefault();
-        OnPropertyChanged(nameof(SectionCountText));
-        await RefreshWorkspaceTreeAsync();
+        SelectedSection = value.Section;
     }
 
-    public async Task RefreshWorkspaceTreeAsync()
+    partial void OnSelectedSectionChanged(WorkspaceSectionInfo? value)
     {
-        string? selectedProjectPath = SelectedProject?.Path;
-        string? selectedSectionId = SelectedSection?.SectionId;
-
-        WorkspaceTreeItems.Clear();
-        foreach (ProjectInfo project in Projects)
+        foreach (SessionListItem item in SessionItems)
         {
-            IReadOnlyList<WorkspaceSectionInfo> sections = await _sectionHistoryService.ListSectionsAsync(project.Path);
-            WorkspaceTreeItems.Add(WorkspaceTreeItemViewModel.CreateWorkspace(
-                project,
-                sections,
-                RemoveSectionAsync,
-                RemoveWorkspaceAsync));
+            item.IsActive = value is not null && string.Equals(item.Section.SectionId, value.SectionId, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        string query = SessionSearch.Trim();
+        IEnumerable<WorkspaceSectionInfo> matches = string.IsNullOrEmpty(query)
+            ? _allSections
+            : _allSections.Where(section =>
+                section.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                section.ActiveModelId.Contains(query, StringComparison.OrdinalIgnoreCase));
+
+        SessionItems.Clear();
+        foreach (WorkspaceSectionInfo section in matches)
+        {
+            SessionItems.Add(new SessionListItem(section)
+            {
+                IsActive = SelectedSection is not null && string.Equals(section.SectionId, SelectedSection.SectionId, StringComparison.OrdinalIgnoreCase)
+            });
         }
 
-        SetSelectedTreeItem(selectedProjectPath, selectedSectionId);
+        SelectedSessionItem = SessionItems.FirstOrDefault(static item => item.IsActive);
+        OnPropertyChanged(nameof(HasSessions));
+        OnPropertyChanged(nameof(HasNoSessions));
+        OnPropertyChanged(nameof(SessionsEmptyText));
     }
 
     private void LoadProjects()
     {
-        foreach (var project in _settingsService.LoadRecentProjects())
+        foreach (ProjectInfo project in _settingsService.LoadRecentProjects())
         {
             Projects.Add(project);
         }
 
         SelectedProject = Projects.FirstOrDefault();
     }
+}
 
-    private void SetSelectedTreeItem(
-        string? selectedProjectPath,
-        string? selectedSectionId)
+public sealed partial class SessionListItem : ObservableObject
+{
+    [ObservableProperty]
+    private bool _isActive;
+
+    public SessionListItem(WorkspaceSectionInfo section)
     {
-        WorkspaceTreeItemViewModel? selectedItem = null;
-        foreach (WorkspaceTreeItemViewModel workspace in WorkspaceTreeItems)
+        Section = section;
+    }
+
+    public WorkspaceSectionInfo Section { get; }
+
+    public string Title => string.IsNullOrWhiteSpace(Section.Title) ? "Untitled session" : Section.Title;
+
+    public string Detail => $"{RelativeTime(Section.UpdatedAtUtc)} · {Section.TurnCount} {(Section.TurnCount == 1 ? "turn" : "turns")}";
+
+    public string Tooltip => $"{Title}\n{Section.ActiveModelId}\n{Section.UpdatedAtUtc.ToLocalTime():f}\n{Section.SectionId}";
+
+    private static string RelativeTime(DateTimeOffset timestamp)
+    {
+        TimeSpan age = DateTimeOffset.UtcNow - timestamp;
+        if (age < TimeSpan.FromMinutes(1))
         {
-            if (workspace.Project is null ||
-                string.IsNullOrWhiteSpace(selectedProjectPath) ||
-                !string.Equals(workspace.Project.Path, selectedProjectPath, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            selectedItem = workspace;
-            if (!string.IsNullOrWhiteSpace(selectedSectionId))
-            {
-                selectedItem = workspace.Children.FirstOrDefault(section =>
-                    section.Section is not null &&
-                    string.Equals(section.Section.SectionId, selectedSectionId, StringComparison.OrdinalIgnoreCase)) ??
-                    selectedItem;
-            }
-
-            break;
+            return "just now";
         }
 
-        _isApplyingTreeSelection = true;
-        try
+        if (age < TimeSpan.FromHours(1))
         {
-            SelectedTreeItem = selectedItem;
+            return $"{(int)age.TotalMinutes}m ago";
         }
-        finally
+
+        if (age < TimeSpan.FromDays(1))
         {
-            _isApplyingTreeSelection = false;
+            return $"{(int)age.TotalHours}h ago";
         }
+
+        if (age < TimeSpan.FromDays(7))
+        {
+            return $"{(int)age.TotalDays}d ago";
+        }
+
+        return timestamp.ToLocalTime().ToString("MMM d", CultureInfo.CurrentCulture);
     }
 }

@@ -2,30 +2,47 @@ using StemCode.Application.Abstractions;
 using StemCode.Application.Backend;
 using StemCode.Application.Commands;
 using StemCode.Application.Models;
+using StemCode.Application.Tools.Models;
 using StemCode.Desktop.Models;
-using DesktopChatMessage = StemCode.Desktop.Models.ChatMessage;
 
 namespace StemCode.Desktop.Services;
 
+/// <summary>
+/// Owns the in-process StemCode backend for the active workspace/section and serialises access to it.
+/// </summary>
 public sealed class AgentRunner : IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly IDesktopTranscriptSink? _sink;
     private IStemCodeBackend? _backend;
     private DesktopUiBridge? _bridge;
     private List<string>? _currentActivity;
     private string? _sectionId;
     private string? _workingDirectory;
 
-    public event EventHandler<DesktopChatMessage>? ConversationMessageReceived;
+    public AgentRunner(IDesktopTranscriptSink? sink = null)
+    {
+        _sink = sink;
+    }
 
     public event EventHandler<DesktopSelectionPrompt?>? SelectionPromptChanged;
 
     public event EventHandler<DesktopTextPrompt?>? TextPromptChanged;
 
+    public event EventHandler<string>? ActivityReported;
+
+    /// <summary>Session id the backend is currently bound to (may change after /new, /fork, /resume, ...).</summary>
+    public string? ActiveSessionId { get; private set; }
+
+    public string? ActiveWorkingDirectory => _workingDirectory;
+
+    public bool IsInitialized => _backend is not null;
+
     public async Task<AgentRunResult> RunAsync(
         string workingDirectory,
         string prompt,
         string? sectionId = null,
+        IReadOnlyList<ConversationAttachment>? attachments = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
@@ -56,25 +73,33 @@ public sealed class AgentRunner : IAsyncDisposable
                         out string? customCommandError))
                 {
                     output = customCommand is null
-                        ? new AgentRunOutput(customCommandError ?? "Custom command could not be expanded.")
-                        : await RunTurnAsync(customCommand.ExpandedPrompt, cancellationToken);
+                        ? new AgentRunOutput(customCommandError ?? "Custom command could not be expanded.", IsCommand: true)
+                        : await RunTurnAsync(customCommand.ExpandedPrompt, attachments, cancellationToken);
                 }
                 else
                 {
-                    output = prompt.TrimStart().StartsWith("/", StringComparison.Ordinal) &&
-                             !McpPromptCommand.IsCandidate(prompt)
+                    output = IsBackendCommand(prompt)
                         ? await RunCommandAsync(prompt, activity, cancellationToken)
-                        : await RunTurnAsync(prompt, cancellationToken);
+                        : await RunTurnAsync(prompt, attachments, cancellationToken);
                 }
+
+                BackendSessionInfo? finalSession = output.SessionInfo;
+                if (finalSession is null && !output.IsCommand)
+                {
+                    // Refresh token/session stats after a turn without adding activity noise.
+                    finalSession = await RunInitializedSessionCommandAsync("/config", activity, CancellationToken.None, addActivity: false);
+                }
+
+                TrackSession(finalSession ?? sessionInfo);
 
                 return new AgentRunResult(
                     output.ResponseText,
                     activity,
-                    output.ToolOutput,
                     output.Elapsed,
                     output.EstimatedTokens,
                     output.EstimatedContextWindowUsedTokens,
-                    output.SessionInfo ?? sessionInfo);
+                    finalSession ?? sessionInfo,
+                    output.IsCommand);
             }
             finally
             {
@@ -102,69 +127,70 @@ public sealed class AgentRunner : IAsyncDisposable
             cancellationToken);
     }
 
-    public Task<AgentRunResult> SetModelAsync(
-        string workingDirectory,
-        string modelId,
-        string? sectionId = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
-        return RunWorkspaceCommandAsync(
-            workingDirectory,
-            $"/use {modelId.Trim()}",
-            $"Model: {modelId.Trim()}",
-            sectionId,
-            cancellationToken);
-    }
+    public Task<AgentRunResult> SetModelAsync(string workingDirectory, string modelId, string? sectionId = null, CancellationToken cancellationToken = default)
+        => RunWorkspaceCommandAsync(workingDirectory, $"/use {modelId.Trim()}", $"Model: {modelId.Trim()}", sectionId, cancellationToken);
 
-    public Task<AgentRunResult> SetThinkingAsync(
-        string workingDirectory,
-        string thinkingMode,
-        string? sectionId = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(thinkingMode);
-        return RunWorkspaceCommandAsync(
-            workingDirectory,
-            $"/thinking {thinkingMode.Trim()}",
-            $"Thinking: {thinkingMode.Trim()}",
-            sectionId,
-            cancellationToken);
-    }
+    public Task<AgentRunResult> SetThinkingAsync(string workingDirectory, string thinkingMode, string? sectionId = null, CancellationToken cancellationToken = default)
+        => RunWorkspaceCommandAsync(workingDirectory, $"/thinking {thinkingMode.Trim()}", $"Thinking: {thinkingMode.Trim()}", sectionId, cancellationToken);
 
-    public Task<AgentRunResult> SetReasoningAsync(
-        string workingDirectory,
-        string reasoningEffort,
-        string? sectionId = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(reasoningEffort);
-        return RunWorkspaceCommandAsync(
-            workingDirectory,
-            $"/reasoning {reasoningEffort.Trim()}",
-            $"Reasoning effort: {reasoningEffort.Trim()}",
-            sectionId,
-            cancellationToken);
-    }
+    public Task<AgentRunResult> SetReasoningAsync(string workingDirectory, string reasoningEffort, string? sectionId = null, CancellationToken cancellationToken = default)
+        => RunWorkspaceCommandAsync(workingDirectory, $"/reasoning {reasoningEffort.Trim()}", $"Reasoning effort: {reasoningEffort.Trim()}", sectionId, cancellationToken);
 
-    public Task<AgentRunResult> SetProfileAsync(
-        string workingDirectory,
-        string profileName,
-        string? sectionId = null,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(profileName);
-        return RunWorkspaceCommandAsync(
-            workingDirectory,
-            $"/profile {profileName.Trim()}",
-            $"Profile: {profileName.Trim()}",
-            sectionId,
-            cancellationToken);
-    }
+    public Task<AgentRunResult> SetProfileAsync(string workingDirectory, string profileName, string? sectionId = null, CancellationToken cancellationToken = default)
+        => RunWorkspaceCommandAsync(workingDirectory, $"/profile {profileName.Trim()}", $"Profile: {profileName.Trim()}", sectionId, cancellationToken);
 
     /// <summary>Per-file added/removed line totals for the current conversation (empty before init).</summary>
     public IReadOnlyList<FileEditSummary> GetFileEditSummary()
         => _backend?.GetFileEditSummary() ?? [];
+
+    public async Task<IReadOnlyList<BackgroundTerminalInfo>> ListBackgroundTerminalsAsync(CancellationToken cancellationToken = default)
+    {
+        IStemCodeBackend? backend = _backend;
+        if (backend is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            return await backend.ListBackgroundTerminalsAsync(cancellationToken);
+        }
+        catch (NotSupportedException)
+        {
+            return [];
+        }
+    }
+
+    public async Task<ShellCommandExecutionResult?> ReadBackgroundTerminalAsync(string terminalId, CancellationToken cancellationToken = default)
+    {
+        IStemCodeBackend? backend = _backend;
+        if (backend is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await backend.ReadBackgroundTerminalAsync(terminalId, cancellationToken);
+        }
+        catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>MCP prompts exposed as /mcp__server__prompt commands. May connect to MCP servers, so call off the UI thread.</summary>
+    public IReadOnlyList<McpPromptDescriptor> ListMcpPrompts()
+    {
+        try
+        {
+            return _backend?.ListMcpPrompts() ?? [];
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {
@@ -177,6 +203,29 @@ public sealed class AgentRunner : IAsyncDisposable
         _gate.Dispose();
     }
 
+    private static bool IsBackendCommand(string prompt)
+    {
+        return prompt.TrimStart().StartsWith("/", StringComparison.Ordinal) &&
+            !McpPromptCommand.IsCandidate(prompt);
+    }
+
+    private void TrackSession(BackendSessionInfo? sessionInfo)
+    {
+        if (sessionInfo is null || string.IsNullOrWhiteSpace(sessionInfo.SessionId))
+        {
+            return;
+        }
+
+        ActiveSessionId = sessionInfo.SessionId;
+
+        // Commands such as /new, /fork, /clone, /resume, /rewind and /import switch the
+        // backend to another section in place; follow it so the next call reuses the backend.
+        if (_backend is not null && Guid.TryParse(sessionInfo.SessionId, out Guid parsed))
+        {
+            _sectionId = parsed.ToString("D");
+        }
+    }
+
     private async Task<BackendSessionInfo> EnsureBackendAsync(
         string workingDirectory,
         string? sectionId,
@@ -187,9 +236,11 @@ public sealed class AgentRunner : IAsyncDisposable
 
         if (_backend is not null &&
             string.Equals(_workingDirectory, workingDirectory, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(_sectionId, normalizedSectionId, StringComparison.OrdinalIgnoreCase))
+            (normalizedSectionId is null || string.Equals(_sectionId, normalizedSectionId, StringComparison.OrdinalIgnoreCase)))
         {
-            return await RunInitializedSessionCommandAsync("/config", activity, cancellationToken, addActivity: false);
+            BackendSessionInfo current = await RunInitializedSessionCommandAsync("/config", activity, cancellationToken, addActivity: false);
+            TrackSession(current);
+            return current;
         }
 
         if (_backend is not null)
@@ -206,7 +257,7 @@ public sealed class AgentRunner : IAsyncDisposable
         {
             _bridge = new DesktopUiBridge(
                 AddBridgeActivity,
-                AddBridgeConversationMessage,
+                _sink,
                 SetSelectionPrompt,
                 SetTextPrompt);
             _backend = new StemCodeBackend(CreateBackendArgs(normalizedSectionId));
@@ -214,6 +265,7 @@ public sealed class AgentRunner : IAsyncDisposable
             BackendSessionInfo session = await _backend.InitializeAsync(_bridge, cancellationToken);
             _workingDirectory = workingDirectory;
             _sectionId = normalizedSectionId;
+            TrackSession(session);
             activity.Add($"Ready: {session.ProviderName} / {session.ModelId}");
             return session;
         }
@@ -228,11 +280,35 @@ public sealed class AgentRunner : IAsyncDisposable
             _bridge = null;
             _sectionId = null;
             _workingDirectory = null;
+            ActiveSessionId = null;
             throw;
         }
         finally
         {
             Directory.SetCurrentDirectory(originalDirectory);
+        }
+    }
+
+    /// <summary>Discards the backend so the next call starts a fresh section.</summary>
+    public async Task ResetAsync()
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (_backend is not null)
+            {
+                await _backend.DisposeAsync();
+            }
+
+            _backend = null;
+            _bridge = null;
+            _sectionId = null;
+            _workingDirectory = null;
+            ActiveSessionId = null;
+        }
+        finally
+        {
+            _gate.Release();
         }
     }
 
@@ -253,16 +329,15 @@ public sealed class AgentRunner : IAsyncDisposable
             async (_, commandActivity, token) =>
             {
                 await EnsureBackendAsync(Path.GetFullPath(workingDirectory), sectionId, commandActivity, token);
-                return await RunInitializedSessionCommandAsync(command, commandActivity, token, addActivity: true);
+                BackendSessionInfo info = await RunInitializedSessionCommandAsync(command, commandActivity, token, addActivity: true);
+                TrackSession(info);
+                return info;
             },
             cancellationToken);
 
         activity.Add(activityMessage);
 
-        return new AgentRunResult(
-            "Updated.",
-            activity,
-            SessionInfo: sessionInfo);
+        return new AgentRunResult("Updated.", activity, SessionInfo: sessionInfo, IsCommand: true);
     }
 
     private async Task<T> WithWorkspaceAsync<T>(
@@ -296,21 +371,23 @@ public sealed class AgentRunner : IAsyncDisposable
         }
     }
 
-    private async Task<AgentRunOutput> RunTurnAsync(string prompt, CancellationToken cancellationToken)
+    private async Task<AgentRunOutput> RunTurnAsync(
+        string prompt,
+        IReadOnlyList<ConversationAttachment>? attachments,
+        CancellationToken cancellationToken)
     {
         if (_backend is null || _bridge is null)
         {
             throw new InvalidOperationException("StemCode backend has not been initialized.");
         }
 
-        ConversationTurnResult result = await _backend.RunTurnAsync(prompt, _bridge, cancellationToken);
-        string responseText = string.IsNullOrWhiteSpace(result.ResponseText)
-            ? "Task completed with no output."
-            : result.ResponseText;
+        ConversationTurnResult result = attachments is { Count: > 0 }
+            ? await _backend.RunTurnAsync(prompt, attachments, _bridge, cancellationToken)
+            : await _backend.RunTurnAsync(prompt, _bridge, cancellationToken);
 
         return new AgentRunOutput(
-            responseText,
-            ToolOutput: [],
+            result.ResponseText ?? string.Empty,
+            IsCommand: false,
             result.Metrics?.Elapsed,
             result.Metrics?.DisplayedEstimatedOutputTokens,
             result.Metrics?.EstimatedTotalTokens);
@@ -342,9 +419,7 @@ public sealed class AgentRunner : IAsyncDisposable
             ? "Command completed."
             : result.CommandResult.Message;
 
-        return new AgentRunOutput(
-            responseText,
-            SessionInfo: result.SessionInfo);
+        return new AgentRunOutput(responseText, IsCommand: true, SessionInfo: result.SessionInfo);
     }
 
     private async Task<BackendSessionInfo> RunInitializedSessionCommandAsync(
@@ -369,25 +444,13 @@ public sealed class AgentRunner : IAsyncDisposable
 
     private void AddBridgeActivity(string message)
     {
-        if (!string.IsNullOrWhiteSpace(message))
+        if (string.IsNullOrWhiteSpace(message))
         {
-            _currentActivity?.Add(message.Trim());
+            return;
         }
-    }
 
-    private void AddBridgeConversationMessage(string role, string message)
-    {
-        if (!string.IsNullOrWhiteSpace(role) &&
-            !string.IsNullOrWhiteSpace(message))
-        {
-            ConversationMessageReceived?.Invoke(
-                this,
-                new DesktopChatMessage(
-                    role.Trim(),
-                    message.Trim(),
-                    statusNote: null,
-                    workspacePath: _workingDirectory));
-        }
+        _currentActivity?.Add(message.Trim());
+        ActivityReported?.Invoke(this, message.Trim());
     }
 
     private static string[] CreateBackendArgs(string? sectionId)
@@ -406,9 +469,7 @@ public sealed class AgentRunner : IAsyncDisposable
 
         if (!Guid.TryParse(sectionId.Trim(), out Guid parsedSectionId))
         {
-            throw new ArgumentException(
-                "Section id must be a valid GUID.",
-                nameof(sectionId));
+            throw new ArgumentException("Section id must be a valid GUID.", nameof(sectionId));
         }
 
         return parsedSectionId.ToString("D");
@@ -427,7 +488,7 @@ public sealed class AgentRunner : IAsyncDisposable
 
 internal sealed record AgentRunOutput(
     string ResponseText,
-    IReadOnlyList<string>? ToolOutput = null,
+    bool IsCommand,
     TimeSpan? Elapsed = null,
     int? EstimatedTokens = null,
     int? EstimatedContextWindowUsedTokens = null,
@@ -436,8 +497,8 @@ internal sealed record AgentRunOutput(
 public sealed record AgentRunResult(
     string ResponseText,
     IReadOnlyList<string> Activity,
-    IReadOnlyList<string>? ToolOutput = null,
     TimeSpan? Elapsed = null,
     int? EstimatedTokens = null,
     int? EstimatedContextWindowUsedTokens = null,
-    BackendSessionInfo? SessionInfo = null);
+    BackendSessionInfo? SessionInfo = null,
+    bool IsCommand = false);

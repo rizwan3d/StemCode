@@ -15,7 +15,7 @@ public sealed class EditActionToBrushConverter : IValueConverter
     public static readonly EditActionToBrushConverter Instance = new();
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => value as string switch
+        => (value as string) switch
         {
             "Created" => Created,
             "Deleted" => Deleted,

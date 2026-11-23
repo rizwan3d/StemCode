@@ -53,7 +53,10 @@ public sealed partial class DesktopSelectionPrompt : ObservableObject
                 optionIndex == SelectedIndex,
                 new RelayCommand(
                     () => Select(optionIndex),
-                    () => !_isResolved)));
+                    () => !_isResolved))
+            {
+                Number = optionIndex + 1
+            });
         }
 
         CancelCommand = new RelayCommand(
@@ -93,6 +96,34 @@ public sealed partial class DesktopSelectionPrompt : ObservableObject
         _isResolved = true;
         NotifyCommandStatesChanged();
         Dismissed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Selects an option by its 1-based number (keyboard shortcut). Returns false when out of range.</summary>
+    public bool TrySelectNumber(int number)
+    {
+        if (_isResolved || number < 1 || number > Options.Count)
+        {
+            return false;
+        }
+
+        Resolve(number - 1, isAutomatic: false);
+        return true;
+    }
+
+    public bool TryCancel()
+    {
+        if (!AllowCancellation || _isResolved)
+        {
+            return false;
+        }
+
+        Cancel();
+        return true;
+    }
+
+    public void SelectDefault()
+    {
+        Resolve(SelectedIndex, isAutomatic: false);
     }
 
     public void Tick()
@@ -193,6 +224,10 @@ public sealed record DesktopSelectionPromptOption(
     IRelayCommand SelectCommand)
 {
     public bool HasDescription => !string.IsNullOrWhiteSpace(Description);
+
+    public int Number { get; init; }
+
+    public string NumberText => Number is > 0 and < 10 ? Number.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty;
 
     public bool HasSection => !string.IsNullOrWhiteSpace(Section);
 

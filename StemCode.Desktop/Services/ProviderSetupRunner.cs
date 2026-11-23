@@ -5,7 +5,6 @@ using StemCode.Application.Backend;
 using StemCode.Application.Models;
 using StemCode.Desktop.Models;
 using StemCode.Domain.Models;
-using DesktopChatMessage = StemCode.Desktop.Models.ChatMessage;
 
 namespace StemCode.Desktop.Services;
 
@@ -13,8 +12,6 @@ public sealed class ProviderSetupRunner : IAsyncDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private List<string>? _currentActivity;
-
-    public event EventHandler<DesktopChatMessage>? ConversationMessageReceived;
 
     public event EventHandler<DesktopSelectionPrompt?>? SelectionPromptChanged;
 
@@ -31,7 +28,7 @@ public sealed class ProviderSetupRunner : IAsyncDisposable
 
             DesktopUiBridge bridge = new(
                 AddBridgeActivity,
-                AddBridgeConversationMessage,
+                sink: null,
                 SetSelectionPrompt,
                 SetTextPrompt);
 
@@ -80,21 +77,6 @@ public sealed class ProviderSetupRunner : IAsyncDisposable
         if (!string.IsNullOrWhiteSpace(message))
         {
             _currentActivity?.Add(message.Trim());
-        }
-    }
-
-    private void AddBridgeConversationMessage(string role, string message)
-    {
-        if (!string.IsNullOrWhiteSpace(role) &&
-            !string.IsNullOrWhiteSpace(message))
-        {
-            ConversationMessageReceived?.Invoke(
-                this,
-                new DesktopChatMessage(
-                    role.Trim(),
-                    message.Trim(),
-                    statusNote: null,
-                    workspacePath: null));
         }
     }
 

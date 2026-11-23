@@ -1,0 +1,184 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:StemCode.Desktop.ViewModels"
+             xmlns:models="using:StemCode.Desktop.Models"
+             xmlns:appmodels="using:StemCode.Application.Models"
+             xmlns:controls="using:StemCode.Desktop.Controls"
+             xmlns:conv="using:StemCode.Desktop.Converters"
+             x:Class="StemCode.Desktop.Views.InspectorView"
+             x:DataType="vm:MainWindowViewModel">
+
+    <Border Background="{StaticResource SidebarBackground}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="1,0,0,0">
+        <Grid RowDefinitions="Auto,*">
+            <!-- Tabs -->
+            <Grid ColumnDefinitions="*,Auto" Margin="8,8,8,6">
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                    <Button Classes="tab" Classes.active="{Binding Inspector.IsChangesTab}" Command="{Binding Inspector.SelectTabCommand}" CommandParameter="Changes">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="Changes" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Inspector.ChangesBadge}" Classes="kbd" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="tab" Classes.active="{Binding Inspector.IsPlanTab}" Command="{Binding Inspector.SelectTabCommand}" CommandParameter="Plan">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="Plan" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Inspector.PlanBadge}" Classes="kbd" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="tab" Classes.active="{Binding Inspector.IsTerminalsTab}" Command="{Binding Inspector.SelectTabCommand}" CommandParameter="Terminals">
+                        <StackPanel Orientation="Horizontal" Spacing="5">
+                            <TextBlock Text="Terminals" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Inspector.TerminalsBadge}" Classes="kbd" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="tab" Classes.active="{Binding Inspector.IsActivityTab}" Command="{Binding Inspector.SelectTabCommand}" CommandParameter="Activity"
+                            Content="Activity"/>
+                </StackPanel>
+                <Button AutomationProperties.Name="Close panel (Ctrl+J)" Grid.Column="1" Classes="icon" ToolTip.Tip="Close panel (Ctrl+J)" Command="{Binding ToggleInspectorCommand}">
+                    <controls:Icon Data="{StaticResource IconClose}" Size="14"/>
+                </Button>
+            </Grid>
+
+            <!-- CHANGES -->
+            <Grid Grid.Row="1" IsVisible="{Binding Inspector.IsChangesTab}" RowDefinitions="Auto,Auto,Auto,*">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="14,2,8,6">
+                    <TextBlock Text="{Binding Inspector.ChangesTotalsText}" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    <Button AutomationProperties.Name="Undo last edit" Grid.Column="1" Classes="icon" Width="26" Height="26" ToolTip.Tip="Undo last edit" Command="{Binding Chat.UndoCommand}">
+                        <controls:Icon Data="{StaticResource IconUndo}" Size="14"/>
+                    </Button>
+                    <Button AutomationProperties.Name="Redo edit" Grid.Column="2" Classes="icon" Width="26" Height="26" ToolTip.Tip="Redo edit" Command="{Binding Chat.RedoCommand}">
+                        <controls:Icon Data="{StaticResource IconRedo}" Size="14"/>
+                    </Button>
+                    <Button AutomationProperties.Name="Show all uncommitted changes (git diff)" Grid.Column="3" Classes="icon" Width="26" Height="26" ToolTip.Tip="Show all uncommitted changes (git diff)"
+                            Command="{Binding Inspector.ShowWorkspaceDiffCommand}">
+                        <controls:Icon Data="{StaticResource IconDiff}" Size="14"/>
+                    </Button>
+                </Grid>
+                <ListBox Grid.Row="1" ItemsSource="{Binding Chat.ChangedFiles}" SelectedItem="{Binding Inspector.SelectedChange, Mode=TwoWay}"
+                         MaxHeight="220" Margin="6,0,6,6" IsVisible="{Binding Chat.HasChangedFiles}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="appmodels:FileEditSummary">
+                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="8,5" ToolTip.Tip="{Binding AbsolutePath}">
+                                <TextBlock Text="{Binding Action}" FontSize="10.5" MinWidth="50" VerticalAlignment="Center"
+                                           Foreground="{Binding Action, Converter={x:Static conv:EditActionToBrushConverter.Instance}}"/>
+                                <TextBlock Grid.Column="1" Text="{Binding DisplayPath}" FontSize="12" FontFamily="{StaticResource MonoFont}"
+                                           TextTrimming="LeadingCharacterEllipsis" VerticalAlignment="Center" Margin="4,0,8,0"/>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding AddedLineCount, StringFormat='+{0}'}" Foreground="{StaticResource Success}" FontSize="11"/>
+                                    <TextBlock Text="{Binding RemovedLineCount, StringFormat='-{0}'}" Foreground="{StaticResource Danger}" FontSize="11"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+                <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="14,4,8,4" IsVisible="{Binding Inspector.HasDiff}">
+                    <TextBlock Text="{Binding Inspector.DiffTitle}" FontFamily="{StaticResource MonoFont}" FontSize="11.5"
+                               Foreground="{StaticResource TextSecondary}" TextTrimming="LeadingCharacterEllipsis" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Classes="ghost" Content="Open" FontSize="11.5" Padding="8,2" MinHeight="24"
+                            Command="{Binding Inspector.OpenSelectedChangeCommand}" IsVisible="{Binding Inspector.HasSelectedChange}"/>
+                </Grid>
+                <Border Grid.Row="3" Background="{StaticResource SurfaceSunken}" BorderBrush="{StaticResource BorderSubtle}"
+                        BorderThickness="0,1,0,0">
+                    <Grid>
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" IsVisible="{Binding Inspector.HasDiff}">
+                            <ItemsControl ItemsSource="{Binding Inspector.DiffLines}" Margin="0,6">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:ToolOutputLine">
+                                        <Border Background="{Binding Background}" Padding="12,0">
+                                            <SelectableTextBlock Text="{Binding Text}" Foreground="{Binding Foreground}"
+                                                                 FontFamily="{StaticResource MonoFont}" FontSize="11.5" LineHeight="17"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <TextBlock IsVisible="{Binding !Inspector.HasDiff}" Classes="muted" TextWrapping="Wrap" Margin="16"
+                                   Text="Select a file to see its diff against the last commit. Files StemCode edits in this session appear above."/>
+                        <TextBlock IsVisible="{Binding Inspector.IsLoadingDiff}" Classes="muted" Text="Loading diff…"
+                                   HorizontalAlignment="Right" VerticalAlignment="Top" Margin="12"/>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- PLAN -->
+            <ScrollViewer Grid.Row="1" IsVisible="{Binding Inspector.IsPlanTab}" Padding="16,6,16,16">
+                <Grid>
+                    <ItemsControl ItemsSource="{Binding Chat.PlanSteps}" IsVisible="{Binding Chat.HasPlan}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:PlanStep">
+                                <Grid ColumnDefinitions="22,*" Margin="0,4">
+                                    <TextBlock Text="{Binding Glyph}" Foreground="{Binding GlyphBrush}" FontSize="13"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Text}" Foreground="{Binding TextBrush}"
+                                               TextDecorations="{Binding Decorations}" TextWrapping="Wrap" FontSize="13"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock IsVisible="{Binding !Chat.HasPlan}" Classes="muted" TextWrapping="Wrap"
+                               Text="When StemCode breaks a task into steps, the live plan appears here. Switch the profile to 'plan' to plan without editing."/>
+                </Grid>
+            </ScrollViewer>
+
+            <!-- TERMINALS -->
+            <Grid Grid.Row="1" IsVisible="{Binding Inspector.IsTerminalsTab}" RowDefinitions="Auto,Auto,*">
+                <Grid ColumnDefinitions="*,Auto,Auto" Margin="14,2,8,6">
+                    <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap"
+                               Text="Background commands started with !! or by the agent."/>
+                    <Button AutomationProperties.Name="Refresh" Grid.Column="1" Classes="icon" Width="26" Height="26" ToolTip.Tip="Refresh" Command="{Binding Inspector.RefreshTerminalsCommand}">
+                        <controls:Icon Data="{StaticResource IconRefresh}" Size="14"/>
+                    </Button>
+                    <Button Grid.Column="2" Classes="ghost" Content="Stop all" FontSize="11.5" Padding="8,2" MinHeight="24"
+                            Command="{Binding Inspector.StopAllTerminalsCommand}" IsVisible="{Binding Inspector.HasTerminals}"/>
+                </Grid>
+                <Grid Grid.Row="1">
+                    <ListBox ItemsSource="{Binding Inspector.Terminals}" SelectedItem="{Binding Inspector.SelectedTerminal, Mode=TwoWay}"
+                             MaxHeight="200" Margin="6,0,6,6" IsVisible="{Binding Inspector.HasTerminals}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="vm:TerminalRow">
+                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="8,6">
+                                    <Ellipse Width="7" Height="7" Fill="{Binding StatusBrush}" VerticalAlignment="Center" Classes.pulse="{Binding IsRunning}"/>
+                                    <StackPanel Grid.Column="1" Margin="10,0,8,0">
+                                        <TextBlock Text="{Binding Command}" FontFamily="{StaticResource MonoFont}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Classes="muted" FontSize="11">
+                                            <Run Text="{Binding StatusText}"/>
+                                            <Run Text=" · "/>
+                                            <Run Text="{Binding StartedText}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <Button AutomationProperties.Name="Stop" Grid.Column="2" Classes="icon" Width="24" Height="24" ToolTip.Tip="Stop" IsVisible="{Binding IsRunning}"
+                                            Command="{Binding $parent[UserControl].((vm:MainWindowViewModel)DataContext).Inspector.StopTerminalCommand}"
+                                            CommandParameter="{Binding}">
+                                        <controls:Icon Data="{StaticResource IconStop}" Size="11" IsFilled="True"/>
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock IsVisible="{Binding Inspector.HasNoTerminals}" Classes="muted" Margin="16,4" Text="No background terminals."/>
+                </Grid>
+                <Border Grid.Row="2" Background="{StaticResource SurfaceSunken}" BorderBrush="{StaticResource BorderSubtle}" BorderThickness="0,1,0,0"
+                        IsVisible="{Binding Inspector.HasSelectedTerminal}">
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Padding="12,8">
+                        <SelectableTextBlock Text="{Binding Inspector.TerminalOutput}" FontFamily="{StaticResource MonoFont}" FontSize="11.5"
+                                             LineHeight="17" Foreground="{StaticResource TextSecondary}"/>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+
+            <!-- ACTIVITY -->
+            <ScrollViewer Grid.Row="1" IsVisible="{Binding Inspector.IsActivityTab}" Padding="12,4,12,12">
+                <ItemsControl ItemsSource="{Binding Chat.Activity}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:AgentEvent">
+                            <Grid ColumnDefinitions="Auto,*" Margin="0,3">
+                                <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss}'}" Classes="kbd" Margin="0,1,10,0"/>
+                                <SelectableTextBlock Grid.Column="1" Text="{Binding Message}" FontSize="12" TextWrapping="Wrap"
+                                                     Foreground="{StaticResource TextSecondary}"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

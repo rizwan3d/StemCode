@@ -8,11 +8,36 @@ public partial class ChatViewModel
     private readonly IVoiceDictationService _voiceDictationService = VoiceDictationService.CreateDefault();
     private bool _isVoiceDictating;
 
+    private string? _voiceStatusText;
+
     public bool IsVoiceDictating
     {
         get => _isVoiceDictating;
-        private set => SetProperty(ref _isVoiceDictating, value);
+        private set
+        {
+            if (SetProperty(ref _isVoiceDictating, value))
+            {
+                OnPropertyChanged(nameof(VoiceButtonTip));
+            }
+        }
     }
+
+    /// <summary>Live voice progress (listening, transcribing, downloading).</summary>
+    public string? VoiceStatusText
+    {
+        get => _voiceStatusText;
+        private set
+        {
+            if (SetProperty(ref _voiceStatusText, value))
+            {
+                OnPropertyChanged(nameof(HasVoiceStatus));
+            }
+        }
+    }
+
+    public bool HasVoiceStatus => !string.IsNullOrWhiteSpace(VoiceStatusText);
+
+    public string VoiceButtonTip => IsVoiceDictating ? "Listening…" : "Voice dictation (Ctrl+R)";
 
     public async Task<bool> TryHandleVoiceCommandAsync()
     {
@@ -35,7 +60,7 @@ public partial class ChatViewModel
             VoiceSettings? settings = await ConfigureVoiceAsync();
             if (settings is not null)
             {
-                Messages.Add(new ChatMessage("StemCode", "Voice setup saved."));
+                AddNotice("Voice setup saved.");
             }
             return true;
         }
@@ -46,13 +71,13 @@ public partial class ChatViewModel
             return true;
         }
 
-        Messages.Add(new ChatMessage("StemCode", "Usage: /voice, /voice setup, or /voice update"));
+        AddNotice("Usage: /voice, /voice setup, or /voice update");
         return true;
     }
 
     public async Task DictateVoiceAsync()
     {
-        if (IsVoiceDictating || IsPromptRunning)
+        if (IsVoiceDictating)
         {
             return;
         }
@@ -72,31 +97,27 @@ public partial class ChatViewModel
 
             Progress<VoiceProgress> progress = new(value =>
             {
-                ProgressText = FormatDesktopVoiceProgress(value);
+                VoiceStatusText = FormatDesktopVoiceProgress(value);
             });
 
             await _voiceDictationService.EnsureModelAsync(settings.ModelId, progress);
             string transcript = await _voiceDictationService.DictateAsync(settings, progress);
             Prompt = AppendVoiceTranscript(Prompt, transcript);
-            Messages.Add(new ChatMessage("StemCode", "Voice dictation added to input."));
         }
         catch (Exception exception)
         {
-            Messages.Add(new ChatMessage("StemCode", $"Voice error: {exception.Message}"));
+            AddNotice($"Voice error: {exception.Message}", isError: true);
         }
         finally
         {
             IsVoiceDictating = false;
-            if (!IsPromptRunning)
-            {
-                ProgressText = "(0s · 0 tokens)";
-            }
+            VoiceStatusText = null;
         }
     }
 
     public async Task UpdateVoiceModelsAsync()
     {
-        if (IsVoiceDictating || IsPromptRunning)
+        if (IsVoiceDictating)
         {
             return;
         }
@@ -106,23 +127,20 @@ public partial class ChatViewModel
         {
             Progress<VoiceProgress> progress = new(value =>
             {
-                ProgressText = FormatDesktopVoiceProgress(value);
+                VoiceStatusText = FormatDesktopVoiceProgress(value);
             });
             await _voiceDictationService.UpdateModelsAsync(progress);
             _ = await _voiceDictationService.GetModelsAsync(refresh: true);
-            Messages.Add(new ChatMessage("StemCode", "Voice models are up to date."));
+            AddNotice("Voice models are up to date.");
         }
         catch (Exception exception)
         {
-            Messages.Add(new ChatMessage("StemCode", $"Voice update error: {exception.Message}"));
+            AddNotice($"Voice update error: {exception.Message}", isError: true);
         }
         finally
         {
             IsVoiceDictating = false;
-            if (!IsPromptRunning)
-            {
-                ProgressText = "(0s · 0 tokens)";
-            }
+            VoiceStatusText = null;
         }
     }
 
@@ -132,7 +150,7 @@ public partial class ChatViewModel
         IReadOnlyList<VoiceModelOption> models = await _voiceDictationService.GetModelsAsync();
         if (models.Count == 0)
         {
-            Messages.Add(new ChatMessage("StemCode", "No voice models are available."));
+            AddNotice("No voice models are available.");
             return null;
         }
 
@@ -286,10 +304,10 @@ public partial class ChatViewModel
 
         if (progress.Fraction is not double fraction)
         {
-            return $"({label})";
+            return char.ToUpperInvariant(label[0]) + label[1..] + "…";
         }
 
         int percentage = (int)Math.Round(Math.Clamp(fraction, 0d, 1d) * 100d);
-        return $"({label} · {percentage}%)";
+        return $"{char.ToUpperInvariant(label[0])}{label[1..]} · {percentage}%";
     }
 }

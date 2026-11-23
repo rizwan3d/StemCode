@@ -183,42 +183,62 @@ Secrets are stored through platform credential storage where supported. ChatGPT 
 
 ## Desktop Workflow
 
-The desktop app is built around workspaces, sections, chat, and controls.
+The desktop app has three panes: a sidebar with workspaces and sessions, the conversation in the middle, and an inspector on the right for changes, the plan, background terminals, and the activity log. Every terminal command is available, either through the composer, the command palette, or the settings window.
 
-### Workspaces
+### Workspaces and sessions
 
-Open a local folder to make it the active workspace. StemCode remembers recent workspaces so you can return later.
+Open a local folder (Ctrl+O) to make it the active workspace. StemCode remembers recent workspaces; switch between them with the picker at the top of the sidebar.
 
-### Sections
+A session (also called a section) is a saved conversation tied to a workspace. It keeps history, model, profile, thinking mode, plan state, and session state. The sidebar lists the sessions for the active workspace, most recent first, with a filter box. Ctrl+N starts a new session; the trash icon or the right-click menu deletes one.
 
-A section is a saved local conversation thread tied to a workspace. Sections preserve conversation history, active model, profile, thinking mode, plan state, and session state when available.
-
-Use sections for separate tasks:
-
-- One section for a feature.
-- One section for a bug fix.
-- One section for a review.
-- One section for planning.
+Session actions are in the `...` menu at the top of the conversation: fork from a message, rewind, clone, session tree, resume another session, compact context, session info, export (JSON, HTML, trajectory HTML), and share as a secret gist. When you hover over one of your own messages, two buttons appear: **Rewind** rolls code and conversation back to before that message and puts its text back in the composer, and **Fork** starts a new session branching from it.
 
 ### Conversation
 
-Type a prompt and let StemCode inspect, plan, edit, run commands, or ask for approval depending on the active profile and permissions.
-Type `/` in the desktop prompt to open command suggestions. Use Up/Down and Enter to choose a command, or Shift+Enter for multiline input.
-Start input with `!` to run the rest as a local shell command directly, for example `!dotnet test`. Direct shell input is treated as user-entered terminal work and does not ask the agent for a tool approval.
-Start input with `!!` to run the rest as a background terminal whose output streams live, for example `!!dotnet watch`. Manage these background terminals with `/terminals`.
+Replies appear as they arrive for providers that stream (ChatGPT, Claude, OpenCode Zen). Tool calls show as compact rows with a status dot. Click a row to expand its output; file edits expand by default and show coloured diffs. The model's thinking appears as a collapsible card, and the live plan appears as a checklist.
 
-### Controls
+When a tool needs approval, an approval card appears above the composer. Press 1–9 to pick an option, or Esc to cancel. If the prompt has a default with a countdown, the card shows it.
 
-The desktop controls expose common actions:
+Esc or the stop button cancels the running task. You can keep typing while a task runs: pressing Enter queues the message, and it is sent when the current task finishes.
 
-- Refresh session state.
-- Switch model.
-- Configure budget controls from a local workspace file or a cloud API.
-- Toggle thinking mode.
-- Switch profile.
-- View help, model picker, permissions, and rules.
-- Add permission overrides.
-- Undo or redo tracked file edits.
+### Composer
+
+- `/` lists every command: built-in commands, custom commands in `.stemcode/commands`, and MCP prompts. Use Up/Down, then Tab to complete or Enter to run.
+- `@` completes workspace file paths, so you can point the agent at specific files.
+- Attach files and images with the paperclip button, by dragging them onto the composer, or by pasting an image (Ctrl+V).
+- Up/Down at the start of the input recalls earlier prompts.
+- Start input with `!` to run the rest as a local shell command, for example `!dotnet test`. This counts as your own terminal work, so it does not ask for tool approval.
+- Start input with `!!` to run the rest as a background terminal whose output streams live, for example `!!dotnet watch`. These terminals appear in the inspector's **Terminals** tab.
+- The toolbar holds the profile, model, reasoning effort, and thinking controls, plus a context-usage meter and voice dictation (Ctrl+R).
+
+### Inspector
+
+Toggle the inspector with Ctrl+J. It opens on its own the first time a session edits files.
+
+- **Changes**: files edited in this session with +/− counts. Select one to see its `git diff` against HEAD. The toolbar has undo, redo, and a view of all uncommitted changes.
+- **Plan**: the live task checklist.
+- **Terminals**: background terminals with their status and output, plus buttons to stop one or all of them.
+- **Activity**: a timestamped log of everything the agent did, including full error details.
+
+### Settings and command palette
+
+Settings (Ctrl+,) groups the commands by area: model and provider, agent behaviour (output style, tool output, redaction, auto-commit, subagents), permissions and sandbox, MCP servers (including OAuth sign-in and sign-out), skills and custom commands, memory and workspace files, code intelligence (index and language servers), sessions and worktrees, budget, voice, and about and diagnostics. Each action runs the matching command and shows its output. There is also a box for typing any command directly.
+
+The command palette (Ctrl+K) searches app actions, every command, settings pages, recent sessions, and workspaces.
+
+| Shortcut | Action |
+| --- | --- |
+| Enter / Shift+Enter | Send / new line |
+| Esc | Close popup, cancel prompt, or stop the running task |
+| Ctrl+K | Command palette |
+| Ctrl+N | New session |
+| Ctrl+O | Open workspace folder |
+| Ctrl+, | Settings |
+| Ctrl+B | Toggle sidebar |
+| Ctrl+J | Toggle inspector |
+| Ctrl+L | Focus the composer |
+| Ctrl+R | Voice dictation |
+| 1–9 | Answer the active approval prompt |
 
 Budget controls are disabled by default. They become active only after you enable them with `/budget local` or `/budget cloud`, or when a `.stemcode/budget-controls.*.json` file already exists in the active workspace. While disabled, no usage is recorded, no tracking file is created, and provider requests are never blocked; `/budget status` reports `Disabled`.
 
