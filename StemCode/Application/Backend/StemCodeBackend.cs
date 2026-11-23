@@ -507,7 +507,8 @@ public sealed class StemCodeBackend : IStemCodeBackend
         foreach (ConversationSectionTurn turn in session.ConversationTurns)
         {
             characters += turn.UserInput.Length;
-            characters += turn.AssistantResponse.Length;
+            // Pending or cancelled turns have no assistant response yet.
+            characters += turn.AssistantResponse?.Length ?? 0;
             characters += turn.ToolOutputMessages.Sum(static message => message.Length);
             characters += turn.ToolCalls.Sum(static toolCall => toolCall.ArgumentsJson.Length);
         }
