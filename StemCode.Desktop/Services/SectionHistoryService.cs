@@ -5,7 +5,7 @@ namespace StemCode.Desktop.Services;
 
 public sealed class SectionHistoryService
 {
-    private const string SectionsDirectoryName = "sections";
+    private const string SectionsDirectoryName = "sessions";
     private const string StorageDirectoryName = "StemCode";
 
     public async Task<IReadOnlyList<WorkspaceSectionInfo>> ListSectionsAsync(
