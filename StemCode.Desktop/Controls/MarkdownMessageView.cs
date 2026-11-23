@@ -175,6 +175,61 @@ public sealed class MarkdownMessageView : UserControl
                 continue;
             }
 
+            if (trimmed.StartsWith('|') &&
+                index + 1 < lines.Length &&
+                IsTableSeparator(lines[index + 1].Trim()))
+            {
+                List<string> tableLines = [line, lines[index + 1]];
+                index += 2;
+                while (index < lines.Length && lines[index].Trim().StartsWith('|'))
+                {
+                    tableLines.Add(lines[index]);
+                    index++;
+                }
+
+                index--;
+                blocks.Children.Add(CreateTable(tableLines));
+                continue;
+            }
+
+            if (trimmed is "---" or "***" or "___")
+            {
+                blocks.Children.Add(new Border
+                {
+                    Height = 1,
+                    Background = CodeBlockBorderBrush,
+                    Margin = new Thickness(0, 6)
+                });
+                continue;
+            }
+
+            if (trimmed.StartsWith("> ", StringComparison.Ordinal) || trimmed == ">")
+            {
+                List<string> quoteLines = [];
+                while (index < lines.Length &&
+                       (lines[index].Trim().StartsWith("> ", StringComparison.Ordinal) || lines[index].Trim() == ">"))
+                {
+                    quoteLines.Add(lines[index].Trim().TrimStart('>').TrimStart());
+                    index++;
+                }
+
+                index--;
+                StackPanel quote = new() { Spacing = 2 };
+                foreach (string quoteLine in quoteLines)
+                {
+                    quote.Children.Add(CreateInlineLine(quoteLine, MutedBrush));
+                }
+
+                blocks.Children.Add(new Border
+                {
+                    BorderBrush = CodeBlockBorderBrush,
+                    BorderThickness = new Thickness(3, 0, 0, 0),
+                    Padding = new Thickness(12, 2, 0, 2),
+                    Child = quote
+                });
+                continue;
+            }
+
             Match listMatch = ListItemRegex.Match(line);
             if (listMatch.Success)
             {
@@ -186,6 +241,101 @@ public sealed class MarkdownMessageView : UserControl
         }
 
         Content = blocks;
+    }
+
+    private static bool IsTableSeparator(string line)
+    {
+        if (!line.StartsWith('|') || !line.Contains('-'))
+        {
+            return false;
+        }
+
+        return line.All(static character => character is '|' or '-' or ':' or ' ' or '\t');
+    }
+
+    private static string[] SplitTableRow(string line)
+    {
+        string trimmed = line.Trim();
+        if (trimmed.StartsWith('|'))
+        {
+            trimmed = trimmed[1..];
+        }
+
+        if (trimmed.EndsWith('|'))
+        {
+            trimmed = trimmed[..^1];
+        }
+
+        return trimmed.Split('|').Select(static cell => cell.Trim()).ToArray();
+    }
+
+    private Control CreateTable(IReadOnlyList<string> tableLines)
+    {
+        string[] header = SplitTableRow(tableLines[0]);
+        List<string[]> rows = tableLines.Skip(2).Select(SplitTableRow).ToList();
+        int columnCount = Math.Max(header.Length, rows.Count == 0 ? 0 : rows.Max(static row => row.Length));
+
+        Grid grid = new()
+        {
+            ColumnDefinitions = new ColumnDefinitions(string.Join(",", Enumerable.Repeat("Auto", columnCount))),
+            RowDefinitions = new RowDefinitions(string.Join(",", Enumerable.Repeat("Auto", rows.Count + 1)))
+        };
+
+        void AddCell(string text, int row, int column, bool isHeader)
+        {
+            WrapPanel content = CreateInlineLinePanel(text, TextBrush);
+            if (isHeader)
+            {
+                foreach (Control child in content.Children)
+                {
+                    if (child is TextBlock block)
+                    {
+                        block.FontWeight = FontWeight.SemiBold;
+                    }
+                }
+            }
+
+            Border cell = new()
+            {
+                Child = content,
+                Padding = new Thickness(10, 6),
+                BorderBrush = CodeBlockBorderBrush,
+                BorderThickness = new Thickness(0, 0, column < columnCount - 1 ? 1 : 0, row < rows.Count ? 1 : 0),
+                Background = isHeader ? CodeBlockBackgroundBrush : Brushes.Transparent
+            };
+            Grid.SetRow(cell, row);
+            Grid.SetColumn(cell, column);
+            grid.Children.Add(cell);
+        }
+
+        for (int column = 0; column < columnCount; column++)
+        {
+            AddCell(column < header.Length ? header[column] : string.Empty, 0, column, isHeader: true);
+        }
+
+        for (int row = 0; row < rows.Count; row++)
+        {
+            for (int column = 0; column < columnCount; column++)
+            {
+                AddCell(column < rows[row].Length ? rows[row][column] : string.Empty, row + 1, column, isHeader: false);
+            }
+        }
+
+        return new Border
+        {
+            BorderBrush = CodeBlockBorderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            ClipToBounds = true,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 4),
+            Child = new ScrollViewer
+            {
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                Content = grid
+            }
+        };
     }
 
     private static bool IsCodeFence(string line, out string? language)
