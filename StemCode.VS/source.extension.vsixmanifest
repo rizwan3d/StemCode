@@ -8,7 +8,7 @@
     <License>..\LICENSE.txt</License>
     <ReleaseNotes>https://github.com/rizwan3d/StemCode/blob/master/StemCode.VS/CHANGELOG.md</ReleaseNotes>
     <Icon>Resources\logo.png</Icon>
-    <Tags>stemcode, ai, coding agent, assistant, chat, acp, code review</Tags>
+    <Tags>stemcode;ai;coding agent;assistant;chat;acp;code review</Tags>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,19.0)">
