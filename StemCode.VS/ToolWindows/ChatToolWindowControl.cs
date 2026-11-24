@@ -43,10 +43,21 @@ namespace StemCode.VS.ToolWindows
         private bool _syncingWorkingDirectory;
         private SolutionEvents? _solutionEvents; // kept alive; GC'd events stop firing.
         private IVsFolderWorkspaceService? _folderWorkspaceService; // kept alive for unsubscribe.
-        private string? _pendingExternalPrompt;
         private string? _authToken;
         private string[] _extraArgs = Array.Empty<string>();
         private bool _cliWasAutoResolved;
+        private bool _setupDone;
+        private Task? _startTask;          // in-flight start, shared by every caller that needs the agent.
+        private bool _userStopped;         // true after Stop / /exit, so the exit isn't reported as a crash.
+
+        // Slash commands for autocomplete: the CLI's live list once it arrives, else the static catalog.
+        private IReadOnlyList<ChatCommandSuggestion> _commands = ChatCommands.All;
+        private System.Text.StringBuilder? _capture; // collects agent text for /copy and /export.
+        private string _lastAgentText = string.Empty;
+
+        // Active permission request, for the 1-9 / Esc shortcuts.
+        private readonly List<string> _activePermissionOptionIds = new();
+        private bool _activeAllowCancel;
 
         // Latest session info, used by the model/settings pickers and status bar.
         private string? _modelId;
@@ -93,7 +104,15 @@ namespace StemCode.VS.ToolWindows
         {
             if (_initialized || _disposed) return; // Loaded can fire repeatedly; init once.
             _initialized = true;
-            try { await InitializeAsync(); }
+            try
+            {
+                if (GetOptionsPageOrNull()?.AutoStart == false)
+                {
+                    SetStatus("Not started", StatusKind.Idle);
+                    return; // starts on the first message, or Tools → StemCode → Start.
+                }
+                if (!_userStopped) await StartAgentAsync();
+            }
             catch (Exception ex)
             {
                 _log.Error("Failed to initialize", ex);
@@ -101,14 +120,114 @@ namespace StemCode.VS.ToolWindows
             }
         }
 
-        private async Task InitializeAsync()
+        // ───── Process lifecycle (Start / Stop / Restart) ─────
+
+        /// <summary>Starts the CLI if it isn't running. Concurrent callers share one start.</summary>
+        public async Task StartAgentAsync()
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (_disposed) return;
+            if (_hostInitialized && _agentService.IsRunning) return;
 
+            if (_startTask is null || _startTask.IsCompleted)
+            {
+                _startTask = StartAgentCoreAsync();
+            }
+            await _startTask;
+        }
+
+        public async Task StopAgentAsync()
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            _userStopped = true;
+            _hostInitialized = false;
+            try { await _agentService.StopAsync(); }
+            catch (Exception ex) { _log.Warn("Stopping StemCode failed.", ex); }
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            _promptRunning = false;
+            CompletePendingToolCalls();
+            UpdateInputState();
+            HideBanner();
+            SetStatus("Stopped", StatusKind.Idle);
+            _log.Info("StemCode stopped.");
+        }
+
+        public async Task RestartAgentAsync()
+        {
+            await StopAgentAsync();
+            await StartAgentAsync();
+        }
+
+        /// <summary>Starts the agent when needed; false (with a banner shown) when it can't run.</summary>
+        private async Task<bool> EnsureStartedAsync()
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (_hostInitialized && _agentService.IsConnected) return true;
+
+            await StartAgentAsync();
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (_hostInitialized && _agentService.IsConnected) return true;
+
+            AddSystemMessage("StemCode isn't running. Use Retry in the banner above, or open the logs for details.");
+            return false;
+        }
+
+        private async Task StartAgentCoreAsync()
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            _userStopped = false;
+            HideBanner();
+            SetStatus("Starting...", StatusKind.Busy);
+            // Output from a new process never continues a message from the previous one.
+            _streamingAssistant = null;
+            _streamingReasoning = null;
+
+            EnsureSetup();
+
+            // Re-read options on every start so changes apply after Restart.
             StemCodeOptionsPage? options = GetOptionsPageOrNull();
             _log.MinLevel = (options?.LogLevel ?? StemCodeLogLevel.Info).ToString().ToLowerInvariant();
             _authToken = options?.AcpAuthenticationToken?.Trim();
             _extraArgs = SplitArgs(options?.ExtraArguments);
+
+            string? cliExePath = await ResolveOrInstallCliAsync(options);
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (cliExePath is null)
+            {
+                SetStatus("Error", StatusKind.Error);
+                ShowBanner("StemCode CLI was not found. Install it, or set its path in Tools → Options → StemCode, then retry.");
+                return; // user declined install / not found; message already shown.
+            }
+
+            try
+            {
+                // A previous start may have left a process behind (e.g. initialize failed).
+                if (_agentService.IsRunning) await _agentService.StopAsync();
+
+                _agentService.Start(cliExePath, _extraArgs);
+                _log.Info("StemCode ACP server started.");
+                await InitializeAcpSessionAsync();
+
+                if (_hostInitialized && (options?.CheckForUpdates ?? true) && _cliWasAutoResolved)
+                {
+                    _ = Task.Run(() => CheckForUpdateAsync(cliExePath));
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error("Failed to start StemCode ACP server", ex);
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                SetStatus("Error", StatusKind.Error);
+                ShowBanner($"StemCode failed to start: {ex.Message}");
+            }
+        }
+
+        /// <summary>One-time wiring: working directory and solution/folder change events.</summary>
+        private void EnsureSetup()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (_setupDone) return;
+            _setupDone = true;
 
             _workingDirectory = ResolveWorkingDirectory();
 
@@ -130,32 +249,6 @@ namespace StemCode.VS.ToolWindows
                 _folderWorkspaceService = fws;
                 _folderWorkspaceService.OnActiveWorkspaceChanged += OnActiveWorkspaceChanged;
             }
-
-            string? cliExePath = await ResolveOrInstallCliAsync(options);
-            if (cliExePath is null)
-            {
-                SetStatus("Error", "#FFF48771");
-                return; // user declined install / not found; message already shown.
-            }
-
-            try
-            {
-                _agentService.Start(cliExePath, _extraArgs);
-                _log.Info("StemCode ACP server started.");
-                SetStatus("Starting...", "#FFCCA700");
-                await InitializeAcpSessionAsync();
-
-                if ((options?.CheckForUpdates ?? true) && _cliWasAutoResolved)
-                {
-                    _ = Task.Run(() => CheckForUpdateAsync(cliExePath));
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Error("Failed to start StemCode ACP server", ex);
-                SetStatus("Error", "#FFF48771");
-                AddSystemMessage($"Failed to start CLI '{cliExePath}': {ex.Message}");
-            }
         }
 
         private async Task<string?> ResolveOrInstallCliAsync(StemCodeOptionsPage? options)
@@ -167,33 +260,48 @@ namespace StemCode.VS.ToolWindows
             }
 
             _cliWasAutoResolved = true;
-            string command = StemCodeCli.ResolveCommand("stemcode", _log);
-            if (StemCodeCli.IsAvailable(command))
+            // Resolution shells out to npm/where; keep it off the UI thread.
+            (string command, bool available) = await Task.Run(() =>
+            {
+                string resolved = StemCodeCli.ResolveCommand("stemcode", _log);
+                return (resolved, StemCodeCli.IsAvailable(resolved));
+            });
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (available)
             {
                 return command;
             }
 
+            string manual = $"irm {StemCodeCli.InstallScriptUrl} | iex";
             if (!(options?.AutoInstall ?? true) || VSPackage.Instance?.Confirm(
                     "Install StemCode CLI",
-                    "StemCode CLI (stemcode) was not found.\n\nInstall it globally now? Runs: npm install -g stemcode") != true)
+                    "The StemCode CLI was not found on this machine.\n\n" +
+                    "Download and install the latest release from GitHub now?\n\n" +
+                    $"Runs in PowerShell: {manual}\n" +
+                    $"Installs to: {StemCodeCli.InstallDirectory}") != true)
             {
-                AddSystemMessage("StemCode CLI 'stemcode' was not found. Install it (npm install -g stemcode) or set its path in Tools → Options → StemCode.");
+                AddSystemMessage($"StemCode CLI was not found. Install it from PowerShell with `{manual}`, or set Command in Tools → Options → StemCode.");
                 return null;
             }
 
-            SetStatus("Installing...", "#FFCCA700");
-            AddSystemMessage("Installing StemCode CLI via npm…");
-            bool ok = await StemCodeCli.NpmInstallAsync("stemcode", _log);
+            SetStatus("Installing...", StatusKind.Busy);
+            AddSystemMessage("Installing the StemCode CLI from GitHub…");
+            bool ok = await StemCodeCli.InstallFromGitHubAsync(_log);
 
-            command = StemCodeCli.ResolveCommand("stemcode", _log);
-            if (!ok || !StemCodeCli.IsAvailable(command))
+            (command, available) = await Task.Run(() =>
             {
-                AddSystemMessage("Failed to install stemcode. Run 'npm install -g stemcode' manually (Node.js/npm required), then restart Visual Studio.");
+                string resolved = StemCodeCli.ResolveCommand("stemcode", _log);
+                return (resolved, StemCodeCli.IsAvailable(resolved));
+            });
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (!ok || !available)
+            {
+                AddSystemMessage($"Installing the StemCode CLI failed; the log has the installer output. You can run `{manual}` in PowerShell yourself, then click Retry.");
                 return null;
             }
 
             _log.Info("stemcode installed successfully.");
-            AddSystemMessage("StemCode CLI installed.");
+            AddSystemMessage($"StemCode CLI installed to {StemCodeCli.InstallDirectory}.");
             return command;
         }
 
@@ -210,21 +318,20 @@ namespace StemCode.VS.ToolWindows
                 _log.Info($"stemcode update available: {current} -> {latest}");
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
                 bool update = VSPackage.Instance?.Confirm("StemCode Update",
-                    $"A new StemCode CLI is available ({current} → {latest}). Update now?") == true;
+                    $"A new StemCode CLI is available ({current} → {latest}).\n\n" +
+                    "Update now from GitHub? StemCode stops while the installer runs, then starts again.") == true;
                 if (!update) return;
 
-                SetStatus("Updating...", "#FFCCA700");
-                bool ok = await StemCodeCli.NpmInstallAsync("stemcode@latest", _log);
+                // The installer replaces stemcode.exe in place, so the running CLI has to go first.
+                await StopAgentAsync();
+                SetStatus("Updating...", StatusKind.Busy);
+                AddSystemMessage($"Updating the StemCode CLI to {latest}…");
+                bool ok = await StemCodeCli.InstallFromGitHubAsync(_log);
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                if (ok)
-                {
-                    AddSystemMessage("StemCode CLI updated. Restart the chat (＋ New) or Visual Studio to use the new version.");
-                }
-                else
-                {
-                    AddSystemMessage("Failed to update stemcode. See logs for details.");
-                }
-                SetStatus("Ready", "#FF73C991");
+                AddSystemMessage(ok
+                    ? $"StemCode CLI updated to {latest}."
+                    : "Updating the StemCode CLI failed; the log has the installer output. Starting the current version.");
+                await StartAgentAsync();
             }
             catch (Exception ex)
             {
@@ -244,9 +351,14 @@ namespace StemCode.VS.ToolWindows
             _ = ThreadHelper.JoinableTaskFactory.RunAsync(async delegate
             {
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                SetStatus("Stopped", "#FF8F8F8F");
+                SetStatus("Stopped", StatusKind.Idle);
                 _promptRunning = false;
+                CompletePendingToolCalls();
                 UpdateInputState();
+                if (!_userStopped && !_disposed)
+                {
+                    ShowBanner("StemCode stopped unexpectedly. Retry to start it again, or open the logs for details.");
+                }
             });
         }
 
@@ -288,6 +400,36 @@ namespace StemCode.VS.ToolWindows
                     }
 
                 case VsProtocol.UserMessageChunk:
+                    {
+                        // Only sent while the CLI replays a session's history (resume, fork, tree...).
+                        // Each chunk is one whole user message.
+                        string? text = GetParamString(parameters, "text");
+                        if (!string.IsNullOrWhiteSpace(text))
+                        {
+                            _streamingAssistant = null;
+                            _streamingReasoning = null;
+                            _messages.Add(new UserMessage { Text = text! });
+                            ScrollToBottom();
+                        }
+                        break;
+                    }
+
+                case VsProtocol.AvailableCommands:
+                    {
+                        if (parameters?.TryGetValue("availableCommands", out object? raw) == true && raw is JsonElement list)
+                        {
+                            List<AvailableCommandEntry> entries = ChatCommands.ParseAvailableCommands(list);
+                            _commands = ChatCommands.Build(entries);
+                            _log.Debug($"CLI advertised {entries.Count} slash commands.");
+                        }
+                        break;
+                    }
+
+                case VsProtocol.HistoryReset:
+                    // /fork, /clone, /import, /resume or /tree switched sessions; the CLI replays
+                    // the new session's history right after this.
+                    ClearConversation();
+                    _lastAgentText = string.Empty;
                     break;
 
                 case VsProtocol.ToolCallStart:
@@ -295,6 +437,9 @@ namespace StemCode.VS.ToolWindows
                         string id = GetParamString(parameters, "toolCallId") ?? Guid.NewGuid().ToString("N");
                         if (!_toolCallMessages.TryGetValue(id, out ToolCallStatusMessage? msg))
                         {
+                            // Text after a tool call starts a new bubble below it, keeping the transcript in order.
+                            _streamingAssistant = null;
+                            _streamingReasoning = null;
                             msg = new ToolCallStatusMessage { ToolCallId = id };
                             _toolCallMessages[id] = msg;
                             _messages.Add(msg);
@@ -347,8 +492,7 @@ namespace StemCode.VS.ToolWindows
                     break;
 
                 case VsProtocol.Ready:
-                    SetStatus("Ready", "#FF73C991");
-                    await FlushPendingExternalPromptAsync();
+                    SetStatus("Ready", StatusKind.Ready);
                     break;
             }
         }
@@ -373,7 +517,7 @@ namespace StemCode.VS.ToolWindows
             _contextUsed = GetParamLong(p, "sectionEstimatedContextTokens") ?? _contextUsed;
 
             ModelText.Text = string.IsNullOrEmpty(_modelId)
-                ? (string.IsNullOrEmpty(_profileName) ? "" : _profileName)
+                ? (string.IsNullOrEmpty(_profileName) ? "Model" : _profileName)
                 : (string.IsNullOrEmpty(_profileName) ? _modelId : $"{_modelId} · {_profileName}");
 
             UpdateContextText();
@@ -385,9 +529,7 @@ namespace StemCode.VS.ToolWindows
             {
                 int pct = (int)Math.Round(100.0 * _contextUsed / _contextWindow);
                 ContextText.Text = $"{FormatTokens(_contextUsed)}/{FormatTokens(_contextWindow)} ({pct}%)";
-                ContextText.Foreground = pct >= 80
-                    ? new SolidColorBrush(Color.FromRgb(0xF4, 0x87, 0x71))
-                    : new SolidColorBrush(Color.FromRgb(0x8F, 0x8F, 0x8F));
+                ContextText.Foreground = pct >= 80 ? ChatBrushes.Error : ChatBrushes.Dim;
             }
             else
             {
@@ -411,6 +553,7 @@ namespace StemCode.VS.ToolWindows
             }
             else
             {
+                _capture?.Append(text);
                 if (_streamingAssistant is null)
                 {
                     _streamingAssistant = new AssistantMessage { Text = text };
@@ -479,20 +622,158 @@ namespace StemCode.VS.ToolWindows
             string text = InputTextBox.Text.Trim();
             if (string.IsNullOrEmpty(text)) return;
 
+            InputTextBox.Clear();
+            await SubmitAsync(text);
+        }
+
+        /// <summary>
+        /// Sends a prompt or slash command exactly as if it were typed: it is queued while a turn
+        /// runs, terminal-only commands are handled locally, and the agent is started on demand.
+        /// </summary>
+        public async Task SubmitAsync(string text)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            text = text?.Trim() ?? string.Empty;
+            if (text.Length == 0) return;
+
             // Busy? queue it; the queue drains automatically when the turn ends.
             if (_promptRunning)
             {
                 _promptQueue.Add(text);
-                InputTextBox.Clear();
                 return;
             }
 
-            InputTextBox.Clear();
             _messages.Add(new UserMessage { Text = text });
             ScrollToBottom();
+            await DispatchAsync(text);
+        }
 
-            if (text.StartsWith("/")) await HandleSlashCommand(text);
+        private async Task DispatchAsync(string text)
+        {
+            LocalChatCommand local = ChatCommands.ParseLocal(text);
+            if (local != LocalChatCommand.None)
+            {
+                await RunLocalCommandAsync(local);
+                return;
+            }
+
+            if (!await EnsureStartedAsync()) return;
+
+            if (ChatCommands.IsExportCommand(text))
+            {
+                await RunExportAsync(text, openAutomatically: false);
+                return;
+            }
+
+            if (text.StartsWith("/", StringComparison.Ordinal)) await SendHostCommandAsync(text);
             else await HandleUserPromptAsync(text);
+        }
+
+        /// <summary>Commands the terminal CLI handles in its own UI; mapped to Visual Studio equivalents.</summary>
+        private async Task RunLocalCommandAsync(LocalChatCommand command)
+        {
+            switch (command)
+            {
+                case LocalChatCommand.Clear:
+                    ClearConversation();
+                    break;
+                case LocalChatCommand.New:
+                    if (await EnsureStartedAsync()) await StartNewSessionAsync();
+                    break;
+                case LocalChatCommand.Models:
+                    ShowModelPicker();
+                    break;
+                case LocalChatCommand.Copy:
+                    CopyLastAgentMessage();
+                    break;
+                case LocalChatCommand.Exit:
+                    AddSystemMessage("Stopping StemCode. Send a message or use Tools → StemCode → Start to start it again.");
+                    await StopAgentAsync();
+                    break;
+                case LocalChatCommand.Trajectory:
+                    if (await EnsureStartedAsync()) await RunExportAsync("/export trajectory", openAutomatically: true);
+                    break;
+                case LocalChatCommand.Voice:
+                    await RunVoiceDictationAsync();
+                    break;
+                case LocalChatCommand.VoiceSetup:
+                    await RunVoiceSetupAsync();
+                    break;
+                case LocalChatCommand.VoiceUpdate:
+                    await RunVoiceUpdateAsync();
+                    break;
+            }
+        }
+
+        private void CopyLastAgentMessage()
+        {
+            string text = _lastAgentText.Trim();
+            if (text.Length == 0)
+            {
+                AddSystemMessage("There is no agent message to copy yet.");
+                return;
+            }
+
+            try
+            {
+                Clipboard.SetText(text);
+                AddSystemMessage("Copied the last agent message to the clipboard.");
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("Clipboard write failed.", ex);
+                AddSystemMessage("Couldn't write to the clipboard: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Runs /export through the CLI, then opens the exported file: HTML in the browser,
+        /// JSON in the editor. When openAutomatically is false the user is asked first.
+        /// </summary>
+        private async Task RunExportAsync(string command, bool openAutomatically)
+        {
+            string output = await RunCommandCapturingAsync(command);
+            (string Format, string FilePath)? exported = ChatCommands.ParseExportedFile(output);
+            if (exported is null) return;
+
+            string path = exported.Value.FilePath;
+            if (!openAutomatically &&
+                VSPackage.Instance?.Confirm("StemCode", $"Exported the session as {exported.Value.Format}:\n{path}\n\nOpen it now?") != true)
+            {
+                return;
+            }
+
+            OpenExportedFile(path);
+        }
+
+        private void OpenExportedFile(string path)
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            if (!File.Exists(path))
+            {
+                AddSystemMessage($"Exported file not found: {path}");
+                return;
+            }
+
+            string ext = Path.GetExtension(path);
+            if (ext.Equals(".html", StringComparison.OrdinalIgnoreCase) || ext.Equals(".htm", StringComparison.OrdinalIgnoreCase))
+            {
+                try { Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }); }
+                catch (Exception ex) { _log.Warn($"Failed to open {path}: {ex.Message}"); AddSystemMessage($"Couldn't open {path}: {ex.Message}"); }
+            }
+            else
+            {
+                OpenFileInEditor(path, 0);
+            }
+        }
+
+        private async Task<string> RunCommandCapturingAsync(string command)
+        {
+            var capture = new System.Text.StringBuilder();
+            _capture = capture;
+            try { await SendHostCommandAsync(command); }
+            finally { if (ReferenceEquals(_capture, capture)) _capture = null; }
+            return capture.ToString();
         }
 
         private void OnRemoveQueuedClick(object sender, RoutedEventArgs e)
@@ -506,37 +787,7 @@ namespace StemCode.VS.ToolWindows
 
             string text = _promptQueue[0];
             _promptQueue.RemoveAt(0);
-            _messages.Add(new UserMessage { Text = text });
-            ScrollToBottom();
-
-            if (text.StartsWith("/")) await HandleSlashCommand(text);
-            else await HandleUserPromptAsync(text);
-        }
-
-        private async Task HandleSlashCommand(string command)
-        {
-            switch (command)
-            {
-                case "/clear":
-                    ClearConversation();
-                    return;
-                case "/new":
-                    await StartNewSessionAsync();
-                    return;
-                case "/models":
-                    ShowModelPicker();
-                    return;
-                case "/session" when false: // handled by host
-                    return;
-            }
-
-            if (command.StartsWith("/resume ", StringComparison.Ordinal))
-            {
-                await ResumeSessionAsync(command.Substring("/resume ".Length).Trim());
-                return;
-            }
-
-            await SendHostCommandAsync(command);
+            await SubmitAsync(text);
         }
 
         private void ClearConversation()
@@ -561,6 +812,9 @@ namespace StemCode.VS.ToolWindows
             MetricsText.Text = "";
             UpdateInputState();
 
+            // Agent replies (not command output) are remembered for /copy.
+            var reply = new System.Text.StringBuilder();
+            _capture = reply;
             try
             {
                 VsAgentService.SessionPromptResponse? response = await _agentService.SendPromptAsync(prompt);
@@ -573,6 +827,8 @@ namespace StemCode.VS.ToolWindows
             }
             finally
             {
+                if (ReferenceEquals(_capture, reply)) _capture = null;
+                if (reply.ToString().Trim().Length > 0) _lastAgentText = reply.ToString();
                 _promptRunning = false;
                 CompletePendingToolCalls();
                 _streamingAssistant = null;
@@ -654,7 +910,7 @@ namespace StemCode.VS.ToolWindows
             // Slash-command catalog while typing the first token.
             if (text.StartsWith("/") && !text.TrimEnd().Contains(' ') && caret <= text.Length)
             {
-                ShowSuggestionItems(ChatCommands.Match(text.Trim()));
+                ShowSuggestionItems(ChatCommands.Match(_commands, text.Trim()));
                 return;
             }
 
@@ -703,18 +959,7 @@ namespace StemCode.VS.ToolWindows
 
         // ───── External entry points (editor commands) ─────
 
-        public async Task SubmitExternalPromptAsync(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return;
-            if (!_hostInitialized || !_agentService.IsConnected)
-            {
-                _pendingExternalPrompt = text;
-                return;
-            }
-            _messages.Add(new UserMessage { Text = text });
-            ScrollToBottom();
-            await HandleUserPromptAsync(text);
-        }
+        public Task SubmitExternalPromptAsync(string text) => SubmitAsync(text);
 
         public void PrefillInput(string text)
         {
@@ -724,16 +969,67 @@ namespace StemCode.VS.ToolWindows
             InputTextBox.Focus();
         }
 
-        public async Task RunExternalCommandAsync(string command) => await SendHostCommandAsync(command);
-
-        public Task NewChatAsync() => StartNewSessionAsync();
-
-        private async Task FlushPendingExternalPromptAsync()
+        /// <summary>Opens the composer's slash-command list (the Visual Studio take on a command palette).</summary>
+        public void ShowSlashCommandPicker()
         {
-            string? pending = _pendingExternalPrompt;
-            _pendingExternalPrompt = null;
-            if (!string.IsNullOrEmpty(pending)) await SubmitExternalPromptAsync(pending!);
+            PrefillInput("/");
+            UpdateSuggestions();
         }
+
+        public async Task NewChatAsync()
+        {
+            if (await EnsureStartedAsync()) await StartNewSessionAsync();
+        }
+
+        public void ShowSettings() => ShowSettingsPanel();
+
+        /// <summary>Opens this session's extension log in the editor.</summary>
+        public void OpenLogs()
+        {
+            ThreadHelper.ThrowIfNotOnUIThread();
+            string? path = _log.LogFilePath;
+            if (!string.IsNullOrEmpty(path) && File.Exists(path))
+            {
+                // The editor can't open a file that's still being written, so open a snapshot.
+                try
+                {
+                    string snapshot = Path.Combine(Path.GetTempPath(), "StemCode", Path.GetFileName(path));
+                    Directory.CreateDirectory(Path.GetDirectoryName(snapshot)!);
+                    using (var source = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var target = new FileStream(snapshot, FileMode.Create, FileAccess.Write))
+                    {
+                        source.CopyTo(target);
+                    }
+                    OpenFileInEditor(snapshot, 0);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _log.Warn("Couldn't snapshot the log; opening its folder instead.", ex);
+                }
+            }
+
+            try { Process.Start(new System.Diagnostics.ProcessStartInfo(LogService.LogDirectory) { UseShellExecute = true }); }
+            catch (Exception ex) { AddSystemMessage($"Couldn't open the log folder {LogService.LogDirectory}: {ex.Message}"); }
+        }
+
+        // ───── Status banner (shown when the CLI can't start or exits unexpectedly) ─────
+
+        private void ShowBanner(string message)
+        {
+            BannerText.Text = message;
+            Banner.Visibility = Visibility.Visible;
+        }
+
+        private void HideBanner() => Banner.Visibility = Visibility.Collapsed;
+
+        private async void OnBannerRetryClick(object sender, RoutedEventArgs e)
+        {
+            try { await RestartAgentAsync(); }
+            catch (Exception ex) { _log.Error("Retry failed", ex); ShowBanner($"StemCode failed to start: {ex.Message}"); }
+        }
+
+        private void OnBannerLogsClick(object sender, RoutedEventArgs e) => OpenLogs();
 
         // ───── Sessions ─────
 
@@ -743,7 +1039,7 @@ namespace StemCode.VS.ToolWindows
             {
                 await _agentService.NewSessionAsync(_workingDirectory);
                 ClearConversation();
-                SetStatus("Ready", "#FF73C991");
+                SetStatus("Ready", StatusKind.Ready);
             }
             catch (Exception ex)
             {
@@ -762,10 +1058,11 @@ namespace StemCode.VS.ToolWindows
 
             try
             {
-                await _agentService.LoadSessionAsync(_workingDirectory, sessionId);
+                // Clear first: the CLI replays the loaded session's history while the request is in flight.
                 ClearConversation();
+                await _agentService.LoadSessionAsync(_workingDirectory, sessionId);
                 AddSystemMessage($"Resumed session {sessionId}");
-                SetStatus("Ready", "#FF73C991");
+                SetStatus("Ready", StatusKind.Ready);
             }
             catch (Exception ex)
             {
@@ -947,20 +1244,16 @@ namespace StemCode.VS.ToolWindows
             else
             {
                 var idInput = ModalInput("skill-id");
-                var select = new ComboBox
-                {
-                    Margin = new Thickness(0, 0, 0, 6),
-                    Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)),
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC))
-                };
+                var select = new ComboBox { Margin = new Thickness(0, 0, 0, 6), MinHeight = 26 };
+                select.SetResourceReference(StyleProperty, VsResourceKeys.ComboBoxStyleKey);
                 foreach (MarketplaceEntry m in markets) select.Items.Add($"{m.Alias} ({m.Repository})");
                 select.SelectedIndex = 0;
                 var force = new CheckBox
                 {
                     Content = "Overwrite existing files (--force)",
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-                    Margin = new Thickness(0, 0, 0, 6)
+                    Margin = new Thickness(0, 0, 0, 8)
                 };
+                force.SetResourceReference(StyleProperty, VsResourceKeys.CheckBoxStyleKey);
                 var installBtn = PrimaryButton("Install");
                 installBtn.Click += async (_, _) =>
                 {
@@ -1091,41 +1384,35 @@ namespace StemCode.VS.ToolWindows
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
             var info = new StackPanel { Width = 280 };
-            info.Children.Add(new TextBlock { Text = title, Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)) });
-            info.Children.Add(new TextBlock { Text = subtitle, Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0x8F, 0x8F)), FontSize = 11, TextWrapping = TextWrapping.Wrap });
+            info.Children.Add(new TextBlock { Text = title, Foreground = ChatBrushes.Text });
+            info.Children.Add(new TextBlock { Text = subtitle, Foreground = ChatBrushes.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap });
             row.Children.Add(info);
             return row;
         }
 
-        private TextBox ModalInput(string placeholder) => new()
+        private static TextBox ModalInput(string placeholder)
         {
-            // no placeholder watermark; Tag holds the hint, kept minimal.
-            Tag = placeholder,
-            MinWidth = 240, MinHeight = 28,
-            Margin = new Thickness(0, 0, 0, 6),
-            Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)),
-            Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(6, 2, 6, 2),
-            CaretBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC))
-        };
-
-        private Button PrimaryButton(string text)
-        {
-            var btn = SecondaryButton(text);
-            btn.Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x63, 0x9C));
-            btn.Foreground = Brushes.White;
-            btn.BorderThickness = new Thickness(0);
-            return btn;
+            var box = new TextBox
+            {
+                Tag = placeholder,
+                ToolTip = placeholder,
+                MinWidth = 240, MinHeight = 28,
+                Margin = new Thickness(0, 0, 0, 6),
+                CaretBrush = ChatBrushes.InputText,
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            box.SetResourceReference(StyleProperty, ChatStyles.Input);
+            return box;
         }
 
-        private Button DangerButton(string text)
+        private static Button PrimaryButton(string text) => Styled(SecondaryButton(text), ChatStyles.PrimaryButton);
+
+        private static Button DangerButton(string text) => Styled(SecondaryButton(text), ChatStyles.DangerButton);
+
+        private static Button Styled(Button button, string styleKey)
         {
-            var btn = SecondaryButton(text);
-            btn.Foreground = new SolidColorBrush(Color.FromRgb(0xF4, 0x87, 0x71));
-            btn.BorderBrush = new SolidColorBrush(Color.FromRgb(0x66, 0xF4, 0x87));
-            return btn;
+            button.SetResourceReference(StyleProperty, styleKey);
+            return button;
         }
 
         // ───── Modal building blocks ─────
@@ -1134,21 +1421,23 @@ namespace StemCode.VS.ToolWindows
         {
             ModalOverlay.Visibility = Visibility.Collapsed;
             _activeModalRequestId = null;
+            _activePermissionOptionIds.Clear();
+            _activeAllowCancel = false;
         }
 
         private static TextBlock SectionLabel(string text) => new()
         {
-            Text = text,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0x8F, 0x8F)),
-            FontSize = 11,
+            Text = text.ToUpperInvariant(),
+            Foreground = ChatBrushes.Dim,
+            FontSize = 10,
             FontWeight = FontWeights.SemiBold,
-            Margin = new Thickness(0, 8, 0, 4)
+            Margin = new Thickness(0, 10, 0, 6)
         };
 
         private static TextBlock Hint(string text) => new()
         {
             Text = text,
-            Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0x8F, 0x8F)),
+            Foreground = ChatBrushes.Dim,
             FontSize = 11,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 4)
@@ -1157,44 +1446,35 @@ namespace StemCode.VS.ToolWindows
         private static Button MenuButton(string title, string meta)
         {
             var content = new StackPanel { Orientation = Orientation.Horizontal };
-            content.Children.Add(new TextBlock { Text = title, Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)) });
+            content.Children.Add(new TextBlock { Text = title, Foreground = ChatBrushes.Text });
             if (!string.IsNullOrEmpty(meta))
             {
                 content.Children.Add(new TextBlock
                 {
                     Text = meta,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0x8F, 0x8F, 0x8F)),
-                    FontSize = 10,
+                    Foreground = ChatBrushes.Dim,
+                    FontSize = 11,
                     Margin = new Thickness(8, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center
                 });
             }
-            return new Button
-            {
-                Content = content,
-                MinHeight = 30,
-                Padding = new Thickness(10, 4, 10, 4),
-                Margin = new Thickness(0, 0, 0, 4),
-                Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
-                BorderThickness = new Thickness(1),
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Cursor = Cursors.Hand
-            };
+            var button = new Button { Content = content };
+            button.SetResourceReference(StyleProperty, ChatStyles.MenuButton);
+            return button;
         }
 
-        private Button SecondaryButton(string text) => new()
+        private static Button SecondaryButton(string text)
         {
-            Content = text,
-            MinWidth = 80, MinHeight = 28,
-            Padding = new Thickness(10, 0, 10, 0),
-            Margin = new Thickness(4, 0, 0, 0),
-            Background = Brushes.Transparent,
-            Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
-            BorderThickness = new Thickness(1),
-            Cursor = Cursors.Hand
-        };
+            var button = new Button
+            {
+                Content = text,
+                MinWidth = 80, MinHeight = 28,
+                Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(6, 0, 0, 0)
+            };
+            button.SetResourceReference(StyleProperty, ChatStyles.Button);
+            return button;
+        }
 
         private Button CloseButton()
         {
@@ -1221,6 +1501,8 @@ namespace StemCode.VS.ToolWindows
                 ?? (kind == "text" ? "Input Required" : "Permission Required");
             string? description = GetParamString(request, "description") ?? "";
             bool allowCancel = GetParamBool(request, "allowCancellation", true);
+            _activeAllowCancel = allowCancel;
+            _activePermissionOptionIds.Clear();
 
             ModalTitle.Text = title;
             ModalDescription.Text = description;
@@ -1236,11 +1518,9 @@ namespace StemCode.VS.ToolWindows
                     ? new PasswordBox
                     {
                         MinHeight = 30,
-                        Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)),
-                        Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-                        BorderBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
                         Padding = new Thickness(8),
-                        Margin = new Thickness(0, 0, 0, 8)
+                        Margin = new Thickness(0, 0, 0, 8),
+                        CaretBrush = ChatBrushes.InputText
                     }
                     : new TextBox
                     {
@@ -1248,21 +1528,15 @@ namespace StemCode.VS.ToolWindows
                         TextWrapping = TextWrapping.Wrap,
                         Text = defaultValue,
                         MinHeight = 40, MaxHeight = 120,
-                        Background = new SolidColorBrush(Color.FromRgb(0x25, 0x25, 0x26)),
-                        Foreground = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
-                        BorderBrush = new SolidColorBrush(Color.FromRgb(0x3C, 0x3C, 0x3C)),
-                        BorderThickness = new Thickness(1),
                         Padding = new Thickness(8),
                         Margin = new Thickness(0, 0, 0, 8),
-                        CaretBrush = new SolidColorBrush(Color.FromRgb(0xCC, 0xCC, 0xCC)),
+                        CaretBrush = ChatBrushes.InputText,
                         FontSize = 13
                     };
+                inputControl.SetResourceReference(StyleProperty, ChatStyles.Input);
                 ModalBodyPanel.Children.Add(inputControl);
 
-                var submitBtn = SecondaryButton("Submit");
-                submitBtn.Background = new SolidColorBrush(Color.FromRgb(0x0E, 0x63, 0x9C));
-                submitBtn.Foreground = Brushes.White;
-                submitBtn.BorderThickness = new Thickness(0);
+                var submitBtn = PrimaryButton("Submit");
                 submitBtn.Click += (_, _) =>
                 {
                     string value = inputControl is PasswordBox pb ? pb.Password : ((TextBox)inputControl).Text;
@@ -1279,13 +1553,25 @@ namespace StemCode.VS.ToolWindows
             }
             else
             {
+                _activePermissionOptionIds.Clear();
+                _activeAllowCancel = allowCancel;
+                Button? first = null;
+                int index = 0;
                 foreach (PermissionOptionInfo option in GetPermissionOptions(request))
                 {
-                    var optionBtn = MenuButton(option.Name, "");
+                    index++;
+                    // Options 1-9 get a number-key shortcut, like the inline approval cards in VS Code.
+                    var optionBtn = MenuButton(index <= 9 ? $"{index}.  {option.Name}" : option.Name, "");
                     string captured = option.OptionId;
                     optionBtn.Click += (_, _) => { _ = ResolveClientRequestAsync(requestId, "selected", null, captured); };
                     ModalBodyPanel.Children.Add(optionBtn);
+                    _activePermissionOptionIds.Add(captured);
+                    first ??= optionBtn;
                 }
+
+                ModalBodyPanel.Children.Add(Hint(allowCancel
+                    ? "Press 1–9 to choose an option, or Esc to cancel."
+                    : "Press 1–9 to choose an option."));
 
                 if (allowCancel)
                 {
@@ -1293,8 +1579,38 @@ namespace StemCode.VS.ToolWindows
                     cancelBtn.Click += (_, _) => { _ = ResolveClientRequestAsync(requestId, "cancelled", null, null); };
                     ModalActionsPanel.Children.Add(cancelBtn);
                 }
+
+                ModalOverlay.Visibility = Visibility.Visible;
+                // Take keyboard focus so the shortcuts work straight away.
+                first?.Focus();
+                return;
             }
             ModalOverlay.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>1-9 picks a permission option and Esc cancels a request or closes a panel.</summary>
+        private bool TryHandleModalKey(KeyEventArgs e)
+        {
+            if (ModalOverlay.Visibility != Visibility.Visible) return false;
+
+            string? requestId = _activeModalRequestId;
+            if (e.Key == Key.Escape)
+            {
+                if (requestId is null) { CloseModal(); return true; }
+                if (_activeAllowCancel) { _ = ResolveClientRequestAsync(requestId, "cancelled", null, null); return true; }
+                return false;
+            }
+
+            // Digits only apply to permission choices, and never while typing in a text field.
+            if (requestId is null || _activePermissionOptionIds.Count == 0 || Keyboard.FocusedElement is TextBox) return false;
+
+            int digit = e.Key >= Key.D1 && e.Key <= Key.D9 ? e.Key - Key.D1 + 1
+                : e.Key >= Key.NumPad1 && e.Key <= Key.NumPad9 ? e.Key - Key.NumPad1 + 1
+                : 0;
+            if (digit == 0 || digit > _activePermissionOptionIds.Count) return false;
+
+            _ = ResolveClientRequestAsync(requestId, "selected", null, _activePermissionOptionIds[digit - 1]);
+            return true;
         }
 
         private async Task ResolveClientRequestAsync(string requestId, string outcome, string? value, string? optionId)
@@ -1357,16 +1673,16 @@ namespace StemCode.VS.ToolWindows
 
         // ───── Status / state ─────
 
-        private void SetStatus(string text, string? colorHex = null)
+        private void SetStatus(string text, StatusKind kind)
         {
             StatusText.Text = text;
-            if (colorHex is not null && colorHex.Length == 9 && colorHex[0] == '#')
+            StatusDot.Fill = kind switch
             {
-                byte r = Convert.ToByte(colorHex.Substring(1, 2), 16);
-                byte g = Convert.ToByte(colorHex.Substring(3, 2), 16);
-                byte b = Convert.ToByte(colorHex.Substring(5, 2), 16);
-                ((Border)StatusText.Parent).Background = new SolidColorBrush(Color.FromRgb(r, g, b));
-            }
+                StatusKind.Ready => ChatBrushes.Ok,
+                StatusKind.Busy => ChatBrushes.Busy,
+                StatusKind.Error => ChatBrushes.Error,
+                _ => ChatBrushes.Dim
+            };
         }
 
         private void UpdateInputState()
@@ -1375,10 +1691,9 @@ namespace StemCode.VS.ToolWindows
             // Running: square = stop (always enabled). Idle: arrow = send (needs text).
             SendButton.IsEnabled = _promptRunning || hasText;
             InputTextBox.IsEnabled = true; // keep editable so prompts can be queued while busy
-            SendButton.Content = _promptRunning ? "■" : "↑";
-            SendButton.Background = new SolidColorBrush(_promptRunning
-                ? Color.FromRgb(0xF4, 0x87, 0x71)
-                : Color.FromRgb(0x0E, 0x63, 0x9C));
+            SendButton.Content = _promptRunning ? "\uE71A" : "\uE724"; // Stop : Send
+            SendButton.ToolTip = _promptRunning ? "Stop (Esc)" : "Send (Enter)";
+            SendButton.Background = _promptRunning ? ChatBrushes.Error : ChatBrushes.Accent;
         }
 
         private void ScrollToBottom()
@@ -1442,15 +1757,18 @@ namespace StemCode.VS.ToolWindows
                 // A solution may have opened while we were starting up; reconcile now.
                 await EnsureSessionWorkingDirectoryAsync();
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                SetStatus("Ready", "#FF73C991");
-                await FlushPendingExternalPromptAsync();
+                SetStatus("Ready", StatusKind.Ready);
+                HideBanner();
             }
             catch (Exception ex)
             {
                 _log.Error("Failed to initialize backend session", ex);
+                _hostInitialized = false;
+                // Don't leave a half-initialized process behind; Retry starts a fresh one.
+                try { await _agentService.StopAsync(); } catch (Exception stopEx) { _log.Debug("Stop after failed init: " + stopEx.Message); }
                 await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                SetStatus("Error", "#FFF48771");
-                AddSystemMessage($"Failed to initialize backend session: {ex.Message}");
+                SetStatus("Error", StatusKind.Error);
+                ShowBanner($"StemCode couldn't start a session: {ex.Message} If this is a first run, run 'stemcode' in a terminal once to finish provider setup, then retry.");
             }
         }
 

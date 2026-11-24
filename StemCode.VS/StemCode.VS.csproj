@@ -6,9 +6,6 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <RuntimeIdentifiers>win</RuntimeIdentifiers>
-    <BuildStemCodeCliProject Condition="'$(BuildStemCodeCliProject)' == ''">true</BuildStemCodeCliProject>
-    <StemCodeCliProjectPath>..\StemCode.CLI\StemCode.CLI.csproj</StemCodeCliProjectPath>
-    <StemCodeCliOutputDir>..\StemCode.CLI\bin\$(Configuration)\net10.0\</StemCodeCliOutputDir>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -56,16 +53,19 @@
     <Compile Include="Properties\IsExternalInit.cs" />
     <Compile Include="StemCode.VSPackage.cs" />
     <Compile Include="Services\LogService.cs" />
+    <Compile Include="Services\ProcessTree.cs" />
     <Compile Include="Services\StemCodeProcessManager.cs" />
     <Compile Include="Services\VsAgentService.cs" />
     <Compile Include="Services\VsProtocol.cs" />
     <Compile Include="ToolWindows\ChatToolWindow.cs" />
     <Compile Include="ToolWindows\ChatToolWindowControl.cs" />
     <Compile Include="ToolWindows\ChatToolWindowControl.Voice.cs" />
+    <Compile Include="ToolWindows\VoiceText.cs" />
     <Compile Include="ToolWindows\ChatMessageModel.cs" />
     <Compile Include="ToolWindows\ChatCommands.cs" />
     <Compile Include="ToolWindows\DiffModel.cs" />
     <Compile Include="ToolWindows\ChatPresenters.cs" />
+    <Compile Include="ToolWindows\ChatTheme.cs" />
     <Compile Include="ToolWindows\MarkdownPresenter.cs" />
     <Compile Include="ToolWindows\SelectableTextBlock.cs" />
   </ItemGroup>
@@ -89,6 +89,7 @@
     <None Include="source.extension.vsixmanifest">
       <SubType>Designer</SubType>
     </None>
+    <Resource Include="Resources\logo.png" />
     <Content Include="Resources\logo.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <IncludeInVSIX>true</IncludeInVSIX>
@@ -103,6 +104,7 @@
     <Reference Include="System.Runtime" />
     <Reference Include="System.Threading.Tasks" />
     <Reference Include="System.Design" />
+    <Reference Include="System.Drawing" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="WindowsBase" />
@@ -117,27 +119,5 @@
     <PackageReference Include="Microsoft.VisualStudio.Workspace.VSIntegration" Version="16.3.43" ExcludeAssets="runtime" NoWarn="NU1604" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
-  <Target Name="BuildStemCodeCliPayload" BeforeTargets="GetVsixSourceItems" Condition="Exists('$(StemCodeCliProjectPath)')">
-    <Exec Condition="'$(BuildStemCodeCliProject)' == 'true'" Command="dotnet build &quot;$(StemCodeCliProjectPath)&quot; --configuration &quot;$(Configuration)&quot; --nologo" />
-    <Error Condition="!Exists('$(StemCodeCliOutputDir)StemCode.CLI.exe') and !Exists('$(StemCodeCliOutputDir)StemCode.CLI.dll')" Text="StemCode CLI payload was not found in '$(StemCodeCliOutputDir)'. Build StemCode.CLI first or set BuildStemCodeCliProject=true." />
-    <ItemGroup>
-      <StemCodeCliRootPayload Include="$(StemCodeCliOutputDir)*.exe;$(StemCodeCliOutputDir)*.dll;$(StemCodeCliOutputDir)*.json" Exclude="$(StemCodeCliOutputDir)**\*.pdb" />
-      <StemCodeCliRuntimePayload Include="$(StemCodeCliOutputDir)runtimes\**\*" Exclude="$(StemCodeCliOutputDir)**\*.pdb" />
-      <Content Include="@(StemCodeCliRootPayload)">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <IncludeInVSIX>true</IncludeInVSIX>
-        <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
-        <Visible>false</Visible>
-      </Content>
-      <Content Include="@(StemCodeCliRuntimePayload)">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <IncludeInVSIX>true</IncludeInVSIX>
-        <Link>runtimes\%(RecursiveDir)%(Filename)%(Extension)</Link>
-        <Visible>false</Visible>
-      </Content>
-    </ItemGroup>
-    <Copy SourceFiles="@(StemCodeCliRootPayload)" DestinationFiles="@(StemCodeCliRootPayload->'$(OutDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(StemCodeCliRuntimePayload)" DestinationFiles="@(StemCodeCliRuntimePayload->'$(OutDir)runtimes\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
-  </Target>
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="'$(VSToolsPath)' != ''" />
 </Project>

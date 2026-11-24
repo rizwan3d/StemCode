@@ -5,4 +5,5 @@
   <Project Path="StemCode.Tests/StemCode.Tests.csproj" />
   <Project Path="StemCode.Voice/StemCode.Voice.csproj" />
   <Project Path="StemCode.VS/StemCode.VS.csproj" Id="e3ffc521-f526-4e30-bb05-1f08925b0266" />
+  <Project Path="StemCode.VS.Tests/StemCode.VS.Tests.csproj" />
 </Solution>

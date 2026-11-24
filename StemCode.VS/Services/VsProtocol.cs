@@ -13,5 +13,7 @@ namespace StemCode.VS.Services
         public const string FileEditsSummary = "file_edits_summary";
         public const string RequestPermission = "request_permission";
         public const string RequestText = "request_text";
+        public const string AvailableCommands = "available_commands";
+        public const string HistoryReset = "history_reset";
     }
 }

@@ -10,39 +10,6 @@ using System.Windows.Navigation;
 
 namespace StemCode.VS.ToolWindows
 {
-    /// <summary>Shared dark-theme brushes matching the VS Code chat palette.</summary>
-    internal static class ChatBrushes
-    {
-        public static readonly Brush Text = Frozen(0xCC, 0xCC, 0xCC);
-        public static readonly Brush Dim = Frozen(0x8F, 0x8F, 0x8F);
-        public static readonly Brush Code = Frozen(0xD4, 0xD4, 0xD4);
-        public static readonly Brush Border = Frozen(0x3C, 0x3C, 0x3C);
-        public static readonly Brush Panel = Frozen(0x25, 0x25, 0x26);
-        public static readonly Brush CodeBg = Frozen(0x2D, 0x2D, 0x30);
-        public static readonly Brush Link = Frozen(0x4D, 0xAA, 0xFC);
-        public static readonly Brush AddFg = Frozen(0x9C, 0xDC, 0xAA);
-        public static readonly Brush DelFg = Frozen(0xF4, 0x87, 0x71);
-        public static readonly Brush WarnFg = Frozen(0xE2, 0xC0, 0x8D);
-        public static readonly Brush MetaFg = Frozen(0x6A, 0x95, 0xD6);
-        public static readonly Brush AddBg = new SolidColorBrush(Color.FromArgb(0x33, 0x2E, 0xA0, 0x43)) { };
-        public static readonly Brush DelBg = new SolidColorBrush(Color.FromArgb(0x33, 0xF4, 0x87, 0x71)) { };
-
-        public static readonly FontFamily Mono = new("Consolas");
-
-        private static SolidColorBrush Frozen(byte r, byte g, byte b)
-        {
-            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
-            brush.Freeze();
-            return brush;
-        }
-
-        static ChatBrushes()
-        {
-            (AddBg as SolidColorBrush)?.Freeze();
-            (DelBg as SolidColorBrush)?.Freeze();
-        }
-    }
-
     /// <summary>Renders a parsed set of file diffs as colored, copyable blocks.</summary>
     public sealed class DiffPresenter : ContentControl
     {
@@ -262,7 +229,7 @@ namespace StemCode.VS.ToolWindows
         {
             var border = new Border
             {
-                Background = Frozen(0x1E, 0x1E, 0x1E),
+                Background = ChatBrushes.CodeBg,
                 BorderBrush = ChatBrushes.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(4),
@@ -305,13 +272,6 @@ namespace StemCode.VS.ToolWindows
             }
             catch { return raw; }
         }
-
-        private static SolidColorBrush Frozen(byte r, byte g, byte b)
-        {
-            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
-            brush.Freeze();
-            return brush;
-        }
     }
 
     /// <summary>Small UI helpers shared across presenters.</summary>
@@ -319,19 +279,16 @@ namespace StemCode.VS.ToolWindows
     {
         public static Button IconButton(string content, string tooltip)
         {
-            return new Button
+            var button = new Button
             {
                 Content = content,
                 ToolTip = tooltip,
                 FontSize = 11,
                 Padding = new Thickness(6, 1, 6, 1),
-                Margin = new Thickness(2, 0, 0, 0),
-                Background = ChatBrushes.Panel,
-                Foreground = ChatBrushes.Dim,
-                BorderBrush = ChatBrushes.Border,
-                BorderThickness = new Thickness(1),
-                Cursor = Cursors.Hand
+                Margin = new Thickness(2, 0, 0, 0)
             };
+            button.SetResourceReference(FrameworkElement.StyleProperty, ChatStyles.Button);
+            return button;
         }
 
         public static void CopyToClipboard(string text)

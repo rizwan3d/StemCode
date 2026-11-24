@@ -12,6 +12,7 @@ namespace StemCode.VS.Services
     internal sealed class StemCodeProcessManager : IDisposable
     {
         private Process? _process;
+        private ProcessTree? _tree;
         private readonly LogService _log;
         private bool _disposed;
 
@@ -52,6 +53,7 @@ namespace StemCode.VS.Services
 
             _process = new Process { StartInfo = startInfo };
             _process.Start();
+            _tree = ProcessTree.TryAttach(_process, _log);
 
             Stdin = _process.StandardInput;
             Stdout = _process.StandardOutput;
@@ -87,7 +89,7 @@ namespace StemCode.VS.Services
 
             try
             {
-                _process.Kill();
+                KillTree(_process);
                 _process.WaitForExit(1000);
                 _log.Info("StemCode CLI process killed.");
             }
@@ -120,10 +122,12 @@ namespace StemCode.VS.Services
 
             if (!_process.WaitForExit(timeoutMs))
             {
-                _process.Kill();
+                KillTree(_process);
                 _log.Warn("StemCode CLI process had to be killed after shutdown timeout.");
             }
 
+            // A shim (stemcode.cmd -> node -> StemCode.CLI.exe) can exit before its children do.
+            _tree?.Kill();
             Cleanup();
         }
 
@@ -140,12 +144,51 @@ namespace StemCode.VS.Services
 
         private void Cleanup()
         {
-            Stdin?.Dispose();
+            try { Stdin?.Dispose(); } catch (IOException) { /* pipe already closed */ }
             Stdout?.Dispose();
             _process?.Dispose();
+            _tree?.Dispose();
             Stdin = null;
             Stdout = null;
             _process = null;
+            _tree = null;
+        }
+
+        /// <summary>Kills the process and everything it started (npm shims spawn node and the CLI).</summary>
+        private void KillTree(Process process)
+        {
+            if (_tree is null)
+            {
+                // No job object: fall back to taskkill, which walks the tree while the root is alive.
+                try
+                {
+                    using Process? taskkill = Process.Start(new ProcessStartInfo("taskkill", $"/T /F /PID {process.Id}")
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    });
+                    taskkill?.WaitForExit(5000);
+                }
+                catch (Exception ex)
+                {
+                    _log.Debug("taskkill failed: " + ex.Message);
+                }
+            }
+            else
+            {
+                _tree.Kill();
+            }
+
+            try
+            {
+                if (!process.HasExited) process.Kill();
+            }
+            catch (InvalidOperationException)
+            {
+                // Already exited.
+            }
         }
 
         private static string QuoteArgument(string value)

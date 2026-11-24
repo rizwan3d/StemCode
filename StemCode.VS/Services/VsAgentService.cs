@@ -27,6 +27,8 @@ namespace StemCode.VS.Services
         private string? _sessionId;
         private Task? _readLoop;
         private CancellationTokenSource? _loopCts;
+        private readonly SemaphoreSlim _writeLock = new(1, 1);
+        private int _generation; // bumped per Start/Stop so a stale read loop never reports on a newer process.
 
         public event Action<string, Dictionary<string, object?>?>? NotificationReceived;
         public event Action<string>? HostError;
@@ -39,6 +41,8 @@ namespace StemCode.VS.Services
         }
 
         public bool IsConnected => _processManager.IsRunning && _readLoop is not null;
+
+        public bool IsRunning => _processManager.IsRunning;
 
         public string? SessionId => _sessionId;
 
@@ -56,8 +60,13 @@ namespace StemCode.VS.Services
             }
 
             _processManager.Start(executablePath, args.ToArray());
+            _sessionId = null;
+            _loopCts?.Dispose();
             _loopCts = new CancellationTokenSource();
-            _readLoop = Task.Run(() => ReadLoopAsync(_loopCts.Token));
+            int generation = Interlocked.Increment(ref _generation);
+            StreamReader stdout = _processManager.Stdout!;
+            CancellationToken token = _loopCts.Token;
+            _readLoop = Task.Run(() => ReadLoopAsync(stdout, generation, token));
         }
 
         public async Task InitializeAsync(string workingDirectory, string? authToken = null)
@@ -262,17 +271,36 @@ namespace StemCode.VS.Services
 
         public async Task StopAsync()
         {
-            _loopCts?.Cancel();
-            await CloseSessionAsync();
-            await _processManager.StopAsync();
-            _readLoop = null;
-
-            foreach (KeyValuePair<string, TaskCompletionSource<JsonElement>> kvp in _pendingRequests)
+            // Invalidate the read loop first so a deliberate stop isn't reported as a crash.
+            Interlocked.Increment(ref _generation);
+            if (_processManager.IsRunning)
             {
-                kvp.Value.TrySetCanceled();
+                try
+                {
+                    await Task.WhenAny(CloseSessionAsync(), Task.Delay(2000));
+                }
+                catch (Exception ex)
+                {
+                    _log.Debug("Session close during stop failed: " + ex.Message);
+                }
             }
 
-            _pendingRequests.Clear();
+            _sessionId = null;
+            _loopCts?.Cancel();
+            await _processManager.StopAsync();
+            _readLoop = null;
+            FailPendingRequests(new OperationCanceledException("StemCode was stopped."));
+        }
+
+        private void FailPendingRequests(Exception reason)
+        {
+            foreach (string key in _pendingRequests.Keys.ToList())
+            {
+                if (_pendingRequests.TryRemove(key, out TaskCompletionSource<JsonElement>? tcs))
+                {
+                    tcs.TrySetException(reason);
+                }
+            }
         }
 
         public void Dispose()
@@ -283,9 +311,11 @@ namespace StemCode.VS.Services
             }
 
             _disposed = true;
+            Interlocked.Increment(ref _generation);
             _loopCts?.Cancel();
             _loopCts?.Dispose();
             _processManager.Dispose();
+            FailPendingRequests(new ObjectDisposedException(nameof(VsAgentService)));
         }
 
         private async Task<T?> SendRequestAsync<T>(string method, Dictionary<string, object?>? parameters = null)
@@ -316,13 +346,21 @@ namespace StemCode.VS.Services
             TaskCompletionSource<JsonElement> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _pendingRequests[requestKey] = tcs;
 
-            await WriteMessageAsync(new Dictionary<string, object?>
+            try
             {
-                ["jsonrpc"] = "2.0",
-                ["id"] = id,
-                ["method"] = method,
-                ["params"] = parameters ?? new Dictionary<string, object?>()
-            });
+                await WriteMessageAsync(new Dictionary<string, object?>
+                {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = id,
+                    ["method"] = method,
+                    ["params"] = parameters ?? new Dictionary<string, object?>()
+                });
+            }
+            catch
+            {
+                _pendingRequests.TryRemove(requestKey, out _);
+                throw;
+            }
 
             Task completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromMinutes(10)));
             if (completed != tcs.Task)
@@ -362,11 +400,27 @@ namespace StemCode.VS.Services
             }
 
             string json = JsonSerializer.Serialize(message, SerializerOptions);
-            await _processManager.Stdin.WriteLineAsync(json);
-            await _processManager.Stdin.FlushAsync();
+
+            // StreamWriter isn't thread-safe; prompts, cancels and permission replies can race.
+            await _writeLock.WaitAsync();
+            try
+            {
+                StreamWriter? stdin = _processManager.Stdin;
+                if (stdin is null)
+                {
+                    return;
+                }
+
+                await stdin.WriteLineAsync(json);
+                await stdin.FlushAsync();
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
         }
 
-        private async Task ReadLoopAsync(CancellationToken cancellationToken)
+        private async Task ReadLoopAsync(StreamReader stdout, int generation, CancellationToken cancellationToken)
         {
             try
             {
@@ -375,17 +429,23 @@ namespace StemCode.VS.Services
                     string? line;
                     try
                     {
-                        line = await _processManager.Stdout!.ReadLineAsync();
+                        line = await stdout.ReadLineAsync();
                     }
-                    catch (ObjectDisposedException)
+                    catch (Exception ex) when (ex is ObjectDisposedException or IOException or InvalidOperationException)
                     {
-                        break;
+                        line = null;
                     }
 
                     if (line is null)
                     {
                         _log.Info("StemCode ACP stdout stream ended.");
-                        HostExited?.Invoke();
+                        if (generation == Volatile.Read(ref _generation))
+                        {
+                            // Unexpected exit: unblock anything waiting on a reply, then tell the UI.
+                            _sessionId = null;
+                            FailPendingRequests(new InvalidOperationException("StemCode exited unexpectedly."));
+                            HostExited?.Invoke();
+                        }
                         break;
                     }
 
@@ -547,6 +607,14 @@ namespace StemCode.VS.Services
 
                 case "file_edits_summary":
                     NotificationReceived?.Invoke(VsProtocol.FileEditsSummary, ToDictionary(update));
+                    break;
+
+                case "available_commands_update":
+                    NotificationReceived?.Invoke(VsProtocol.AvailableCommands, ToDictionary(update));
+                    break;
+
+                case "session_history_reset":
+                    NotificationReceived?.Invoke(VsProtocol.HistoryReset, null);
                     break;
             }
         }

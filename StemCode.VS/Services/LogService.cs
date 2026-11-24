@@ -14,22 +14,34 @@ namespace StemCode.VS.Services
         private readonly StreamWriter? _writer;
         private readonly object _lock = new();
 
+        /// <summary>Folder holding every extension log (%LOCALAPPDATA%\StemCode\Logs).
+        /// STEMCODE_VS_LOG_DIR overrides it (the unit tests use this to keep out of the user's logs).</summary>
+        public static string LogDirectory { get; } =
+            Environment.GetEnvironmentVariable("STEMCODE_VS_LOG_DIR") is { Length: > 0 } overridden
+                ? overridden
+                : Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "StemCode",
+                    "Logs");
+
+        /// <summary>This Visual Studio session's log file, or null when it couldn't be created.</summary>
+        public string? LogFilePath { get; }
+
         private LogService()
         {
             try
             {
-                string logDir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "StemCode",
-                    "Logs");
-                Directory.CreateDirectory(logDir);
+                Directory.CreateDirectory(LogDirectory);
                 string logPath = Path.Combine(
-                    logDir,
+                    LogDirectory,
                     $"StemCode.VS_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-                _writer = new StreamWriter(logPath, append: true)
+                // FileShare.ReadWrite so the log can be opened in the editor while it's being written.
+                var stream = new FileStream(logPath, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                _writer = new StreamWriter(stream)
                 {
                     AutoFlush = true
                 };
+                LogFilePath = logPath;
                 Info("LogService initialized.");
             }
             catch

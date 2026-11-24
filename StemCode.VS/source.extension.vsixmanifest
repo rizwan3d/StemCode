@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Id="StemCode.VS.5292ff0d-f5b5-4e1e-a565-91e6f73df142" Version="1.0.4" Language="en-US" Publisher="growbitlab" />
+    <Identity Id="StemCode.VS.5292ff0d-f5b5-4e1e-a565-91e6f73df142" Version="1.1.0" Language="en-US" Publisher="growbitlab" />
     <DisplayName>StemCode for Visual Studio</DisplayName>
-    <Description>AI-powered coding assistant for Visual Studio. Chat with StemCode directly in your IDE with support for model selection, profile switching, tool execution, and session management through the StemCode ACP server.</Description>
-    <MoreInfo>https://github.com/Rizwan3D/StemCode</MoreInfo>
+    <Description>StemCode coding agent for Visual Studio: chat, edits, tools, approvals, and every StemCode CLI command, running on your local StemCode CLI over ACP.</Description>
+    <MoreInfo>https://github.com/rizwan3d/StemCode</MoreInfo>
     <License>..\LICENSE.txt</License>
+    <ReleaseNotes>https://github.com/rizwan3d/StemCode/blob/master/StemCode.VS/CHANGELOG.md</ReleaseNotes>
     <Icon>Resources\logo.png</Icon>
-    <Tags>ai, coding, assistant, agent, chat</Tags>
+    <Tags>stemcode, ai, coding agent, assistant, chat, acp, code review</Tags>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,19.0)">

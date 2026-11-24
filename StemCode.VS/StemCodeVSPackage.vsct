@@ -4,9 +4,21 @@
   <Extern href="stdidcmd.h"/>
   <Extern href="vsshlids.h"/>
 
+  <!--
+    Menu layout (mirrors the VS Code extension's command palette):
+      View > Other Windows > StemCode Chat
+      Tools > StemCode Chat
+      Tools > StemCode > chat, editor, session, model, workspace, voice and process commands
+      Editor context menu > StemCode > selection / file / git diff commands
+    Keep the IDs in sync with VSPackage (StemCode.VSPackage.cs).
+  -->
+
   <Symbols>
     <!-- Package GUID (must match VSPackage.PackageGuidString) -->
     <GuidSymbol name="guidStemCodeVsPkg" value="{08b5699b-4adb-4433-9b60-bc4f5a3807df}"/>
+
+    <!-- Text editor scope for editor-only key bindings. -->
+    <GuidSymbol name="guidTextEditor" value="{8B382828-6202-11d1-8870-0000F87579D2}"/>
 
     <!-- Custom command set: groups and command IDs -->
     <GuidSymbol name="guidStemCodeVsCmdSet" value="{0A1B2C3D-4E5F-6789-0ABC-DEF012345678}">
@@ -14,9 +26,33 @@
       <IDSymbol name="ViewMenuGroup" value="0x1001" />
       <IDSymbol name="ToolsMenuGroup" value="0x1002" />
       <IDSymbol name="EditorContextGroup" value="0x1003" />
+
+      <!-- Editor context submenu -->
       <IDSymbol name="StemCodeSubMenu" value="0x1100" />
       <IDSymbol name="StemCodeSubMenuGroup" value="0x1101" />
+      <IDSymbol name="EditorChatGroup" value="0x1102" />
 
+      <!-- Tools > StemCode submenu and its nested menus -->
+      <IDSymbol name="ToolsSubMenu" value="0x1200" />
+      <IDSymbol name="ToolsChatGroup" value="0x1201" />
+      <IDSymbol name="ToolsNestedGroup" value="0x1202" />
+      <IDSymbol name="ToolsProcessGroup" value="0x1203" />
+      <IDSymbol name="ToolsAboutGroup" value="0x1204" />
+      <IDSymbol name="EditorMenu" value="0x1210" />
+      <IDSymbol name="EditorMenuGroup" value="0x1211" />
+      <IDSymbol name="SessionMenu" value="0x1220" />
+      <IDSymbol name="SessionEditsGroup" value="0x1221" />
+      <IDSymbol name="SessionBranchGroup" value="0x1222" />
+      <IDSymbol name="SessionShareGroup" value="0x1223" />
+      <IDSymbol name="ModelMenu" value="0x1230" />
+      <IDSymbol name="ModelMenuGroup" value="0x1231" />
+      <IDSymbol name="WorkspaceMenu" value="0x1240" />
+      <IDSymbol name="WorkspaceSetupGroup" value="0x1241" />
+      <IDSymbol name="WorkspaceInspectGroup" value="0x1242" />
+      <IDSymbol name="VoiceMenu" value="0x1250" />
+      <IDSymbol name="VoiceMenuGroup" value="0x1251" />
+
+      <!-- Chat and editor commands -->
       <IDSymbol name="cmdidShowChatWindow" value="0x0100" />
       <IDSymbol name="cmdidNewChat" value="0x0101" />
       <IDSymbol name="cmdidSendSelection" value="0x0102" />
@@ -27,6 +63,53 @@
       <IDSymbol name="cmdidPlanChanges" value="0x0107" />
       <IDSymbol name="cmdidApplySuggestedChanges" value="0x0108" />
       <IDSymbol name="cmdidShowTerminals" value="0x0109" />
+
+      <!-- Process and chat-view commands -->
+      <IDSymbol name="cmdidStart" value="0x0110" />
+      <IDSymbol name="cmdidStop" value="0x0111" />
+      <IDSymbol name="cmdidRestart" value="0x0112" />
+      <IDSymbol name="cmdidOpenLogs" value="0x0113" />
+      <IDSymbol name="cmdidOpenSettings" value="0x0114" />
+      <IDSymbol name="cmdidRunSlashCommand" value="0x0115" />
+
+      <!-- Session commands -->
+      <IDSymbol name="cmdidUndo" value="0x0120" />
+      <IDSymbol name="cmdidRedo" value="0x0121" />
+      <IDSymbol name="cmdidCompact" value="0x0122" />
+      <IDSymbol name="cmdidFork" value="0x0123" />
+      <IDSymbol name="cmdidClone" value="0x0124" />
+      <IDSymbol name="cmdidSessionTree" value="0x0125" />
+      <IDSymbol name="cmdidResumeSession" value="0x0126" />
+      <IDSymbol name="cmdidExportSession" value="0x0127" />
+      <IDSymbol name="cmdidExportTrajectory" value="0x0128" />
+      <IDSymbol name="cmdidImportSession" value="0x0129" />
+      <IDSymbol name="cmdidShareSession" value="0x012A" />
+      <IDSymbol name="cmdidCopyLastMessage" value="0x012B" />
+
+      <!-- Model and provider commands -->
+      <IDSymbol name="cmdidSelectModel" value="0x0130" />
+      <IDSymbol name="cmdidSelectProvider" value="0x0131" />
+      <IDSymbol name="cmdidOnboard" value="0x0132" />
+
+      <!-- Workspace and diagnostics commands -->
+      <IDSymbol name="cmdidInitWorkspace" value="0x0140" />
+      <IDSymbol name="cmdidDoctor" value="0x0141" />
+      <IDSymbol name="cmdidSessionInfo" value="0x0142" />
+      <IDSymbol name="cmdidPermissions" value="0x0143" />
+      <IDSymbol name="cmdidMcpStatus" value="0x0144" />
+      <IDSymbol name="cmdidIndexStatus" value="0x0145" />
+      <IDSymbol name="cmdidIndexRebuild" value="0x0146" />
+      <IDSymbol name="cmdidLspStatus" value="0x0147" />
+      <IDSymbol name="cmdidReload" value="0x0148" />
+
+      <!-- CLI version commands -->
+      <IDSymbol name="cmdidCheckForUpdates" value="0x0150" />
+      <IDSymbol name="cmdidVersion" value="0x0151" />
+
+      <!-- Voice commands -->
+      <IDSymbol name="cmdidVoiceDictation" value="0x0160" />
+      <IDSymbol name="cmdidVoiceSetup" value="0x0161" />
+      <IDSymbol name="cmdidVoiceUpdate" value="0x0162" />
     </GuidSymbol>
   </Symbols>
 
@@ -39,6 +122,35 @@
           <ButtonText>StemCode</ButtonText>
           <CommandName>StemCode</CommandName>
         </Strings>
+      </Menu>
+
+      <!-- Tools > StemCode -->
+      <Menu guid="guidStemCodeVsCmdSet" id="ToolsSubMenu" priority="0x0600" type="Menu">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsMenuGroup"/>
+        <Strings>
+          <ButtonText>StemCode</ButtonText>
+          
+        </Strings>
+      </Menu>
+      <Menu guid="guidStemCodeVsCmdSet" id="EditorMenu" priority="0x0100" type="Menu">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsNestedGroup"/>
+        <Strings><ButtonText>Editor</ButtonText></Strings>
+      </Menu>
+      <Menu guid="guidStemCodeVsCmdSet" id="SessionMenu" priority="0x0200" type="Menu">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsNestedGroup"/>
+        <Strings><ButtonText>Session</ButtonText></Strings>
+      </Menu>
+      <Menu guid="guidStemCodeVsCmdSet" id="ModelMenu" priority="0x0300" type="Menu">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsNestedGroup"/>
+        <Strings><ButtonText>Model and Provider</ButtonText></Strings>
+      </Menu>
+      <Menu guid="guidStemCodeVsCmdSet" id="WorkspaceMenu" priority="0x0400" type="Menu">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsNestedGroup"/>
+        <Strings><ButtonText>Workspace and Diagnostics</ButtonText></Strings>
+      </Menu>
+      <Menu guid="guidStemCodeVsCmdSet" id="VoiceMenu" priority="0x0500" type="Menu">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsNestedGroup"/>
+        <Strings><ButtonText>Voice</ButtonText></Strings>
       </Menu>
     </Menus>
 
@@ -63,13 +175,55 @@
         <Parent guid="guidSHLMainMenu" id="IDM_VS_CTXT_CODEWIN"/>
       </Group>
 
-      <!-- Commands inside the StemCode submenu. -->
+      <!-- Commands inside the editor-context StemCode submenu. -->
       <Group guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup" priority="0x0100">
         <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="EditorChatGroup" priority="0x0200">
+        <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenu"/>
+      </Group>
+
+      <!-- Tools > StemCode groups. -->
+      <Group guid="guidStemCodeVsCmdSet" id="ToolsChatGroup" priority="0x0100">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsSubMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="ToolsNestedGroup" priority="0x0200">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsSubMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="ToolsProcessGroup" priority="0x0300">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsSubMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="ToolsAboutGroup" priority="0x0400">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsSubMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="EditorMenuGroup" priority="0x0100">
+        <Parent guid="guidStemCodeVsCmdSet" id="EditorMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="SessionEditsGroup" priority="0x0100">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="SessionBranchGroup" priority="0x0200">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="SessionShareGroup" priority="0x0300">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="ModelMenuGroup" priority="0x0100">
+        <Parent guid="guidStemCodeVsCmdSet" id="ModelMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="WorkspaceSetupGroup" priority="0x0100">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup" priority="0x0200">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceMenu"/>
+      </Group>
+      <Group guid="guidStemCodeVsCmdSet" id="VoiceMenuGroup" priority="0x0100">
+        <Parent guid="guidStemCodeVsCmdSet" id="VoiceMenu"/>
       </Group>
     </Groups>
 
     <Buttons>
+      <!-- Chat -->
       <Button guid="guidStemCodeVsCmdSet" id="cmdidShowChatWindow" priority="0x0100" type="Button">
         <Parent guid="guidStemCodeVsCmdSet" id="OtherWindowsGroup"/>
         <Strings>
@@ -77,18 +231,23 @@
           <CommandName>StemCode.Chat.Show</CommandName>
         </Strings>
       </Button>
-
       <Button guid="guidStemCodeVsCmdSet" id="cmdidNewChat" priority="0x0101" type="Button">
-        <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup"/>
+        <Parent guid="guidStemCodeVsCmdSet" id="EditorChatGroup"/>
         <Strings><ButtonText>New Chat</ButtonText><CommandName>StemCode.NewChat</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidRunSlashCommand" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsChatGroup"/>
+        <Strings><ButtonText>Run Slash Command...</ButtonText><CommandName>StemCode.RunSlashCommand</CommandName></Strings>
+      </Button>
+
+      <!-- Editor -->
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidExplainSelection" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup"/>
+        <Strings><ButtonText>Explain Selection</ButtonText><CommandName>StemCode.ExplainSelection</CommandName></Strings>
       </Button>
       <Button guid="guidStemCodeVsCmdSet" id="cmdidSendSelection" priority="0x0102" type="Button">
         <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup"/>
         <Strings><ButtonText>Send Selection to StemCode</ButtonText><CommandName>StemCode.SendSelection</CommandName></Strings>
-      </Button>
-      <Button guid="guidStemCodeVsCmdSet" id="cmdidExplainSelection" priority="0x0103" type="Button">
-        <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup"/>
-        <Strings><ButtonText>Explain Selection</ButtonText><CommandName>StemCode.ExplainSelection</CommandName></Strings>
       </Button>
       <Button guid="guidStemCodeVsCmdSet" id="cmdidSendCurrentFile" priority="0x0104" type="Button">
         <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup"/>
@@ -110,24 +269,205 @@
         <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup"/>
         <Strings><ButtonText>Apply Suggested Changes</ButtonText><CommandName>StemCode.ApplySuggestedChanges</CommandName></Strings>
       </Button>
-      <Button guid="guidStemCodeVsCmdSet" id="cmdidShowTerminals" priority="0x0109" type="Button">
-        <Parent guid="guidStemCodeVsCmdSet" id="StemCodeSubMenuGroup"/>
+
+      <!-- Session -->
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidUndo" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionEditsGroup"/>
+        <Strings><ButtonText>Undo Last AI Edit</ButtonText><CommandName>StemCode.Undo</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidRedo" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionEditsGroup"/>
+        <Strings><ButtonText>Redo Last AI Edit</ButtonText><CommandName>StemCode.Redo</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidCompact" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionEditsGroup"/>
+        <Strings><ButtonText>Compact Session Context</ButtonText><CommandName>StemCode.Compact</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidCopyLastMessage" priority="0x0103" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionEditsGroup"/>
+        <Strings><ButtonText>Copy Last Agent Message</ButtonText><CommandName>StemCode.CopyLastMessage</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidResumeSession" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionBranchGroup"/>
+        <Strings><ButtonText>Resume Session...</ButtonText><CommandName>StemCode.ResumeSession</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidSessionTree" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionBranchGroup"/>
+        <Strings><ButtonText>Navigate Session Tree</ButtonText><CommandName>StemCode.SessionTree</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidFork" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionBranchGroup"/>
+        <Strings><ButtonText>Fork Session</ButtonText><CommandName>StemCode.Fork</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidClone" priority="0x0103" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionBranchGroup"/>
+        <Strings><ButtonText>Clone Session</ButtonText><CommandName>StemCode.Clone</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidExportSession" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionShareGroup"/>
+        <Strings><ButtonText>Export Session...</ButtonText><CommandName>StemCode.ExportSession</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidExportTrajectory" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionShareGroup"/>
+        <Strings><ButtonText>Open Session Trajectory</ButtonText><CommandName>StemCode.ExportTrajectory</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidImportSession" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionShareGroup"/>
+        <Strings><ButtonText>Import Session...</ButtonText><CommandName>StemCode.ImportSession</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidShareSession" priority="0x0103" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="SessionShareGroup"/>
+        <Strings><ButtonText>Share Session as Gist</ButtonText><CommandName>StemCode.ShareSession</CommandName></Strings>
+      </Button>
+
+      <!-- Model and provider -->
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidSelectModel" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ModelMenuGroup"/>
+        <Strings><ButtonText>Select Model...</ButtonText><CommandName>StemCode.SelectModel</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidSelectProvider" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ModelMenuGroup"/>
+        <Strings><ButtonText>Select Provider...</ButtonText><CommandName>StemCode.SelectProvider</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidOnboard" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ModelMenuGroup"/>
+        <Strings><ButtonText>Re-run Provider Onboarding</ButtonText><CommandName>StemCode.Onboard</CommandName></Strings>
+      </Button>
+
+      <!-- Workspace and diagnostics -->
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidInitWorkspace" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceSetupGroup"/>
+        <Strings><ButtonText>Initialize Workspace Files</ButtonText><CommandName>StemCode.InitWorkspace</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidReload" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceSetupGroup"/>
+        <Strings><ButtonText>Reload Skills, Prompts, and Extensions</ButtonText><CommandName>StemCode.Reload</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidIndexRebuild" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceSetupGroup"/>
+        <Strings><ButtonText>Rebuild Codebase Index</ButtonText><CommandName>StemCode.IndexRebuild</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidDoctor" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup"/>
+        <Strings><ButtonText>Run Diagnostics (Doctor)</ButtonText><CommandName>StemCode.Doctor</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidSessionInfo" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup"/>
+        <Strings><ButtonText>Show Session Info</ButtonText><CommandName>StemCode.SessionInfo</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidPermissions" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup"/>
+        <Strings><ButtonText>Show Permissions</ButtonText><CommandName>StemCode.Permissions</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidMcpStatus" priority="0x0103" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup"/>
+        <Strings><ButtonText>Show MCP Servers and Tools</ButtonText><CommandName>StemCode.McpStatus</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidIndexStatus" priority="0x0104" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup"/>
+        <Strings><ButtonText>Show Codebase Index Status</ButtonText><CommandName>StemCode.IndexStatus</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidLspStatus" priority="0x0105" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup"/>
+        <Strings><ButtonText>Show Language Servers</ButtonText><CommandName>StemCode.LspStatus</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidShowTerminals" priority="0x0106" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="WorkspaceInspectGroup"/>
         <Strings><ButtonText>Show Background Terminals</ButtonText><CommandName>StemCode.ShowTerminals</CommandName></Strings>
+      </Button>
+
+      <!-- Voice -->
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidVoiceDictation" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="VoiceMenuGroup"/>
+        <Strings><ButtonText>Voice Dictation</ButtonText><CommandName>StemCode.VoiceDictation</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidVoiceSetup" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="VoiceMenuGroup"/>
+        <Strings><ButtonText>Voice Setup...</ButtonText><CommandName>StemCode.VoiceSetup</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidVoiceUpdate" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="VoiceMenuGroup"/>
+        <Strings><ButtonText>Update Voice Models</ButtonText><CommandName>StemCode.VoiceUpdate</CommandName></Strings>
+      </Button>
+
+      <!-- Process -->
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidStart" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsProcessGroup"/>
+        <Strings><ButtonText>Start</ButtonText><CommandName>StemCode.Start</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidStop" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsProcessGroup"/>
+        <Strings><ButtonText>Stop</ButtonText><CommandName>StemCode.Stop</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidRestart" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsProcessGroup"/>
+        <Strings><ButtonText>Restart</ButtonText><CommandName>StemCode.Restart</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidOpenLogs" priority="0x0103" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsProcessGroup"/>
+        <Strings><ButtonText>Open Logs</ButtonText><CommandName>StemCode.OpenLogs</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidOpenSettings" priority="0x0100" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsAboutGroup"/>
+        <Strings><ButtonText>Settings...</ButtonText><CommandName>StemCode.OpenSettings</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidCheckForUpdates" priority="0x0101" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsAboutGroup"/>
+        <Strings><ButtonText>Check for CLI Updates</ButtonText><CommandName>StemCode.CheckForUpdates</CommandName></Strings>
+      </Button>
+      <Button guid="guidStemCodeVsCmdSet" id="cmdidVersion" priority="0x0102" type="Button">
+        <Parent guid="guidStemCodeVsCmdSet" id="ToolsAboutGroup"/>
+        <Strings><ButtonText>Show CLI Version</ButtonText><CommandName>StemCode.Version</CommandName></Strings>
       </Button>
     </Buttons>
   </Commands>
 
   <CommandPlacements>
+    <!-- StemCode Chat: View > Other Windows (above), View, Tools, and the top of both submenus. -->
     <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidShowChatWindow" priority="0x0100">
       <Parent guid="guidStemCodeVsCmdSet" id="ViewMenuGroup"/>
     </CommandPlacement>
     <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidShowChatWindow" priority="0x0100">
       <Parent guid="guidStemCodeVsCmdSet" id="ToolsMenuGroup"/>
     </CommandPlacement>
-    <!-- Also surface the StemCode submenu under the Tools menu. -->
-    <CommandPlacement guid="guidStemCodeVsCmdSet" id="StemCodeSubMenu" priority="0x0600">
-      <Parent guid="guidStemCodeVsCmdSet" id="ToolsMenuGroup"/>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidShowChatWindow" priority="0x0100">
+      <Parent guid="guidStemCodeVsCmdSet" id="ToolsChatGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidShowChatWindow" priority="0x0100">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorChatGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidNewChat" priority="0x0101">
+      <Parent guid="guidStemCodeVsCmdSet" id="ToolsChatGroup"/>
+    </CommandPlacement>
+
+    <!-- Editor commands also live under Tools > StemCode > Editor. -->
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidExplainSelection" priority="0x0101">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorMenuGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidSendSelection" priority="0x0102">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorMenuGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidSendCurrentFile" priority="0x0104">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorMenuGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidReviewCurrentFile" priority="0x0105">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorMenuGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidReviewGitDiff" priority="0x0106">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorMenuGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidPlanChanges" priority="0x0107">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorMenuGroup"/>
+    </CommandPlacement>
+    <CommandPlacement guid="guidStemCodeVsCmdSet" id="cmdidApplySuggestedChanges" priority="0x0108">
+      <Parent guid="guidStemCodeVsCmdSet" id="EditorMenuGroup"/>
     </CommandPlacement>
   </CommandPlacements>
+
+  <KeyBindings>
+    <!-- Same chords as the VS Code extension. -->
+    <KeyBinding guid="guidStemCodeVsCmdSet" id="cmdidShowChatWindow" editor="guidVSStd97" key1="S" mod1="Control Shift Alt" />
+    <KeyBinding guid="guidStemCodeVsCmdSet" id="cmdidSendSelection" editor="guidTextEditor" key1="L" mod1="Control Shift Alt" />
+  </KeyBindings>
 
 </CommandTable>

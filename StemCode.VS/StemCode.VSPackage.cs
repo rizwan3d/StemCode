@@ -6,6 +6,8 @@ using Microsoft.VisualStudio.Workspace.VSIntegration.Contracts;
 using StemCode.VS.Services;
 using StemCode.VS.ToolWindows;
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.IO;
@@ -47,6 +49,49 @@ namespace StemCode.VS
         internal const int CmdidPlanChanges = 0x0107;
         internal const int CmdidApplySuggestedChanges = 0x0108;
         internal const int CmdidShowTerminals = 0x0109;
+        internal const int CmdidStart = 0x0110;
+        internal const int CmdidStop = 0x0111;
+        internal const int CmdidRestart = 0x0112;
+        internal const int CmdidOpenLogs = 0x0113;
+        internal const int CmdidOpenSettings = 0x0114;
+        internal const int CmdidRunSlashCommand = 0x0115;
+        internal const int CmdidVoiceDictation = 0x0160;
+        internal const int CmdidVoiceSetup = 0x0161;
+        internal const int CmdidVoiceUpdate = 0x0162;
+
+        /// <summary>
+        /// Menu commands that map one-to-one onto a CLI slash command (same set as the VS Code
+        /// extension's DIRECT_SLASH_COMMANDS). IDs must match StemCodeVSPackage.vsct.
+        /// </summary>
+        internal static readonly IReadOnlyList<(int Id, string SlashCommand)> DirectSlashCommands = new[]
+        {
+            (0x0120, "/undo"),
+            (0x0121, "/redo"),
+            (0x0122, "/compact"),
+            (0x0123, "/fork"),
+            (0x0124, "/clone"),
+            (0x0125, "/tree"),
+            (0x0126, "/resume"),
+            (0x0127, "/export"),
+            (0x0128, "/trajectory"),
+            (0x0129, "/import"),
+            (0x012A, "/share"),
+            (0x012B, "/copy"),
+            (0x0130, "/models"),
+            (0x0131, "/provider"),
+            (0x0132, "/onboard"),
+            (0x0140, "/init"),
+            (0x0141, "/doctor"),
+            (0x0142, "/session"),
+            (0x0143, "/permissions"),
+            (0x0144, "/mcp"),
+            (0x0145, "/index status"),
+            (0x0146, "/index rebuild"),
+            (0x0147, "/lsp"),
+            (0x0148, "/reload"),
+            (0x0150, "/update"),
+            (0x0151, "/version"),
+        };
 
         protected override async Task InitializeAsync(
             CancellationToken cancellationToken,
@@ -87,6 +132,23 @@ namespace StemCode.VS
                 Register(menuService, CmdidPlanChanges, (_, _) => RunOnChatAsync(c => { c.PrefillInput("Plan the following change before editing:\n\n"); return Task.CompletedTask; }));
                 Register(menuService, CmdidApplySuggestedChanges, (_, _) => RunOnChatAsync(c => c.SubmitExternalPromptAsync("Apply the suggested changes from the previous StemCode response.")));
                 Register(menuService, CmdidShowTerminals, (_, _) => RunOnChatAsync(c => c.SubmitExternalPromptAsync("/terminals")));
+
+                // Process and chat-view commands.
+                Register(menuService, CmdidStart, (_, _) => RunOnChatAsync(c => c.StartAgentAsync()));
+                Register(menuService, CmdidStop, (_, _) => RunOnChatAsync(c => c.StopAgentAsync()));
+                Register(menuService, CmdidRestart, (_, _) => RunOnChatAsync(c => c.RestartAgentAsync()));
+                Register(menuService, CmdidOpenLogs, (_, _) => RunOnChatAsync(c => { c.OpenLogs(); return Task.CompletedTask; }));
+                Register(menuService, CmdidOpenSettings, (_, _) => RunOnChatAsync(c => { c.ShowSettings(); return Task.CompletedTask; }));
+                Register(menuService, CmdidRunSlashCommand, (_, _) => RunOnChatAsync(c => { c.ShowSlashCommandPicker(); return Task.CompletedTask; }));
+                Register(menuService, CmdidVoiceDictation, (_, _) => RunOnChatAsync(c => c.RunVoiceDictationAsync()));
+                Register(menuService, CmdidVoiceSetup, (_, _) => RunOnChatAsync(c => c.RunVoiceSetupAsync()));
+                Register(menuService, CmdidVoiceUpdate, (_, _) => RunOnChatAsync(c => c.RunVoiceUpdateAsync()));
+
+                foreach ((int id, string slashCommand) in DirectSlashCommands)
+                {
+                    string text = slashCommand;
+                    Register(menuService, id, (_, _) => RunOnChatAsync(c => c.SubmitAsync(text)));
+                }
             }
 
             LogService.Instance.Info("StemCode.VS package initialized; commands registered.");
@@ -347,43 +409,65 @@ namespace StemCode.VS
     public enum StemCodeLogLevel { Debug, Info, Warn, Error }
 
     /// <summary>
-    /// Options page for StemCode settings. Mirrors the VS Code extension's configuration.
+    /// Tools > Options > StemCode > General. Mirrors the VS Code extension's settings
+    /// (stemcode.command, stemcode.args, stemcode.workingDirectory, stemcode.acpAuthenticationToken,
+    /// stemcode.autoStart, stemcode.logLevel) plus CLI install and update. Property names are kept
+    /// from earlier versions so saved values carry over.
     /// </summary>
     public class StemCodeOptionsPage : DialogPage
     {
-        [System.ComponentModel.Category("CLI")]
-        [System.ComponentModel.DisplayName("StemCode CLI Executable Path")]
-        [System.ComponentModel.Description("Optional path or command name for the StemCode CLI. Leave empty to auto-resolve 'stemcode' from PATH and npm/pnpm/bun/dotnet global bins.")]
+        private const string CliCategory = "CLI";
+        private const string SessionCategory = "Session";
+        private const string UpdatesCategory = "Install and Updates";
+        private const string DiagnosticsCategory = "Diagnostics";
+
+        [Category(CliCategory)]
+        [DisplayName("Command")]
+        [Description("Command name or full path of the StemCode CLI (VS Code: stemcode.command). Leave empty to find 'stemcode' automatically in %LOCALAPPDATA%\\Programs\\StemCode\\bin, on PATH, and in the npm, pnpm, bun and dotnet global tool folders.")]
+        [DefaultValue("")]
         public string StemCodeCliPath { get; set; } = "";
 
-        [System.ComponentModel.Category("CLI")]
-        [System.ComponentModel.DisplayName("Extra CLI Arguments")]
-        [System.ComponentModel.Description("Additional space-separated arguments passed to the StemCode CLI (besides --acp --surface visual_studio).")]
+        [Category(CliCategory)]
+        [DisplayName("Arguments")]
+        [Description("Extra arguments for the CLI, separated by spaces (VS Code: stemcode.args). They are added after --acp --surface visual_studio.")]
+        [DefaultValue("")]
         public string ExtraArguments { get; set; } = "";
 
-        [System.ComponentModel.Category("CLI")]
-        [System.ComponentModel.DisplayName("Working Directory")]
-        [System.ComponentModel.Description("Default working directory for StemCode sessions (leave empty to use the solution directory).")]
+        [Category(SessionCategory)]
+        [DisplayName("Working Directory")]
+        [Description("Folder StemCode works in (VS Code: stemcode.workingDirectory). Leave empty to use the open folder or the solution directory.")]
+        [DefaultValue("")]
         public string WorkingDirectory { get; set; } = "";
 
-        [System.ComponentModel.Category("CLI")]
-        [System.ComponentModel.DisplayName("Auto-install CLI")]
-        [System.ComponentModel.Description("When 'stemcode' is not found, offer to install it via 'npm install -g stemcode'.")]
-        public bool AutoInstall { get; set; } = true;
-
-        [System.ComponentModel.Category("CLI")]
-        [System.ComponentModel.DisplayName("Check for Updates")]
-        [System.ComponentModel.Description("Periodically check npm for a newer StemCode CLI and offer to update (max once per 24h).")]
-        public bool CheckForUpdates { get; set; } = true;
-
-        [System.ComponentModel.Category("ACP")]
-        [System.ComponentModel.DisplayName("ACP Authentication Token")]
-        [System.ComponentModel.Description("Optional token sent when the ACP server requires token auth. Falls back to the STEMCODE_ACP_AUTH_TOKEN environment variable.")]
+        [Category(SessionCategory)]
+        [DisplayName("ACP Authentication Token")]
+        [Description("Token sent when the ACP server asks for token authentication (VS Code: stemcode.acpAuthenticationToken). If empty, the STEMCODE_ACP_AUTH_TOKEN environment variable is used.")]
+        [PasswordPropertyText(true)]
+        [DefaultValue("")]
         public string AcpAuthenticationToken { get; set; } = "";
 
-        [System.ComponentModel.Category("General")]
-        [System.ComponentModel.DisplayName("Log Level")]
-        [System.ComponentModel.Description("Verbosity of the extension log written under %LOCALAPPDATA%\\StemCode\\Logs.")]
+        [Category(SessionCategory)]
+        [DisplayName("Auto Start")]
+        [Description("Start the StemCode CLI as soon as the chat window opens (VS Code: stemcode.autoStart). When off, it starts with your first message or the Start command.")]
+        [DefaultValue(true)]
+        public bool AutoStart { get; set; } = true;
+
+        [Category(UpdatesCategory)]
+        [DisplayName("Install CLI When Missing")]
+        [Description("When the StemCode CLI isn't found, offer to install it with the official PowerShell installer from GitHub (scripts/install.ps1). The CLI is not bundled with the extension.")]
+        [DefaultValue(true)]
+        public bool AutoInstall { get; set; } = true;
+
+        [Category(UpdatesCategory)]
+        [DisplayName("Check for CLI Updates")]
+        [Description("Check GitHub for a newer StemCode CLI release, at most once every 24 hours, and offer to install it.")]
+        [DefaultValue(true)]
+        public bool CheckForUpdates { get; set; } = true;
+
+        [Category(DiagnosticsCategory)]
+        [DisplayName("Log Level")]
+        [Description("How much the extension writes to its log under %LOCALAPPDATA%\\StemCode\\Logs (VS Code: stemcode.logLevel).")]
+        [DefaultValue(StemCodeLogLevel.Info)]
         public StemCodeLogLevel LogLevel { get; set; } = StemCodeLogLevel.Info;
     }
 }
