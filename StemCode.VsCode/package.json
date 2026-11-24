@@ -109,6 +109,20 @@
         "category": "StemCode"
       },
       {
+        "command": "stemcode.voiceDictateToEditor",
+        "title": "Voice Dictation into Editor",
+        "icon": "$(mic)",
+        "category": "StemCode",
+        "enablement": "editorIsOpen"
+      },
+      {
+        "command": "stemcode.voiceCancel",
+        "title": "Cancel Voice Dictation",
+        "icon": "$(mic-filled)",
+        "category": "StemCode",
+        "enablement": "stemcode.voiceDictating"
+      },
+      {
         "command": "stemcode.voiceSetup",
         "title": "Voice Setup",
         "category": "StemCode"
@@ -373,12 +387,22 @@
         {
           "command": "stemcode.reviewGitDiff",
           "group": "3_git@1"
+        },
+        {
+          "command": "stemcode.voiceDictateToEditor",
+          "when": "!stemcode.voiceDictating",
+          "group": "4_voice@1"
         }
       ],
       "view/title": [
         {
           "command": "stemcode.voiceDictation",
-          "when": "view == stemcode.chatView",
+          "when": "view == stemcode.chatView && !stemcode.voiceDictating",
+          "group": "navigation@1"
+        },
+        {
+          "command": "stemcode.voiceCancel",
+          "when": "view == stemcode.chatView && stemcode.voiceDictating",
           "group": "navigation@1"
         },
         {
@@ -510,6 +534,24 @@
         "key": "ctrl+shift+alt+l",
         "mac": "cmd+shift+alt+l",
         "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "stemcode.voiceDictateToEditor",
+        "key": "ctrl+shift+alt+v",
+        "mac": "cmd+shift+alt+v",
+        "when": "editorTextFocus && !editorReadonly && !stemcode.voiceDictating"
+      },
+      {
+        "command": "stemcode.voiceDictation",
+        "key": "ctrl+shift+alt+v",
+        "mac": "cmd+shift+alt+v",
+        "when": "!editorTextFocus && !stemcode.voiceDictating"
+      },
+      {
+        "command": "stemcode.voiceCancel",
+        "key": "ctrl+shift+alt+v",
+        "mac": "cmd+shift+alt+v",
+        "when": "stemcode.voiceDictating"
       }
     ]
   },
